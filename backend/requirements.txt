@@ -1,0 +1,33 @@
+# Backend dependencies with pinned versions for reproducible installs
+# Update carefully; run tests after any change.
+
+fastapi
+uvicorn[standard]
+python-dotenv
+
+# OpenAI pre-1.0 branch to avoid breaking changes in 1.x
+openai<1.0
+
+# Supabase Python client stack
+supabase
+gotrue
+
+# Zep memory store client
+zep-python
+
+# Database / HTTP / utilities
+neo4j
+sqlalchemy
+
+# Azure Document Intelligence for financial document processing
+azure-ai-documentintelligence
+psycopg2-binary
+httpx  # supabase will pull a compatible <0.24 version
+pydantic
+
+typing-extensions
+python-multipart
+jinja2
+python-jose[cryptography]
+passlib[bcrypt]
+email-validator

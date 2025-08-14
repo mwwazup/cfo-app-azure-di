@@ -1,0 +1,964 @@
+/**
+ * Azure Document Intelligence Service
+ * 
+ * This service handles financial document processing using Microsoft Azure Document Intelligence.
+ * It provides AI-powered extraction of structured data from financial documents
+ * like P&L statements, balance sheets, and cash flow statements.
+ * 
+ * Azure Document Intelligence is more reliable than custom OCR solutions and provides
+ * excellent accuracy for financial documents with built-in understanding of tables,
+ * key-value pairs, and document structure.
+ */
+
+import type { DocumentType, FinancialDocument, FinancialMetric, AzureFinancialData, ExpenseBreakdownItem, AssetBreakdownItem, CashMovementItem } from '../models/FinancialStatement';
+import { supabase } from '../config/supabaseClient';
+
+// API endpoint for document analysis
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5180';
+
+// Azure Document Intelligence field value interface
+export interface AzureFieldValue {
+  type?: string;
+  value?: number | string;
+  valueNumber?: number;
+  valueString?: string;
+  content?: string;
+  confidence?: number;
+  boundingBox?: number[];
+}
+
+// Azure Document Intelligence document interface
+export interface AzureDocument {
+  docType?: string;
+  boundingRegions?: Array<{
+    pageNumber: number;
+    boundingBox: number[];
+  }>;
+  fields: Record<string, AzureFieldValue>;
+  confidence?: number;
+}
+
+// Azure Document Intelligence table cell interface
+export interface AzureTableCell {
+  kind?: string;
+  rowIndex: number;
+  columnIndex: number;
+  content: string;
+  boundingRegions?: Array<{
+    pageNumber: number;
+    boundingBox: number[];
+  }>;
+}
+
+// Azure Document Intelligence table interface
+export interface AzureTable {
+  rowCount: number;
+  columnCount: number;
+  cells: AzureTableCell[];
+  boundingRegions?: Array<{
+    pageNumber: number;
+    boundingBox: number[];
+  }>;
+}
+
+// Azure Document Intelligence key-value pair interface
+export interface AzureKeyValuePair {
+  key: {
+    content: string;
+    boundingBox?: number[];
+    confidence?: number;
+  };
+  value: {
+    content: string;
+    boundingBox?: number[];
+    confidence?: number;
+  };
+  confidence: number;
+}
+
+export interface AzureDocumentAnalysisResult {
+  apiVersion: string;
+  modelId: string;
+  stringIndexType: string;
+  content: string;
+  pages: Array<{
+    pageNumber: number;
+    angle: number;
+    width: number;
+    height: number;
+    unit: string;
+    words?: Array<{
+      content: string;
+      polygon?: number[];
+      confidence?: number;
+      span?: { offset: number; length: number };
+    }>;
+    lines?: Array<{
+      content: string;
+      polygon?: number[];
+      spans?: Array<{ offset: number; length: number }>;
+    }>;
+  }>;
+  tables?: AzureTable[];
+  keyValuePairs?: AzureKeyValuePair[];
+  documents?: AzureDocument[];
+}
+
+export interface AzureDocumentResponse {
+  status: string;
+  createdDateTime: string;
+  lastUpdatedDateTime: string;
+  analyzeResult: AzureDocumentAnalysisResult;
+}
+
+export interface ExtractedFinancialData {
+  documentType: DocumentType;
+  extractedFields: Record<string, { value: string | number; confidence: number; boundingBox: number[] }>;
+  // Azure custom model data
+  azureData: AzureFinancialData;
+  summary: {
+    totalRevenue?: number;
+    totalExpenses?: number;
+    netProfit?: number;
+    totalAssets?: number;
+    totalLiabilities?: number;
+    equity?: number;
+    operatingCashFlow?: number;
+    investingCashFlow?: number;
+    financingCashFlow?: number;
+  };
+  tables: Array<{
+    rowCount: number;
+    columnCount: number;
+    data: string[][];
+  }>;
+  metadata: {
+    processingTime: number;
+    confidence: number;
+    documentId: string;
+    extractedAt: string;
+    pageCount: number;
+  };
+}
+
+/**
+ * Azure Document Intelligence Service for AI-powered document processing
+ * 
+ * This service uses Azure's pre-built document models and general document analysis
+ * to extract structured data from financial documents. It's more reliable than
+ * custom OCR solutions and provides excellent accuracy.
+ */
+export class AzureDocumentService {
+  /**
+   * Process a financial document using Azure Document Intelligence
+   * @param file - The file to process (PDF or image)
+   * @param documentType - Type of financial document
+   * @returns Extracted financial data
+   */
+  /**
+   * Save processed financial document to Supabase
+   */
+  static async saveFinancialDocument(
+    userId: string,
+    documentData: Omit<FinancialDocument, 'id' | 'user_id'>,
+    metrics: Omit<FinancialMetric, 'id' | 'document_id'>[],
+    azureData?: AzureFinancialData
+  ): Promise<string> {
+    try {
+      // Prepare document data with Azure fields
+      const documentToSave: Omit<FinancialDocument, 'id'> = {
+        user_id: userId,
+        ...documentData
+      };
+
+      // Add Azure-specific fields if available
+      if (azureData) {
+        documentToSave.azure_data = azureData;
+        documentToSave.reporting_period = azureData.reportingPeriod ? parseFloat(azureData.reportingPeriod) || 0 : 0;
+        documentToSave.azure_document_type = azureData.documentType || '';
+        // P&L fields
+        documentToSave.pnl_total_revenue = azureData.pnl_totalRevenue || 0;
+        documentToSave.pnl_cost_of_goods_sold = azureData.pnl_costOfGoodsSold || 0;
+        documentToSave.pnl_gross_profit = azureData.pnl_grossProfit || 0;
+        documentToSave.pnl_operating_expenses = azureData.pnl_operatingExpenses || 0;
+        documentToSave.pnl_net_operating_income = azureData.pnl_netOperatingIncome || 0;
+        documentToSave.pnl_net_income = azureData.pnl_netIncome || 0;
+        documentToSave.pnl_expense_breakdown = azureData.pnl_expenseBreakdown;
+        // Balance Sheet fields
+        documentToSave.bs_total_assets = azureData.bs_totalAssets || 0;
+        documentToSave.bs_total_liabilities = azureData.bs_totalLiabilities || 0;
+        documentToSave.bs_total_equity = azureData.bs_totalEquity || 0;
+        documentToSave.bs_current_assets = azureData.bs_currentAssets || 0;
+        documentToSave.bs_current_liabilities = azureData.bs_currentLiabilities || 0;
+        documentToSave.bs_asset_breakdown = azureData.bs_assetBreakdown;
+        // Cash Flow fields
+        documentToSave.cf_cash_from_operations = azureData.cf_cashFromOperations || 0;
+        documentToSave.cf_cash_from_investing = azureData.cf_cashFromInvesting || 0;
+        documentToSave.cf_cash_from_financing = azureData.cf_cashFromFinancing || 0;
+        documentToSave.cf_net_cash_flow = azureData.cf_netCashFlow || 0;
+        documentToSave.cf_cash_at_beginning = azureData.cf_cashAtBeginning || 0;
+        documentToSave.cf_cash_at_end = azureData.cf_cashAtEnd || 0;
+        documentToSave.cf_cash_movements = azureData.cf_cashMovements;
+      }
+
+      // Insert financial document
+      const { data: document, error: docError } = await supabase
+        .from('financial_documents')
+        .insert(documentToSave)
+        .select()
+        .single();
+
+      if (docError) {
+        throw new Error(`Error saving financial document: ${docError.message}`);
+      }
+
+      const documentId = document.id;
+
+      // Insert financial metrics
+      if (metrics.length > 0) {
+        const metricsWithDocId = metrics.map(metric => ({
+          ...metric,
+          document_id: documentId
+        }));
+
+        const { error: metricsError } = await supabase
+          .from('financial_metrics')
+          .insert(metricsWithDocId);
+
+        if (metricsError) {
+          throw new Error(`Error saving financial metrics: ${metricsError.message}`);
+        }
+      }
+
+      console.log(`Successfully saved financial document with ${metrics.length} metrics`);
+      return documentId;
+    } catch (error) {
+      console.error('Error saving financial document:', error);
+      throw error;
+    }
+  }
+
+  static async processDocument(file: File, documentType: DocumentType, userId: string): Promise<ExtractedFinancialData> {
+    console.log('🔍 Processing document with backend API for Azure Document Intelligence');
+    console.log('Document type:', documentType);
+    console.log('File size:', file.size);
+    console.log('File type:', file.type);
+
+    const startTime = Date.now();
+
+    try {
+      // Step 1: Submit document for analysis
+      const result = await this.submitDocument(file, userId);
+      
+      // Step 2: Parse and structure the results
+      const extractedData = await this.parseResults(result as unknown as AzureDocumentResponse, documentType, startTime);
+      
+      console.log('✅ Document processing completed');
+      console.log('Extracted fields count:', Object.keys(extractedData.extractedFields).length);
+      console.log('Tables found:', extractedData.tables.length);
+      
+      return extractedData;
+
+    } catch (error) {
+      console.error('❌ Error processing document:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Submit document to backend API for Azure Document Intelligence analysis
+   */
+  private static async submitDocument(file: File, userId: string): Promise<string> {
+    console.log('📤 Submitting document to backend for Azure analysis...');
+
+    // Convert file to base64 for JSON payload
+    const base64File = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    // Send files as array and include userId
+    const response = await fetch(`${API_BASE_URL}/api/documentAnalysis`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        files: [base64File],
+        userId: userId
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Backend submission error:', errorText);
+      throw new Error(`Backend document analysis error: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(`Document analysis failed: ${result.error}`);
+    }
+
+    console.log('✅ Document submitted successfully to backend');
+    
+    return result.data;
+  }
+
+
+
+  /**
+   * Parse Azure results and extract structured financial data
+   */
+  private static async parseResults(
+    response: AzureDocumentResponse, 
+    documentType: DocumentType, 
+    processingTime: number
+  ): Promise<ExtractedFinancialData> {
+    console.log('🔍 DEBUG: Raw backend response:', response);
+    
+    const analyzeResult = response.analyzeResult;
+    console.log('🔍 DEBUG: analyzeResult object:', analyzeResult);
+
+    console.log('📋 Parsing Azure results...');
+    console.log('Pages found:', analyzeResult.pages?.length || 0);
+    
+    // Extract fields from documents - this is where the mock data is located
+    const extractedFields: Record<string, { value: string | number; confidence: number; boundingBox: number[] }> = {};
+    
+    // Check if documents exist and extract financial data using proper types
+    if (analyzeResult.documents && analyzeResult.documents.length > 0) {
+      const document = analyzeResult.documents[0];
+      console.log('🔍 DEBUG: Document fields:', Object.keys(document.fields));
+      
+      // Extract each field with proper numeric conversion using typed interfaces
+      Object.entries(document.fields).forEach(([fieldName, field]: [string, AzureFieldValue]) => {
+        console.log(`🔍 DEBUG: Processing field ${fieldName}:`, field);
+        
+        // Extract numeric value using proper type checking
+        let numericValue = 0;
+        if (typeof field.value === 'number') {
+          numericValue = field.value;
+        } else if (typeof field.value === 'string') {
+          numericValue = parseFloat(field.value.replace(/[$,]/g, '')) || 0;
+        } else if (field.valueNumber) {
+          numericValue = field.valueNumber;
+        } else if (field.valueString) {
+          numericValue = parseFloat(field.valueString.replace(/[$,]/g, '')) || 0;
+        } else if (field.content) {
+          numericValue = parseFloat(field.content.replace(/[$,]/g, '')) || 0;
+        }
+        
+        const key = fieldName.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, '_');
+        extractedFields[key] = {
+          value: numericValue,
+          confidence: field.confidence || 0.5,
+          boundingBox: field.boundingBox || []
+        };
+        
+        console.log(`🔍 DEBUG: Extracted ${key} = ${numericValue}`);
+      });
+    } else {
+      console.log('🔍 DEBUG: No documents or fields found');
+    }
+
+    // Process key-value pairs if available using proper types
+    if (analyzeResult.keyValuePairs) {
+      analyzeResult.keyValuePairs.forEach((kvp: AzureKeyValuePair) => {
+        const key = kvp.key.content.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, '_');
+        const value = kvp.value.content;
+        
+        extractedFields[key] = {
+          value: this.parseValue(value),
+          confidence: kvp.confidence,
+          boundingBox: kvp.value.boundingBox || [],
+        };
+      });
+    }
+
+    // Process document fields if available - this is where the mock data is located
+    const documentsArray = (analyzeResult as any).documents;
+    console.log('🔍 DEBUG: Documents array:', documentsArray);
+    
+    if (documentsArray && documentsArray.length > 0) {
+      const document = documentsArray[0];
+      console.log('🔍 DEBUG: First document:', document);
+      console.log('🔍 DEBUG: Document fields keys:', Object.keys(document.fields || {}));
+      
+      if (document.fields) {
+        Object.keys(document.fields).forEach(fieldName => {
+          const field = document.fields[fieldName];
+          const key = fieldName.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, '_');
+          
+          console.log(`🔍 DEBUG: Processing field ${fieldName}:`, field);
+          
+          // Extract the numeric value properly
+          let numericValue = 0;
+          if (typeof field.value === 'number') {
+            numericValue = field.value;
+          } else if (field.valueString) {
+            numericValue = parseFloat(field.valueString) || 0;
+          } else if (field.content) {
+            const cleaned = field.content.replace(/[$,]/g, '');
+            numericValue = parseFloat(cleaned) || 0;
+          }
+          
+          extractedFields[key] = {
+            value: numericValue,
+            confidence: field.confidence ?? 0.5,
+            boundingBox: [],
+          };
+          
+          console.log(`🔍 DEBUG: Extracted ${key} = ${numericValue}`);
+        });
+      }
+    } else {
+      console.log('🔍 DEBUG: No documents found in analyzeResult');
+    }
+
+    // Process tables using proper types
+    const tables = (analyzeResult.tables || []).map((table: AzureTable) => {
+      const data: string[][] = [];
+      
+      // Initialize table structure
+      for (let row = 0; row < table.rowCount; row++) {
+        data[row] = new Array(table.columnCount).fill('');
+      }
+      
+      // Fill table data from cells
+      table.cells.forEach((cell: AzureTableCell) => {
+        if (cell.rowIndex < table.rowCount && cell.columnIndex < table.columnCount) {
+          data[cell.rowIndex][cell.columnIndex] = cell.content;
+        }
+      });
+      
+      return {
+        rowCount: table.rowCount,
+        columnCount: table.columnCount,
+        data,
+      };
+    });
+
+    // Calculate overall confidence
+    const confidenceValues = Object.values(extractedFields).map(field => field.confidence);
+    const averageConfidence = confidenceValues.length > 0 
+      ? confidenceValues.reduce((sum, conf) => sum + conf, 0) / confidenceValues.length 
+      : 0;
+
+    // Generate summary based on extracted data
+    const summary = this.generateSummary(tables);
+
+    // Initialize azureData object with extracted values
+    const azureData: AzureFinancialData = {
+      reportingPeriod: this.extractStringValue(extractedFields, ['reporting_period', 'period', 'reporting_date']),
+      documentType: this.extractStringValue(extractedFields, ['document_type', 'type']) as 'P&L' | 'Balance Sheet' | 'Cash Flow' | undefined,
+    };
+
+    // Extract P&L data if document type is P&L
+    if (documentType === 'pnl') {
+      // Extract financial data from Azure content and tables
+      const financialData = this.extractFinancialDataFromContent(analyzeResult.content, tables);
+      
+      azureData.pnl_totalRevenue = financialData.totalRevenue;
+      azureData.pnl_costOfGoodsSold = financialData.costOfGoodsSold;
+      azureData.pnl_grossProfit = financialData.grossProfit;
+      azureData.pnl_operatingExpenses = financialData.operatingExpenses;
+      azureData.pnl_netOperatingIncome = financialData.netOperatingIncome;
+      azureData.pnl_netIncome = financialData.netIncome;
+      
+      console.log('📊 P&L data extracted from Azure content:', {
+        totalRevenue: azureData.pnl_totalRevenue,
+        costOfGoodsSold: azureData.pnl_costOfGoodsSold,
+        grossProfit: azureData.pnl_grossProfit,
+        operatingExpenses: azureData.pnl_operatingExpenses,
+        pnl_net_operating_income: azureData.pnl_netOperatingIncome || 0,
+        netIncome: azureData.pnl_netIncome
+      });
+      
+      // Extract expense breakdown from tables or structured data
+      azureData.pnl_expenseBreakdown = this.extractExpenseBreakdown(tables);
+    }
+
+    // Extract Balance Sheet data if document type is Balance Sheet
+    if (documentType === 'balance_sheet') {
+      azureData.bs_totalAssets = this.extractNumericValue(extractedFields, ['bs_total_assets']);
+      azureData.bs_totalLiabilities = this.extractNumericValue(extractedFields, ['bs_total_liabilities']);
+      azureData.bs_totalEquity = this.extractNumericValue(extractedFields, ['bs_total_equity']);
+      azureData.bs_currentAssets = this.extractNumericValue(extractedFields, ['bs_current_assets']);
+      azureData.bs_currentLiabilities = this.extractNumericValue(extractedFields, ['bs_current_liabilities']);
+      
+      // Extract asset breakdown from tables or structured data
+      azureData.bs_assetBreakdown = this.extractAssetBreakdown(tables);
+    }
+
+    // Extract Cash Flow data if document type is Cash Flow
+    if (documentType === 'cash_flow') {
+      azureData.cf_cashFromOperations = this.extractNumericValue(extractedFields, ['cf_cash_from_operations']);
+      azureData.cf_cashFromInvesting = this.extractNumericValue(extractedFields, ['cf_cash_from_investing']);
+      azureData.cf_cashFromFinancing = this.extractNumericValue(extractedFields, ['cf_cash_from_financing']);
+      azureData.cf_netCashFlow = this.extractNumericValue(extractedFields, ['cf_net_cash_flow']);
+      azureData.cf_cashAtBeginning = this.extractNumericValue(extractedFields, ['cf_cash_at_beginning']);
+      azureData.cf_cashAtEnd = this.extractNumericValue(extractedFields, ['cf_cash_at_end']);
+      
+      // Extract cash movements from tables or structured data
+      azureData.cf_cashMovements = this.extractCashMovements(tables);
+    }
+
+    // Return structured financial data
+    return {
+      documentType,
+      extractedFields,
+      azureData,
+      summary,
+      tables,
+      metadata: {
+        processingTime,
+        confidence: averageConfidence,
+        documentId: response.lastUpdatedDateTime, // Using timestamp as document ID
+        extractedAt: new Date().toISOString(),
+        pageCount: analyzeResult.pages.length,
+  /**
+   * Parse a value that could be a string or number into a number
+   */
+  private static parseValue(value: string | number): number {
+    if (typeof value === 'number') {
+      return value;
+    }
+    
+    if (typeof value !== 'string') {
+      return 0;
+    }
+    
+    // Remove common currency symbols and formatting
+    const cleanValue = value.replace(/[$,\s()]/g, '').replace(/[()]/g, '-');
+    
+    // Try to parse as number
+    const numericValue = parseFloat(cleanValue);
+    if (!isNaN(numericValue)) {
+      return numericValue;
+    }
+    
+    return 0;
+  }
+
+  /**
+   * Extract P&L financial data from Azure Document Intelligence response
+   */
+  private static extractPnLData(
+    extractedFields: Record<string, { value: string | number; confidence: number; boundingBox: number[] }>,
+    tables: Array<{ rowCount: number; columnCount: number; data: string[][] }>
+  ): {
+    totalRevenue: number;
+    costOfGoodsSold: number;
+    grossProfit: number;
+    operatingExpenses: number;
+    netOperatingIncome: number;
+    netIncome: number;
+  } {
+    console.log('🔍 Starting P&L data extraction...');
+    
+    // Initialize with default numeric values
+    let totalRevenue: number = 0;
+    let costOfGoodsSold: number = 0;
+    let grossProfit: number = 0;
+    let operatingExpenses: number = 0;
+    let netOperatingIncome: number = 0;
+    let netIncome: number = 0;
+    
+    // Extract values from extracted fields first
+    Object.entries(extractedFields).forEach(([fieldName, field]) => {
+      const numericValue = typeof field.value === 'number' ? field.value : this.parseValue(field.value.toString());
+      
+      if (fieldName.includes('pnl_total_revenue') || fieldName.includes('total_revenue')) {
+        totalRevenue = numericValue;
+        console.log(`📈 Found Total Revenue: $${numericValue.toLocaleString()}`);
+      } else if (fieldName.includes('pnl_cost_of_goods_sold') || fieldName.includes('cogs')) {
+        costOfGoodsSold = numericValue;
+        console.log(`📈 Found COGS: $${numericValue.toLocaleString()}`);
+      } else if (fieldName.includes('pnl_gross_profit') || fieldName.includes('gross_profit')) {
+        grossProfit = numericValue;
+        console.log(`📈 Found Gross Profit: $${numericValue.toLocaleString()}`);
+      } else if (fieldName.includes('pnl_operating_expenses') || fieldName.includes('operating_expenses')) {
+        operatingExpenses = numericValue;
+        console.log(`📈 Found Operating Expenses: $${numericValue.toLocaleString()}`);
+      } else if (fieldName.includes('pnl_net_operating_income') || fieldName.includes('net_operating_income')) {
+        netOperatingIncome = numericValue;
+        console.log(`📈 Found Net Operating Income: $${numericValue.toLocaleString()}`);
+      } else if (fieldName.includes('pnl_net_income') || fieldName.includes('net_income')) {
+        netIncome = numericValue;
+        console.log(`📈 Found Net Income: $${numericValue.toLocaleString()}`);
+      }
+    });
+    
+    // If we didn't find values in content, try extracting from tables
+    if (totalRevenue === 0 || netIncome === 0) {
+      console.log('🔍 Trying to extract from tables...');
+      tables.forEach((table, tableIndex) => {
+        console.log(`📋 Processing table ${tableIndex + 1} with ${table.rowCount} rows`);
+        
+        for (let row = 0; row < table.rowCount; row++) {
+          const rowData = table.data[row];
+          const firstCell = rowData[0]?.toLowerCase() || '';
+          
+          // Find the value in the last non-empty column
+          let value = '';
+          for (let col = table.columnCount - 1; col >= 1; col--) {
+            const cellValue = rowData[col];
+            if (cellValue && cellValue.trim() !== '' && cellValue.includes('$')) {
+              value = cellValue;
+              break;
+            }
+          }
+          
+          if (value) {
+            const numericValue = parseFloat(value.replace(/[$,]/g, ''));
+            if (!isNaN(numericValue)) {
+              if (firstCell.includes('total income') && totalRevenue === 0) {
+                totalRevenue = numericValue;
+                console.log(`📈 Table extraction - Total Revenue: $${numericValue.toLocaleString()}`);
+              } else if (firstCell.includes('total cost of goods sold') && costOfGoodsSold === 0) {
+                costOfGoodsSold = numericValue;
+                console.log(`📈 Table extraction - COGS: $${numericValue.toLocaleString()}`);
+              } else if (firstCell.includes('gross profit') && grossProfit === 0) {
+                grossProfit = numericValue;
+                console.log(`📈 Table extraction - Gross Profit: $${numericValue.toLocaleString()}`);
+              } else if (firstCell.includes('total expenses') && operatingExpenses === 0) {
+                operatingExpenses = numericValue;
+                console.log(`📈 Table extraction - Operating Expenses: $${numericValue.toLocaleString()}`);
+              } else if (firstCell.includes('net operating income') && netOperatingIncome === 0) {
+                netOperatingIncome = numericValue;
+                console.log(`📈 Table extraction - Net Operating Income: $${numericValue.toLocaleString()}`);
+              } else if (firstCell.includes('net income') && netIncome === 0) {
+                netIncome = numericValue;
+                console.log(`📈 Table extraction - Net Income: $${numericValue.toLocaleString()}`);
+              }
+            }
+          }
+        }
+      });
+    }
+    
+    console.log('✅ Final extracted financial data:', {
+      totalRevenue,
+      costOfGoodsSold,
+      grossProfit,
+      operatingExpenses,
+      netOperatingIncome,
+      netIncome
+    });
+    
+    return {
+      totalRevenue,
+      costOfGoodsSold,
+      grossProfit,
+      operatingExpenses,
+      netOperatingIncome,
+      netIncome
+    };
+  }
+
+  /**
+   * Generate summary from extracted fields and tables
+   */
+  private static generateSummary(
+    tables: Array<{ rowCount: number; columnCount: number; data: string[][] }>
+  ): Record<string, string | number> {
+    const summary: Record<string, string | number> = {};
+    
+    // Look for financial terms in the first column and values in subsequent columns
+    tables.forEach((table) => {
+      for (let row = 0; row < table.rowCount; row++) {
+        const firstCell = table.data[row][0]?.toLowerCase() || '';
+        
+        // Find the rightmost non-empty cell in this row (usually the total)
+        let value = '';
+        for (let col = table.columnCount - 1; col >= 1; col--) {
+          const cellValue = table.data[row][col];
+          if (cellValue && cellValue.trim() !== '') {
+            value = cellValue;
+            break;
+          }
+        }
+        
+        if (value) {
+          const numericValue = this.parseValue(value);
+          if (typeof numericValue === 'number') {
+            // Map common financial terms
+            if (firstCell.includes('revenue') || firstCell.includes('sales') || firstCell.includes('income')) {
+              if (!summary.totalRevenue || Math.abs(numericValue) > Math.abs(summary.totalRevenue)) {
+                summary.totalRevenue = numericValue;
+              }
+            }
+            if (firstCell.includes('expense') || firstCell.includes('cost')) {
+              if (!summary.totalExpenses || Math.abs(numericValue) > Math.abs(summary.totalExpenses)) {
+                summary.totalExpenses = numericValue;
+              }
+            }
+            if (firstCell.includes('net') && (firstCell.includes('profit') || firstCell.includes('income'))) {
+              summary.netProfit = numericValue;
+            }
+            if (firstCell.includes('asset')) {
+              if (!summary.totalAssets || Math.abs(numericValue) > Math.abs(summary.totalAssets)) {
+                summary.totalAssets = numericValue;
+              }
+            }
+            if (firstCell.includes('liabilit')) {
+              if (!summary.totalLiabilities || Math.abs(numericValue) > Math.abs(summary.totalLiabilities)) {
+                summary.totalLiabilities = numericValue;
+              }
+            }
+            if (firstCell.includes('equity')) {
+              summary.equity = numericValue;
+            }
+          }
+        }
+      }
+    });
+    
+    return summary;
+  }
+
+
+
+  /**
+   * Extract string value from fields using multiple possible field names
+   */
+  private static extractStringValue(
+    fields: { [key: string]: { value: string | number; confidence: number } },
+    possibleNames: string[]
+  ): string | undefined {
+    for (const name of possibleNames) {
+      const field = fields[name];
+      if (field && typeof field.value === 'string') {
+        return field.value;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract numeric value from fields using multiple possible field names
+   */
+  private static extractNumericValue(
+    fields: { [key: string]: { value: string | number; confidence: number } },
+    possibleNames: string[]
+  ): number | undefined {
+    for (const name of possibleNames) {
+      const field = fields[name];
+      if (field && typeof field.value === 'number') {
+        return field.value;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract expense breakdown from tables or structured data
+   */
+  private static extractExpenseBreakdown(
+    tables: Array<{ rowCount: number; columnCount: number; data: string[][] }>
+  ): Array<ExpenseBreakdownItem> | undefined {
+    // This is a placeholder implementation
+    // In a real implementation, you would parse the tables to extract expense breakdown data
+    // For now, we'll look for common expense categories in tables
+    const expenseBreakdown: ExpenseBreakdownItem[] = [];
+    
+    tables.forEach(table => {
+      // Look for rows that might contain expense categories
+      for (let row = 0; row < table.rowCount; row++) {
+        const firstCell = table.data[row][0]?.toLowerCase() || '';
+        
+        // Check if this looks like an expense category
+        if (firstCell.includes('expense') || firstCell.includes('cost') || 
+            firstCell.includes('salary') || firstCell.includes('wage') ||
+            firstCell.includes('rent') || firstCell.includes('utilities') ||
+            firstCell.includes('marketing') || firstCell.includes('advertising')) {
+          
+          // Find the value in the same row
+          let value = 0;
+          for (let col = table.columnCount - 1; col >= 1; col--) {
+            const cellValue = table.data[row][col];
+            if (cellValue && cellValue.trim() !== '') {
+              const parsedValue = this.parseValue(cellValue);
+              if (typeof parsedValue === 'number') {
+                value = Math.abs(parsedValue);
+                break;
+              }
+            }
+          }
+          
+          expenseBreakdown.push({
+            category: firstCell,
+            amount: value,
+            notes: 'Extracted from document table'
+          });
+        }
+      }
+    });
+    
+    return expenseBreakdown.length > 0 ? expenseBreakdown : undefined;
+  }
+
+  /**
+   * Extract asset breakdown from tables or structured data
+   */
+  private static extractAssetBreakdown(
+    tables: Array<{ rowCount: number; columnCount: number; data: string[][] }>
+  ): Array<AssetBreakdownItem> | undefined {
+    // This is a placeholder implementation
+    // In a real implementation, you would parse the tables to extract asset breakdown data
+    // For now, we'll look for common asset categories in tables
+    const assetBreakdown: AssetBreakdownItem[] = [];
+    
+    tables.forEach(table => {
+      // Look for rows that might contain asset categories
+      for (let row = 0; row < table.rowCount; row++) {
+        const firstCell = table.data[row][0]?.toLowerCase() || '';
+        
+        // Check if this looks like an asset category
+        if (firstCell.includes('asset') || firstCell.includes('cash') || 
+            firstCell.includes('inventory') || firstCell.includes('equipment') ||
+            firstCell.includes('property') || firstCell.includes('investment')) {
+          
+          // Find the value in the same row
+          let value = 0;
+          for (let col = table.columnCount - 1; col >= 1; col--) {
+            const cellValue = table.data[row][col];
+            if (cellValue && cellValue.trim() !== '') {
+              const parsedValue = this.parseValue(cellValue);
+              if (typeof parsedValue === 'number') {
+                value = Math.abs(parsedValue);
+                break;
+              }
+            }
+          }
+          
+          assetBreakdown.push({
+            assetType: firstCell,
+            value: value
+          });
+        }
+      }
+    });
+    
+    return assetBreakdown.length > 0 ? assetBreakdown : undefined;
+  }
+
+  /**
+   * Extract cash movements from tables or structured data
+   */
+  private static extractCashMovements(
+    tables: Array<{ rowCount: number; columnCount: number; data: string[][] }>
+  ): Array<CashMovementItem> | undefined {
+    // This is a placeholder implementation
+    // In a real implementation, you would parse the tables to extract cash movement data
+    // For now, we'll look for common cash flow categories in tables
+    const cashMovements: CashMovementItem[] = [];
+    
+    tables.forEach(table => {
+      // Look for rows that might contain cash flow categories
+      for (let row = 0; row < table.rowCount; row++) {
+        const firstCell = table.data[row][0]?.toLowerCase() || '';
+        
+        // Check if this looks like a cash flow category
+        if (firstCell.includes('operating') || firstCell.includes('investing') || 
+            firstCell.includes('financing') || firstCell.includes('cash') ||
+            firstCell.includes('payment') || firstCell.includes('receipt')) {
+          
+          // Find the value in the same row
+          let value = 0;
+          for (let col = table.columnCount - 1; col >= 1; col--) {
+            const cellValue = table.data[row][col];
+            if (cellValue && cellValue.trim() !== '') {
+              const parsedValue = this.parseValue(cellValue);
+              if (typeof parsedValue === 'number') {
+                value = parsedValue;
+                break;
+              }
+            }
+          }
+          
+          cashMovements.push({
+            source: firstCell,
+            amount: value,
+            category: firstCell.includes('operating') ? 'operating' : 
+                     firstCell.includes('investing') ? 'investing' : 
+                     firstCell.includes('financing') ? 'financing' : 'other'
+          });
+        }
+      }
+    });
+    
+    return cashMovements.length > 0 ? cashMovements : undefined;
+  }
+
+  /**
+   * Get financial documents for a specific user
+   */
+  static async getFinancialDocuments(userId: string, limit: number = 50) {
+    try {
+      const { data, error } = await supabase
+        .from('financial_documents')
+        .select('*')
+        .eq('user_id', userId)
+        .order('uploaded_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        throw error;
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching financial documents:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get a specific financial document
+   */
+  static async getFinancialDocument(documentId: string, userId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('financial_documents')
+        .select('*')
+        .eq('id', documentId)
+        .eq('user_id', userId)
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error fetching financial document:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Delete a financial document
+   */
+  static async deleteFinancialDocument(documentId: string, userId: string) {
+    try {
+      const { error } = await supabase
+        .from('financial_documents')
+        .delete()
+        .eq('id', documentId)
+        .eq('user_id', userId);
+
+      if (error) {
+        throw error;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error deleting financial document:', error);
+      return false;
+    }
+  }
+}

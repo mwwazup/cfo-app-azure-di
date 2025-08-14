@@ -1,0 +1,20 @@
+# ── STATIC ASSETS ─────────────────────────────
+public/**                  # all images, fonts, videos
+*.png
+*.jpg
+*.svg
+*.gif
+
+# ── PACKAGE MANAGER ARTIFACTS ────────────────
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# ── STORYBOOK / TESTS / MOCK DATA ────────────
+src/**/*.stories.*
+src/**/*.test.*
+src/**/__mocks__/**
+src/data/sample-*.{json,ts}
+
+# ── DEV-ONLY PLAYGROUNDS ─────────────────────
+src/components/RevenueChart/PlaygroundChart.tsx

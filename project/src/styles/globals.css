@@ -1,0 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-foreground font-semibold;
+  }
+  
+  .text-accent {
+    color: #d0b46a;
+  }
+  
+  .bg-accent {
+    background-color: #d0b46a;
+  }
+  
+  .border-accent {
+    border-color: #d0b46a;
+  }
+  
+  .hover\:bg-accent:hover {
+    background-color: #d0b46a;
+  }
+  
+  .focus\:ring-accent:focus {
+    --tw-ring-color: #d0b46a;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-card border border-border rounded-lg shadow-sm;
+  }
+  
+  .input {
+    @apply bg-input border border-border text-foreground placeholder:text-muted;
+  }
+  
+  .button-primary {
+    @apply bg-accent text-background hover:bg-accent/90 font-medium;
+  }
+  
+  .button-secondary {
+    @apply bg-card border border-border text-foreground hover:bg-border;
+  }
+}

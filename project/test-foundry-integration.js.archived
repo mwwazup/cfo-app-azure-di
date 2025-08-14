@@ -1,0 +1,45 @@
+// Comprehensive Azure Foundry Integration Test Script
+console.log('🔍 Azure Foundry Integration Testing\n');
+
+console.log('This script will help you verify the Azure Foundry integration is working correctly.');
+
+// Step 1: Check environment variables
+console.log('\n📋 Step 1: Environment Variables Check');
+console.log('Ensure your .env file contains:');
+console.log('- VITE_AZURE_FOUNDRY_ENDPOINT (should be like: https://[resource-name].cognitiveservices.azure.com/)');
+console.log('- VITE_AZURE_FOUNDRY_API_KEY (your actual Foundry API key)');
+console.log('- VITE_AZURE_FOUNDRY_MODEL_ID (optional - will default to "prebuilt-document")');
+
+// Step 2: Test endpoint format
+console.log('\n🌐 Step 2: Azure Foundry Endpoint Format');
+console.log('The service now uses this endpoint structure:');
+console.log('POST {endpoint}/content-understanding/documentModels/{model-id}:analyze');
+console.log('This follows Azure Foundry Content Understanding API patterns.');
+
+// Step 3: Test upload flow
+console.log('\n📤 Step 3: Document Upload Testing');
+console.log('1. Start your development server with `npm run dev`');
+console.log('2. Navigate to the financial documents screen in your app');
+console.log('3. Try uploading a sample financial document (PDF or image)');
+console.log('4. Check browser console for any error messages');
+
+// Step 4: Expected outcomes
+console.log('\n✅ Expected Outcomes:');
+console.log('- If all environment variables are correct: Document should process through Azure Foundry');
+console.log('- If model ID is missing: Should default to "prebuilt-document" model');
+console.log('- Document metadata should be stored in Supabase regardless of Azure processing results');
+console.log('- Financial documents should appear in the app UI');
+
+// Step 5: Troubleshooting
+console.log('\n🔧 Troubleshooting:');
+console.log('If you still get 404 errors:');
+console.log('1. Verify your Azure Foundry resource exists and is in a supported region');
+console.log('2. Check that Content Understanding is enabled for your resource');
+console.log('3. Confirm your API key has the correct permissions');
+console.log('4. Verify the model ID exists in your Foundry project');
+
+console.log('\n📝 Next Steps:');
+console.log('After successful upload testing, you can:');
+console.log('- Add your specific model ID to .env file');
+console.log('- Test document parsing and data extraction');
+console.log('- Verify all financial data is correctly stored in Supabase');

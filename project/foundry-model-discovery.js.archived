@@ -1,0 +1,24 @@
+// Script to help discover Azure Foundry model ID
+console.log('🔍 Azure Foundry Model ID Discovery Script\n');
+
+// Instructions for finding your Azure Foundry model ID:
+console.log('To find your Azure Foundry model ID, follow these steps:');
+console.log('1. Go to Azure Portal (https://portal.azure.com)');
+console.log('2. Navigate to your Foundry resource');
+console.log('3. In the left sidebar, look for "Models" or "Document Models"');
+console.log('4. You should see a list of available models with their IDs\n');
+
+console.log('Common model IDs for financial documents:');
+console.log('- prebuilt-document (general document model)');
+console.log('- prebuilt-layout (layout analysis model)');
+console.log('- custom model ID (if you trained a custom model)\n');
+
+console.log('If you trained a custom model in Foundry:');
+console.log('1. Go to "Models" section in your Foundry resource');
+console.log('2. Look for your custom model name');
+console.log('3. The model ID will be displayed next to it\n');
+
+console.log('Update your .env file with the correct model ID:');
+console.log('VITE_AZURE_FOUNDRY_MODEL_ID=your_actual_model_id_here\n');
+
+console.log('After updating your .env file, restart your development server.');
