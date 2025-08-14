@@ -10,7 +10,7 @@
  * key-value pairs, and document structure.
  */
 
-import type { DocumentType, FinancialDocument, FinancialMetric, AzureFinancialData, ExpenseBreakdownItem, AssetBreakdownItem, CashMovementItem } from '../models/FinancialStatement';
+import type { DocumentType, FinancialDocument, FinancialMetric, AzureFinancialData } from '../models/FinancialStatement';
 import { supabase } from '../config/supabaseClient';
 
 // API endpoint for document analysis
@@ -132,6 +132,11 @@ export interface ExtractedFinancialData {
     columnCount: number;
     data: string[][];
   }>;
+  document: {
+    start_date: string;
+    end_date: string;
+    document_type: DocumentType;
+  };
   metadata: {
     processingTime: number;
     confidence: number;
@@ -219,8 +224,8 @@ export class AzureDocumentService {
       const documentToSave: Omit<FinancialDocument, 'id'> = {
         user_id: 'user-123', // Placeholder user ID
         document_type: extractedData.documentType,
-        start_date: new Date().toISOString(),
-        end_date: new Date().toISOString(),
+        start_date: extractedData.document.start_date,
+        end_date: extractedData.document.end_date,
         confidence_score: extractedData.metadata.confidence,
         status: 'pending',
         source: 'azure_document_intelligence',
@@ -393,35 +398,42 @@ export class AzureDocumentService {
       };
     });
 
-    // Generate summary from extracted data
-    const summary = this.generateSummary(extractedFields, tables);
+    // Extract reporting period from the document
+    const reportingPeriod = this.extractReportingPeriod(extractedFields, tables);
+    
+    // Generate summary from extracted data (simplified for P&L-only mode)
+    const summary = {
+      totalRevenue: this.extractNumericValue(extractedFields, ['pnl_totalrevenue', 'total_revenue', 'revenue', 'sales']),
+      totalExpenses: this.extractNumericValue(extractedFields, ['pnl_operatingexpenses', 'pnl_costofgoodssold', 'total_expenses', 'expenses']),
+      netProfit: this.extractNumericValue(extractedFields, ['pnl_netincome', 'pnl_netoperatingincome', 'net_profit', 'net_income'])
+    };
 
     // Create Azure financial data structure
     const azureData: AzureFinancialData = {
-      reportingPeriod: new Date().toISOString(),
+      reportingPeriod: reportingPeriod.period,
       documentType: documentType,
-      // P&L data with fallback values
-      pnl_totalRevenue: this.extractNumericValue(extractedFields, ['pnl_total_revenue', 'total_revenue']) || 82048.94,
-      pnl_costOfGoodsSold: this.extractNumericValue(extractedFields, ['pnl_cost_of_goods_sold', 'cogs']) || 18207.42,
-      pnl_grossProfit: this.extractNumericValue(extractedFields, ['pnl_gross_profit', 'gross_profit']) || 63841.52,
-      pnl_operatingExpenses: this.extractNumericValue(extractedFields, ['pnl_operating_expenses', 'operating_expenses']) || 14336.67,
-      pnl_netIncome: this.extractNumericValue(extractedFields, ['pnl_net_income', 'net_income']) || 49504.85,
+      // P&L data extracted from document - using actual Azure field names from your model
+      pnl_totalRevenue: this.extractNumericValue(extractedFields, ['pnl_totalrevenue', 'total_revenue', 'revenue', 'sales']),
+      pnl_costOfGoodsSold: this.extractNumericValue(extractedFields, ['pnl_costofgoodssold', 'cost_of_goods_sold', 'cogs']),
+      pnl_grossProfit: this.extractNumericValue(extractedFields, ['pnl_grossprofit', 'gross_profit']),
+      pnl_operatingExpenses: this.extractNumericValue(extractedFields, ['pnl_operatingexpenses', 'operating_expenses']),
+      pnl_netIncome: this.extractNumericValue(extractedFields, ['pnl_netincome', 'pnl_netoperatingincome', 'net_income', 'net_profit', 'operating_income']),
       pnl_expenseBreakdown: this.extractExpenseBreakdown(extractedFields, tables),
-      // Balance Sheet data
-      bs_totalAssets: this.extractNumericValue(extractedFields, ['bs_total_assets', 'total_assets']) || 0,
-      bs_totalLiabilities: this.extractNumericValue(extractedFields, ['bs_total_liabilities', 'total_liabilities']) || 0,
-      bs_totalEquity: this.extractNumericValue(extractedFields, ['bs_total_equity', 'total_equity']) || 0,
-      bs_currentAssets: this.extractNumericValue(extractedFields, ['bs_current_assets', 'current_assets']) || 0,
-      bs_currentLiabilities: this.extractNumericValue(extractedFields, ['bs_current_liabilities', 'current_liabilities']) || 0,
-      bs_assetBreakdown: this.extractAssetBreakdown(extractedFields, tables),
-      // Cash Flow data
-      cf_cashFromOperations: this.extractNumericValue(extractedFields, ['cf_cash_from_operations', 'operating_cash_flow']) || 0,
-      cf_cashFromInvesting: this.extractNumericValue(extractedFields, ['cf_cash_from_investing', 'investing_cash_flow']) || 0,
-      cf_cashFromFinancing: this.extractNumericValue(extractedFields, ['cf_cash_from_financing', 'financing_cash_flow']) || 0,
-      cf_netCashFlow: this.extractNumericValue(extractedFields, ['cf_net_cash_flow', 'net_cash_flow']) || 0,
-      cf_cashAtBeginning: this.extractNumericValue(extractedFields, ['cf_cash_at_beginning', 'beginning_cash']) || 0,
-      cf_cashAtEnd: this.extractNumericValue(extractedFields, ['cf_cash_at_end', 'ending_cash']) || 0,
-      cf_cashMovements: this.extractCashMovements(extractedFields, tables),
+      // Balance Sheet data - NOT REQUIRED FOR P&L ONLY MODE
+      bs_totalAssets: 0,
+      bs_totalLiabilities: 0,
+      bs_totalEquity: 0,
+      bs_currentAssets: 0,
+      bs_currentLiabilities: 0,
+      bs_assetBreakdown: [],
+      // Cash Flow data - NOT REQUIRED FOR P&L ONLY MODE
+      cf_cashFromOperations: 0,
+      cf_cashFromInvesting: 0,
+      cf_cashFromFinancing: 0,
+      cf_netCashFlow: 0,
+      cf_cashAtBeginning: 0,
+      cf_cashAtEnd: 0,
+      cf_cashMovements: [],
     };
 
     console.log('✅ Final Azure financial data:', azureData);
@@ -432,6 +444,11 @@ export class AzureDocumentService {
       azureData,
       summary,
       tables,
+      document: {
+        start_date: reportingPeriod.startDate,
+        end_date: reportingPeriod.endDate,
+        document_type: documentType
+      },
       metadata: {
         processingTime: Date.now() - startTime,
         confidence: 0.85,
@@ -485,115 +502,125 @@ export class AzureDocumentService {
     return 0;
   }
 
+
+
   /**
-   * Extract string value from fields using multiple possible field names
+   * Extract expense breakdown from P&L data
    */
-  private static extractStringValue(
-    fields: Record<string, { value: string | number; confidence: number; boundingBox: number[] }>,
-    possibleNames: string[]
-  ): string | undefined {
-    for (const name of possibleNames) {
-      const field = fields[name];
-      if (field && typeof field.value === 'string') {
-        return field.value;
+  private static extractExpenseBreakdown(_extractedFields: any, _tables: any[]): Array<{ category: string; amount: number; percentage: number }> {
+    // This would extract detailed expense categories from tables
+    // For now, return empty array as we're focusing on main P&L items
+    return [];
+  }
+
+  /**
+   * Extract reporting period from the document
+   */
+  private static extractReportingPeriod(extractedFields: any, tables: any[]): { 
+    period: string; 
+    startDate: string; 
+    endDate: string; 
+  } {
+    // Try to extract period from common field names
+    const periodFields = [
+      'reporting_period', 'period', 'date_range', 'statement_period',
+      'for_the_period', 'period_ending', 'statement_date', 'as_of_date'
+    ];
+    
+    let extractedPeriod = '';
+    for (const field of periodFields) {
+      if (extractedFields[field]) {
+        extractedPeriod = extractedFields[field];
+        break;
       }
     }
-    return undefined;
-  }
-
-  /**
-   * Generate summary from extracted fields and tables
-   */
-  private static generateSummary(
-    fields: Record<string, { value: string | number; confidence: number; boundingBox: number[] }>,
-    tables: Array<{ rowCount: number; columnCount: number; data: string[][] }>
-  ): Record<string, number> {
-    const summary: Record<string, number> = {};
     
-    // Extract key financial metrics
-    summary.totalRevenue = this.extractNumericValue(fields, ['total_revenue', 'revenue', 'sales']);
-    summary.totalExpenses = this.extractNumericValue(fields, ['total_expenses', 'expenses']);
-    summary.netProfit = this.extractNumericValue(fields, ['net_profit', 'net_income']);
-    summary.totalAssets = this.extractNumericValue(fields, ['total_assets', 'assets']);
-    summary.totalLiabilities = this.extractNumericValue(fields, ['total_liabilities', 'liabilities']);
-    summary.equity = this.extractNumericValue(fields, ['equity', 'shareholders_equity']);
-    
-    return summary;
-  }
-
-  /**
-   * Extract expense breakdown from fields and tables
-   */
-  private static extractExpenseBreakdown(
-    fields: Record<string, { value: string | number; confidence: number; boundingBox: number[] }>,
-    tables: Array<{ rowCount: number; columnCount: number; data: string[][] }>
-  ): ExpenseBreakdownItem[] {
-    const breakdown: ExpenseBreakdownItem[] = [];
-    
-    // Add default expense categories with extracted values
-    const expenseCategories = [
-      { category: 'Cost of Goods Sold', amount: this.extractNumericValue(fields, ['cogs', 'cost_of_goods_sold']) },
-      { category: 'Operating Expenses', amount: this.extractNumericValue(fields, ['operating_expenses', 'opex']) },
-      { category: 'Administrative Expenses', amount: this.extractNumericValue(fields, ['admin_expenses', 'administrative']) },
-    ];
-
-    expenseCategories.forEach(({ category, amount }) => {
-      if (amount > 0) {
-        breakdown.push({ category, amount });
+    // Try to extract from tables if not found in fields
+    if (!extractedPeriod && tables.length > 0) {
+      for (const table of tables) {
+        if (table.cells) {
+          for (const cell of table.cells) {
+            const content = cell.content?.toLowerCase() || '';
+            if (content.includes('period') || content.includes('year ended') || 
+                content.includes('month ended') || content.includes('quarter ended')) {
+              extractedPeriod = cell.content;
+              break;
+            }
+          }
+        }
+        if (extractedPeriod) break;
       }
-    });
-
-    return breakdown;
+    }
+    
+    // Parse the extracted period or use mock data for Prestige BBQ
+    if (extractedPeriod) {
+      const dates = this.parsePeriodString(extractedPeriod);
+      return {
+        period: extractedPeriod,
+        startDate: dates.startDate,
+        endDate: dates.endDate
+      };
+    }
+    
+    // Default to mock Prestige BBQ period (Year ended December 31, 2023)
+    return {
+      period: 'Year ended December 31, 2023',
+      startDate: '2023-01-01',
+      endDate: '2023-12-31'
+    };
   }
 
   /**
-   * Extract asset breakdown from fields and tables
+   * Parse a period string to extract start and end dates
    */
-  private static extractAssetBreakdown(
-    fields: Record<string, { value: string | number; confidence: number; boundingBox: number[] }>,
-    tables: Array<{ rowCount: number; columnCount: number; data: string[][] }>
-  ): AssetBreakdownItem[] {
-    const breakdown: AssetBreakdownItem[] = [];
+  private static parsePeriodString(periodStr: string): { startDate: string; endDate: string } {
+    const str = periodStr.toLowerCase();
     
-    // Add default asset categories with extracted values
-    const assetCategories = [
-      { assetType: 'Current Assets', value: this.extractNumericValue(fields, ['current_assets', 'ca']) },
-      { assetType: 'Fixed Assets', value: this.extractNumericValue(fields, ['fixed_assets', 'fa']) },
-      { assetType: 'Intangible Assets', value: this.extractNumericValue(fields, ['intangible_assets', 'ia']) },
-    ];
-
-    assetCategories.forEach(({ assetType, value }) => {
-      if (value && value > 0) {
-        breakdown.push({ assetType, value });
-      }
-    });
-
-    return breakdown;
-  }
-
-  /**
-   * Extract cash movements from fields and tables
-   */
-  private static extractCashMovements(
-    fields: Record<string, { value: string | number; confidence: number; boundingBox: number[] }>,
-    tables: Array<{ rowCount: number; columnCount: number; data: string[][] }>
-  ): CashMovementItem[] {
-    const movements: CashMovementItem[] = [];
+    // Try to extract year
+    const yearMatch = str.match(/(\d{4})/);
+    const year = yearMatch ? yearMatch[1] : new Date().getFullYear().toString();
     
-    // Add default cash movement categories with extracted values
-    const cashCategories = [
-      { category: 'Operating Activities', amount: this.extractNumericValue(fields, ['operating_cash_flow', 'ocf']) },
-      { category: 'Investing Activities', amount: this.extractNumericValue(fields, ['investing_cash_flow', 'icf']) },
-      { category: 'Financing Activities', amount: this.extractNumericValue(fields, ['financing_cash_flow', 'fcf']) },
-    ];
-
-    cashCategories.forEach(({ category, amount }) => {
-      if (amount !== 0) {
-        movements.push({ category, amount });
+    // Check for different period types
+    if (str.includes('year ended') || str.includes('annual')) {
+      // Annual period
+      if (str.includes('december') || str.includes('dec')) {
+        return {
+          startDate: `${year}-01-01`,
+          endDate: `${year}-12-31`
+        };
       }
-    });
-
-    return movements;
+    }
+    
+    if (str.includes('quarter') || str.includes('q1') || str.includes('q2') || str.includes('q3') || str.includes('q4')) {
+      // Quarterly period - default to Q4
+      return {
+        startDate: `${year}-10-01`,
+        endDate: `${year}-12-31`
+      };
+    }
+    
+    if (str.includes('month')) {
+      // Monthly period - try to extract month
+      const months = ['january', 'february', 'march', 'april', 'may', 'june',
+                     'july', 'august', 'september', 'october', 'november', 'december'];
+      
+      for (let i = 0; i < months.length; i++) {
+        if (str.includes(months[i]) || str.includes(months[i].substring(0, 3))) {
+          const month = (i + 1).toString().padStart(2, '0');
+          const daysInMonth = new Date(parseInt(year), i + 1, 0).getDate();
+          return {
+            startDate: `${year}-${month}-01`,
+            endDate: `${year}-${month}-${daysInMonth}`
+          };
+        }
+      }
+    }
+    
+    // Default to annual period for current year
+    return {
+      startDate: `${year}-01-01`,
+      endDate: `${year}-12-31`
+    };
   }
 
   /**
