@@ -48,12 +48,12 @@ export const FinancialStatementUpload: React.FC<FinancialStatementUploadProps> =
       // Call backend API for document upload and analysis
       const response = await uploadFinancialDocuments(validFiles, userId);
       
-      const completedProgress = validFiles.map((file, index) => ({
+      const completedProgress = validFiles.map((file, fileIndex) => ({
         fileName: file.name,
         status: response.success ? 'success' as const : 'error' as const,
-        documentId: response.success ? `doc-${index}` : undefined, // Mock document ID
+        documentId: response.success ? response.documentIds[fileIndex] : undefined,
         error: response.success ? undefined : response.errors[0],
-        documentType: response.success ? 'P&L' : undefined // Mock document type
+        documentType: response.success ? 'Financial Statement' : undefined
       }));
       
       setUploadProgress(completedProgress);

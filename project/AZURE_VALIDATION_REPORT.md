@@ -33,8 +33,8 @@
   "status": "succeeded",
   "createdDateTime": "2024-01-15T10:30:00Z",
   "analyzeResult": {
-    "apiVersion": "2023-07-31",
-    "modelId": "prebuilt-document",
+    "apiVersion": "2024-11-30",
+    "modelId": "PNL",
     "content": "PROFIT & LOSS STATEMENT...",
     "tables": [...],
     "keyValuePairs": [...],

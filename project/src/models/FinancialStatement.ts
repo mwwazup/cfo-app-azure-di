@@ -118,15 +118,17 @@ export interface FinancialDocument {
   azure_data?: AzureFinancialData;
   reporting_period?: string;
   azure_document_type?: string;
-  // P&L fields
-  pnl_total_revenue?: number;
-  pnl_cost_of_goods_sold?: number;
-  pnl_gross_profit?: number;
-  pnl_operating_expenses?: number;
-  pnl_net_income?: number;
+  // P&L fields (matching actual database schema)
+  pnl_totalRevenue?: number;
+  pnl_costOfGoodsSold?: number;
+  pnl_grossProfit?: number;
+  pnl_operatingExpenses?: number;
+  pnl_netOperatingIncome?: number;
+  pnl_netIncome?: number;
   pnl_other_income?: number;
   pnl_other_expenses?: number;
   pnl_expense_breakdown?: ExpenseBreakdownItem[];
+  reportingPeriod?: string;
   // Balance Sheet fields
   bs_total_assets?: number;
   bs_total_liabilities?: number;

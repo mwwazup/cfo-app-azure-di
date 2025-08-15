@@ -43,25 +43,17 @@ async def analyze_document(request: DocumentAnalysisRequest):
         # Get Azure DI credentials from environment
         endpoint = os.getenv("DI_ENDPOINT")
         key = os.getenv("DI_KEY")
-        model_id = os.getenv("DI_MODEL_ID", "prebuilt-layout")
+        model_id = os.getenv("DI_MODEL_ID", "PNL")
         
         logger.info(f"Azure DI Endpoint: {endpoint[:50] if endpoint else 'None'}...")
         logger.info(f"Azure DI Key: {'***' if key else 'None'} (length: {len(key) if key else 0})")
         logger.info(f"Azure DI Model ID: {model_id}")
         
         if not endpoint or not key:
-            logger.warning("Azure DI credentials not found, falling back to mock data")
-            return {
-                "success": True,
-                "data": await _get_mock_response_data()
-            }
-        
-        # TEMPORARY: Force mock data for debugging
-        logger.info("TEMPORARY: Forcing mock data fallback for debugging")
-        return {
-            "success": True,
-            "data": await _get_mock_response_data()
-        }
+            raise HTTPException(
+                status_code=500, 
+                detail="Azure Document Intelligence credentials not configured. Please set DI_ENDPOINT and DI_KEY environment variables."
+            )
         
         logger.info("Using real Azure Document Intelligence API")
         
@@ -69,7 +61,10 @@ async def analyze_document(request: DocumentAnalysisRequest):
         if not request.files:
             raise ValueError("No files provided for analysis")
             
-        file_data = base64.b64decode(request.files[0])
+        # Accept both raw base64 and data URLs (e.g., "data:application/pdf;base64,AAAA...")
+        raw_input = request.files[0]
+        base64_str = raw_input.split(",", 1)[1] if "," in raw_input else raw_input
+        file_data = base64.b64decode(base64_str)
         
         try:
             # Initialize Azure Document Intelligence client
@@ -80,18 +75,25 @@ async def analyze_document(request: DocumentAnalysisRequest):
             
             # Analyze document directly with bytes data
             logger.info(f"Analyzing document with model: {model_id}")
+            logger.info(f"File bytes length: {len(file_data)}")
             
             # Use asyncio to run the sync Azure DI client in async context
             loop = asyncio.get_event_loop()
             executor = ThreadPoolExecutor()
             
-            # Create the analyze request with bytes data
-            analyze_request = AnalyzeDocumentRequest(bytes_source=file_data)
+            # Convert bytes to base64 for Azure DI API
+            base64_data = base64.b64encode(file_data).decode('utf-8')
             
+            # Create request body with base64Source
+            analyze_request = {
+                "base64Source": base64_data
+            }
+            
+            # Call Azure DI with proper request format
             poller = await loop.run_in_executor(
                 executor,
                 lambda: document_intelligence_client.begin_analyze_document(
-                    model_id, 
+                    model_id,
                     analyze_request
                 )
             )
@@ -113,12 +115,7 @@ async def analyze_document(request: DocumentAnalysisRequest):
                 
     except Exception as e:
         logger.error(f"Error processing document: {str(e)}")
-        # Fallback to mock data if Azure DI fails
-        logger.info("Falling back to mock data due to error")
-        return {
-            "success": True,
-            "data": await _get_mock_response_data()
-        }
+        raise HTTPException(status_code=500, detail=f"Document processing failed: {str(e)}")
 
 
 async def _process_azure_result(result) -> Dict[str, Any]:
@@ -192,13 +189,15 @@ async def _process_azure_result(result) -> Dict[str, Any]:
         if hasattr(result, 'documents') and result.documents:
             for doc in result.documents:
                 if hasattr(doc, 'fields') and doc.fields:
-                    # Extract P&L related fields from the document
+                    # Extract all fields from the document (including reportingPeriod)
                     for field_name, field_value in doc.fields.items():
-                        if any(keyword in field_name.lower() for keyword in ['revenue', 'income', 'expense', 'cost', 'profit', 'loss']):
+                        # Include P&L fields and period/date fields
+                        if (any(keyword in field_name.lower() for keyword in ['revenue', 'income', 'expense', 'cost', 'profit', 'loss']) or
+                            any(keyword in field_name.lower() for keyword in ['period', 'date', 'reporting'])):
                             extracted_fields[field_name] = {
                                 "type": field_value.value_type if hasattr(field_value, 'value_type') else "string",
-                                "value": field_value.value if hasattr(field_value, 'value') else 0,
-                                "valueString": str(field_value.value) if hasattr(field_value, 'value') else "0",
+                                "value": field_value.value if hasattr(field_value, 'value') else field_value.content if hasattr(field_value, 'content') else "",
+                                "valueString": str(field_value.value) if hasattr(field_value, 'value') else field_value.content if hasattr(field_value, 'content') else "",
                                 "confidence": field_value.confidence if hasattr(field_value, 'confidence') else 0.5,
                                 "content": field_value.content if hasattr(field_value, 'content') else str(field_value.value) if hasattr(field_value, 'value') else ""
                             }
@@ -267,18 +266,10 @@ def _extract_pnl_from_content(analyze_result: Dict[str, Any]) -> Dict[str, Any]:
                             }
                             break
     
-    # If still no fields found, use fallback mock data to ensure functionality
+    # If no fields found, return empty result
     if not extracted_fields:
-        logger.warning("No P&L data extracted from document, using fallback values")
-        extracted_fields = {
-            "pnl_total_revenue": {
-                "type": "currency",
-                "value": 0,
-                "valueString": "0",
-                "confidence": 0.5,
-                "content": "$0.00"
-            }
-        }
+        logger.warning("No P&L data extracted from document")
+        extracted_fields = {}
     
     return extracted_fields
 
@@ -304,101 +295,6 @@ def _find_adjacent_value(table: Dict[str, Any], target_cell: Dict[str, Any]) -> 
     return 0.0
 
 
-async def _get_mock_response_data() -> Dict[str, Any]:
-    """
-    Mock response data for fallback when Azure DI is not available.
-    """
-    return {
-        "status": "succeeded",
-        "createdDateTime": "2025-01-10T21:00:00Z",
-        "lastUpdatedDateTime": "2025-01-10T21:00:05Z",
-        "analyzeResult": {
-            "apiVersion": "2023-07-31",
-            "modelId": "prebuilt-layout",
-            "stringIndexType": "textElements",
-            "content": "Mock P&L document content with revenue and expense data",
-            "pages": [{
-                "pageNumber": 1,
-                "angle": 0,
-                "width": 8.5,
-                "height": 11,
-                "unit": "inch",
-                "words": [],
-                "lines": []
-            }],
-            "tables": [{
-                "rowCount": 5,
-                "columnCount": 2,
-                "cells": [
-                    {
-                        "kind": "content",
-                        "rowIndex": 0,
-                        "columnIndex": 0,
-                        "content": "Revenue",
-                        "boundingRegions": [{"pageNumber": 1, "boundingBox": []}]
-                    },
-                    {
-                        "kind": "content",
-                        "rowIndex": 0,
-                        "columnIndex": 1,
-                        "content": "$100,000",
-                        "boundingRegions": [{"pageNumber": 1, "boundingBox": []}]
-                    }
-                ],
-                "boundingRegions": [{"pageNumber": 1, "boundingBox": []}]
-            }],
-            "keyValuePairs": [],
-            "documents": [{
-                "docType": "prebuilt:layout",
-                "boundingRegions": [{"pageNumber": 1, "boundingBox": [0, 0, 8.5, 0, 8.5, 11, 0, 11]}],
-                "fields": {
-                    "pnl_total_revenue": {
-                        "type": "currency",
-                        "valueString": "82048.94",
-                        "value": 82048.94,
-                        "confidence": 0.98,
-                        "content": "$82,048.94"
-                    },
-                    "pnl_cost_of_goods_sold": {
-                        "type": "currency", 
-                        "valueString": "18207.42",
-                        "value": 18207.42,
-                        "confidence": 0.95,
-                        "content": "$18,207.42"
-                    },
-                    "pnl_gross_profit": {
-                        "type": "currency",
-                        "valueString": "63841.52", 
-                        "value": 63841.52,
-                        "confidence": 0.97,
-                        "content": "$63,841.52"
-                    },
-                    "pnl_operating_expenses": {
-                        "type": "currency",
-                        "valueString": "14336.67",
-                        "value": 14336.67,
-                        "confidence": 0.96,
-                        "content": "$14,336.67"
-                    },
-                    "pnl_net_operating_income": {
-                        "type": "currency",
-                        "valueString": "49504.85",
-                        "value": 49504.85,
-                        "confidence": 0.94,
-                        "content": "$49,504.85"
-                    },
-                    "pnl_net_income": {
-                        "type": "currency",
-                        "valueString": "49504.85",
-                        "value": 49504.85,
-                        "confidence": 0.94,
-                        "content": "$49,504.85"
-                    }
-                },
-                "confidence": 0.95
-            }]
-        }
-    }
 
 
 @router.get("/documentAnalysis/health")

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import { AzureDocumentService } from '../../services/azureDocumentService';
+import { AzureDocumentService, type ExtractedFinancialData } from '../../services/azureDocumentService';
 import { useAuth } from '../../contexts/auth-context';
 import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
 
@@ -23,6 +23,7 @@ export const FinancialStatements: React.FC = () => {
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [isDocumentsCollapsed, setIsDocumentsCollapsed] = useState(false);
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const [lastExtractedData, setLastExtractedData] = useState<ExtractedFinancialData | null>(null);
 
   const loadFinancialDocuments = useCallback(async () => {
     try {
@@ -40,7 +41,7 @@ export const FinancialStatements: React.FC = () => {
     }
   }, [user, loadFinancialDocuments]);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, documentType: DocumentType) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !user) return;
 
@@ -57,6 +58,8 @@ export const FinancialStatements: React.FC = () => {
       return;
     }
 
+    // Force P&L mode
+    const documentType: DocumentType = 'pnl';
     setSelectedDocumentType(documentType);
     setIsUploading(true);
     setUploadProgress(0);
@@ -70,7 +73,8 @@ export const FinancialStatements: React.FC = () => {
       console.log(`Processing ${documentType} document with Azure Document Service...`);
       
       // Process document with Azure Document Service
-      const extractedData = await AzureDocumentService.processDocument(file, documentType, user.id);
+      const extractedData = await AzureDocumentService.processDocument(file, documentType);
+      setLastExtractedData(extractedData);
       
       clearInterval(progressInterval);
       setUploadProgress(100);
@@ -152,11 +156,13 @@ export const FinancialStatements: React.FC = () => {
     if (!processingResult || !user) return;
 
     try {
-      // Save document and metrics to database
-      const documentId = await AzureDocumentService.saveFinancialDocument(
-        user.id,
-        { ...processingResult.document, status: 'approved' },
-        processingResult.metrics
+      // Save document and metrics to database (P&L only mode)
+      if (!lastExtractedData) {
+        throw new Error('No extracted data available to save');
+      }
+      const documentId = await AzureDocumentService.saveDocument(
+        lastExtractedData,
+        processingResult.metrics as FinancialMetric[]
       );
 
       console.log(`Financial document saved with ID: ${documentId}`);
@@ -268,21 +274,17 @@ export const FinancialStatements: React.FC = () => {
     setDeletingDocumentId(documentId);
     
     try {
-      const success = await AzureDocumentService.deleteFinancialDocument(documentId, user.id);
+      await AzureDocumentService.deleteDocument(documentId);
       
-      if (success) {
-        // Remove the document from the local state
-        setDocuments(prev => prev.filter(doc => doc.id !== documentId));
-        
-        // Close any open modals if the deleted document was being viewed
-        if (selectedDocument?.id === documentId) {
-          setSelectedDocument(null);
-        }
-        
-        console.log('Document deleted successfully');
-      } else {
-        alert('Failed to delete document. Please try again.');
+      // Remove the document from the local state
+      setDocuments(prev => prev.filter(doc => doc.id !== documentId));
+      
+      // Close any open modals if the deleted document was being viewed
+      if (selectedDocument?.id === documentId) {
+        setSelectedDocument(null);
       }
+      
+      console.log('Document deleted successfully');
     } catch (error) {
       console.error('Error deleting document:', error);
       alert('An error occurred while deleting the document.');
@@ -349,17 +351,9 @@ export const FinancialStatements: React.FC = () => {
               </div>
               
               <div className="space-y-4 max-w-md mx-auto">
-                <select
-                  value={selectedDocumentType}
-                  onChange={(e) => setSelectedDocumentType(e.target.value as DocumentType)}
-                  className="w-full px-4 py-2 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                  disabled={isUploading}
-                >
-                  <option value="">Select document type</option>
-                  <option value="pnl">Profit & Loss Statement</option>
-                  <option value="balance_sheet">Balance Sheet</option>
-                  <option value="cash_flow">Cash Flow Statement</option>
-                </select>
+                <div className="w-full px-4 py-2 border border-border rounded-lg bg-muted text-foreground">
+                  Upload mode: Profit & Loss only
+                </div>
                 
                 <label className="inline-flex items-center px-6 py-3 bg-accent text-accent-foreground rounded-lg cursor-pointer hover:bg-accent/90 transition-colors">
                   <Upload className="h-4 w-4 mr-2" />
@@ -368,8 +362,8 @@ export const FinancialStatements: React.FC = () => {
                     type="file"
                     className="hidden"
                     accept=".pdf,.jpg,.jpeg,.png"
-                    onChange={(e) => handleFileUpload(e, selectedDocumentType)}
-                    disabled={isUploading || !selectedDocumentType}
+                    onChange={(e) => handleFileUpload(e)}
+                    disabled={isUploading}
                   />
                 </label>
               </div>
@@ -498,20 +492,59 @@ export const FinancialStatements: React.FC = () => {
             
             <div className="p-6 space-y-6">
               {/* Document Info */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">Document Type</label>
                   <p className="text-sm text-muted-foreground">{getDocumentTypeLabel(processingResult.document.document_type)}</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Period</label>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(processingResult.document.start_date).toLocaleDateString()} - {new Date(processingResult.document.end_date).toLocaleDateString()}
-                  </p>
+                  <label className="block text-sm font-medium text-foreground mb-1">Upload Date</label>
+                  <p className="text-sm text-muted-foreground">{new Date().toLocaleDateString()}</p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Confidence Score</label>
-                  <p className="text-sm text-muted-foreground">{(processingResult.confidence_score * 100).toFixed(1)}%</p>
+              </div>
+
+              {/* Period Information with Manual Entry */}
+              <div className="border border-border rounded-lg p-4 bg-muted/20">
+                <h4 className="text-md font-medium text-foreground mb-3">Reporting Period</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Start Date</label>
+                    <input
+                      type="date"
+                      value={processingResult.document.start_date}
+                      onChange={(e) => {
+                        setProcessingResult(prev => prev ? {
+                          ...prev,
+                          document: { ...prev.document, start_date: e.target.value }
+                        } : null);
+                      }}
+                      className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">End Date</label>
+                    <input
+                      type="date"
+                      value={processingResult.document.end_date}
+                      onChange={(e) => {
+                        setProcessingResult(prev => prev ? {
+                          ...prev,
+                          document: { ...prev.document, end_date: e.target.value }
+                        } : null);
+                      }}
+                      className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      Extracted Period: {processingResult.reportingPeriod || 'Unknown Period'}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      Confidence: {(processingResult.confidence_score * 100).toFixed(1)}%
+                    </span>
+                  </div>
                 </div>
               </div>
 

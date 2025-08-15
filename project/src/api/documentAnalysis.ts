@@ -97,55 +97,7 @@ export async function analyzeFinancialDocument(
   try {
     // Check if Azure is configured
     if (!AZURE_ENDPOINT || !AZURE_API_KEY) {
-      console.log('⚠️ Azure Document Intelligence not configured, using mock response');
-      
-      // Return mock Azure Document Intelligence response structure
-      // This simulates what Azure would return for a P&L document
-      return {
-        success: true,
-        data: {
-          analyzeResult: {
-            pages: [{ pageNumber: 1 }],
-            tables: [
-              {
-                rowCount: 10,
-                columnCount: 2,
-                cells: [
-                  { content: "For the Year Ended December 31, 2023", rowIndex: 0, columnIndex: 0 },
-                  { content: "Total Revenue", rowIndex: 1, columnIndex: 0 },
-                  { content: "$82,048.94", rowIndex: 1, columnIndex: 1 },
-                  { content: "Cost of Goods Sold", rowIndex: 2, columnIndex: 0 },
-                  { content: "$18,207.42", rowIndex: 2, columnIndex: 1 },
-                  { content: "Gross Profit", rowIndex: 3, columnIndex: 0 },
-                  { content: "$63,841.52", rowIndex: 3, columnIndex: 1 },
-                  { content: "Operating Expenses", rowIndex: 4, columnIndex: 0 },
-                  { content: "$14,336.67", rowIndex: 4, columnIndex: 1 },
-                  { content: "Net Income", rowIndex: 5, columnIndex: 0 },
-                  { content: "$49,504.85", rowIndex: 5, columnIndex: 1 }
-                ]
-              }
-            ],
-            documents: [
-              {
-                fields: {
-                  reporting_period: { value: "Year ended December 31, 2023", confidence: 0.95 },
-                  period_ending: { value: "December 31, 2023", confidence: 0.95 },
-                  pnl_total_revenue: { value: 82048.94, confidence: 0.92 },
-                  total_revenue: { value: 82048.94, confidence: 0.92 },
-                  pnl_cost_of_goods_sold: { value: 18207.42, confidence: 0.88 },
-                  cogs: { value: 18207.42, confidence: 0.88 },
-                  pnl_gross_profit: { value: 63841.52, confidence: 0.90 },
-                  gross_profit: { value: 63841.52, confidence: 0.90 },
-                  pnl_operating_expenses: { value: 14336.67, confidence: 0.87 },
-                  operating_expenses: { value: 14336.67, confidence: 0.87 },
-                  pnl_net_income: { value: 49504.85, confidence: 0.91 },
-                  net_income: { value: 49504.85, confidence: 0.91 }
-                }
-              }
-            ]
-          }
-        }
-      };
+      throw new Error('Azure Document Intelligence is not configured. Please set AZURE_ENDPOINT and AZURE_API_KEY environment variables.');
     }
 
     // Step 1: Submit document for analysis
@@ -159,53 +111,7 @@ export async function analyzeFinancialDocument(
       data: result
     };
   } catch (error) {
-    console.log('⚠️ Azure Document Intelligence failed, using mock response');
-    
-    // Fallback to mock response if Azure fails
-    return {
-      success: true,
-      data: {
-        analyzeResult: {
-          pages: [{ pageNumber: 1 }],
-          tables: [
-            {
-              rowCount: 10,
-              columnCount: 2,
-              cells: [
-                { content: "For the Year Ended December 31, 2023", rowIndex: 0, columnIndex: 0 },
-                { content: "Total Revenue", rowIndex: 1, columnIndex: 0 },
-                { content: "$82,048.94", rowIndex: 1, columnIndex: 1 },
-                { content: "Cost of Goods Sold", rowIndex: 2, columnIndex: 0 },
-                { content: "$18,207.42", rowIndex: 2, columnIndex: 1 },
-                { content: "Gross Profit", rowIndex: 3, columnIndex: 0 },
-                { content: "$63,841.52", rowIndex: 3, columnIndex: 1 },
-                { content: "Operating Expenses", rowIndex: 4, columnIndex: 0 },
-                { content: "$14,336.67", rowIndex: 4, columnIndex: 1 },
-                { content: "Net Income", rowIndex: 5, columnIndex: 0 },
-                { content: "$49,504.85", rowIndex: 5, columnIndex: 1 }
-              ]
-            }
-          ],
-          documents: [
-            {
-              fields: {
-                reporting_period: { value: "Year ended December 31, 2023", confidence: 0.95 },
-                period_ending: { value: "December 31, 2023", confidence: 0.95 },
-                pnl_total_revenue: { value: 82048.94, confidence: 0.92 },
-                total_revenue: { value: 82048.94, confidence: 0.92 },
-                pnl_cost_of_goods_sold: { value: 18207.42, confidence: 0.88 },
-                cogs: { value: 18207.42, confidence: 0.88 },
-                pnl_gross_profit: { value: 63841.52, confidence: 0.90 },
-                gross_profit: { value: 63841.52, confidence: 0.90 },
-                pnl_operating_expenses: { value: 14336.67, confidence: 0.87 },
-                operating_expenses: { value: 14336.67, confidence: 0.87 },
-                pnl_net_income: { value: 49504.85, confidence: 0.91 },
-                net_income: { value: 49504.85, confidence: 0.91 }
-              }
-            }
-          ]
-        }
-      }
-    };
+    console.error('❌ Azure Document Intelligence error:', error);
+    throw new Error(`Document analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }

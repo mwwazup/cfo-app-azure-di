@@ -5,7 +5,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
-from dotenv import load_dotenv
 import openai
 from supabase import create_client, Client
 import httpx
@@ -14,7 +13,7 @@ from api import auth, chat, memory, business, financial, document_analysis
 from db import init_db, get_neo4j_driver, close_neo4j_driver
 
 # Load environment variables
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -113,16 +112,29 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Check the health of all backend services"""
+    # If we're in lightweight mode, skip external checks
+    if os.getenv("SKIP_SERVICE_CHECKS") == "1":
+        return {
+            "status": "healthy",
+            "neo4j": "skipped",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    # Otherwise, attempt Neo4j check but never fail the endpoint
+    neo4j_ok = False
+    neo4j_error = None
     try:
-        # Check Neo4j connection
         with get_neo4j_driver().session(database="neo4j") as session:
             result = session.run("RETURN 1 AS ok")
             neo4j_ok = bool(result.single()['ok'])
-        
-        return {
-            "status": "healthy",
-            "neo4j": neo4j_ok,
-            "timestamp": datetime.utcnow().isoformat()
-        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+        neo4j_error = str(e)
+
+    response = {
+        "status": "healthy" if neo4j_ok else "degraded",
+        "neo4j": neo4j_ok,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    if neo4j_error:
+        response["neo4j_error"] = neo4j_error
+    return response

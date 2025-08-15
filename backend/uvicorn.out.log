@@ -1,0 +1,39 @@
+
+Initializing PostgreSQL connection...
+DB Password set: yes (length: 13)
+URL encoded @ symbol in password
+Database URL: postgresql://postgres.rpilyciarvacbmaaszvc:mw1%40Yowza6453@aws-0-us-west-1.pooler.supabase.com:5432/postgres
+Creating SQLAlchemy engine...
+Successfully created SQLAlchemy engine
+
+Initializing Neo4j driver...
+Neo4j URI set: True (value: neo4j+s://0f97f54a.databases.neo4j.io)
+Neo4j username set: True (value: neo4j)
+Neo4j password set: True (length: 43)
+
+Attempting Neo4j connection:
+URI: neo4j+s://0f97f54a.databases.neo4j.io
+Username: neo4j
+Password length: 43
+Creating Neo4j driver...
+Driver created, testing connection...
+Session opened, running test query...
+
+Failed to connect to Neo4j:
+Error type: ValueError
+Error message: Cannot resolve address 0f97f54a.databases.neo4j.io:7687
+Caused by: [Errno 11001] getaddrinfo failed
+Warning: Failed to initialize Neo4j driver: Cannot resolve address 0f97f54a.databases.neo4j.io:7687
+INFO:     127.0.0.1:65355 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65355 - "GET /health HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:65355 - "GET /api/documentAnalysis/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65453 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65453 - "GET /health HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:65453 - "GET /api/documentAnalysis/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51233 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51233 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:51329 - "GET /health HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:51395 - "GET /api/documentAnalysis/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51634 - "GET /health HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:55984 - "GET /health HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:55985 - "GET /health HTTP/1.1" 500 Internal Server Error

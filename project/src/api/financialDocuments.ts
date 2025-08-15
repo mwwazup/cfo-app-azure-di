@@ -32,7 +32,7 @@ export async function uploadFinancialDocuments(
     );
 
     // Call our backend API for document analysis
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5175';
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5180';
     
     const response = await fetch(`${API_BASE_URL}/api/documentAnalysis`, {
       method: 'POST',

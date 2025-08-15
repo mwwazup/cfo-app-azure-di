@@ -3,6 +3,7 @@ Database module initialization.
 """
 from fastapi import FastAPI
 from .neo4j_client import Neo4jClient
+import os
 
 # Export Neo4j client functions
 get_neo4j_driver = Neo4jClient.get_driver
@@ -13,6 +14,10 @@ def init_db(app: FastAPI):
     @app.on_event("startup")
     async def startup_db_client():
         """Get Neo4j driver on startup"""
+        # Skip when checks are disabled (e.g., focusing on Azure DI only)
+        if os.getenv("SKIP_SERVICE_CHECKS") == "1":
+            print("SKIP_SERVICE_CHECKS=1: skipping Neo4j initialization on startup")
+            return
         try:
             Neo4jClient.get_driver()
         except Exception as e:

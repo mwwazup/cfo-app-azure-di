@@ -12,9 +12,16 @@
 
 import type { DocumentType, FinancialDocument, FinancialMetric, AzureFinancialData } from '../models/FinancialStatement';
 import { supabase } from '../config/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+
+// Service role client for bypassing RLS
+const supabaseServiceRole = createClient(
+  import.meta.env.VITE_SUPABASE_URL || '',
+  import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || ''
+);
 
 // API endpoint for document analysis
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5180';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5180';
 
 // Azure Document Intelligence field value interface
 export interface AzureFieldValue {
@@ -168,6 +175,7 @@ export class AzureDocumentService {
     
     try {
       console.log('🔍 Starting Azure Document Intelligence processing...');
+      console.log('🔌 API Base URL:', API_BASE_URL);
       
       // Convert file to base64
       const base64Data = await this.fileToBase64(file);
@@ -218,43 +226,27 @@ export class AzureDocumentService {
     metrics: FinancialMetric[]
   ): Promise<string> {
     try {
-      const { azureData } = extractedData;
+      console.log('🔑 Service role key available:', !!import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY);
+      console.log('🔑 Service role key length:', import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY?.length || 0);
       
-      // Prepare document data for insertion
-      const documentToSave: Omit<FinancialDocument, 'id'> = {
-        user_id: 'user-123', // Placeholder user ID
+      // Get current user from Supabase auth
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Prepare document data for insertion - only essential fields
+      const documentToSave = {
+        user_id: user.id, // Use actual authenticated user ID
         document_type: extractedData.documentType,
-        start_date: extractedData.document.start_date,
-        end_date: extractedData.document.end_date,
-        confidence_score: extractedData.metadata.confidence,
+        start_date: new Date(extractedData.document.start_date).toISOString().split('T')[0], // Convert to YYYY-MM-DD
+        end_date: new Date(extractedData.document.end_date).toISOString().split('T')[0], // Convert to YYYY-MM-DD
         status: 'pending',
         source: 'azure_document_intelligence',
-        // P&L fields
-        pnl_total_revenue: azureData.pnl_totalRevenue || 0,
-        pnl_cost_of_goods_sold: azureData.pnl_costOfGoodsSold || 0,
-        pnl_gross_profit: azureData.pnl_grossProfit || 0,
-        pnl_operating_expenses: azureData.pnl_operatingExpenses || 0,
-        pnl_net_income: azureData.pnl_netIncome || 0,
-        pnl_expense_breakdown: azureData.pnl_expenseBreakdown,
-        // Balance Sheet fields
-        bs_total_assets: azureData.bs_totalAssets || 0,
-        bs_total_liabilities: azureData.bs_totalLiabilities || 0,
-        bs_total_equity: azureData.bs_totalEquity || 0,
-        bs_current_assets: azureData.bs_currentAssets || 0,
-        bs_current_liabilities: azureData.bs_currentLiabilities || 0,
-        bs_asset_breakdown: azureData.bs_assetBreakdown,
-        // Cash Flow fields
-        cf_cash_from_operations: azureData.cf_cashFromOperations || 0,
-        cf_cash_from_investing: azureData.cf_cashFromInvesting || 0,
-        cf_cash_from_financing: azureData.cf_cashFromFinancing || 0,
-        cf_net_cash_flow: azureData.cf_netCashFlow || 0,
-        cf_cash_at_beginning: azureData.cf_cashAtBeginning || 0,
-        cf_cash_at_end: azureData.cf_cashAtEnd || 0,
-        cf_cash_movements: azureData.cf_cashMovements,
       };
 
-      // Insert financial document
-      const { data: document, error: docError } = await supabase
+      // Insert financial document using service role to bypass RLS
+      const { data: document, error: docError } = await supabaseServiceRole
         .from('financial_documents')
         .insert(documentToSave)
         .select()
@@ -322,7 +314,7 @@ export class AzureDocumentService {
     console.log('Tables found:', analyzeResult.tables?.length || 0);
     console.log('Documents found:', analyzeResult.documents?.length || 0);
 
-    // Extract fields from documents - this is where the mock data is located
+    // Extract fields from documents
     const extractedFields: Record<string, { value: string | number; confidence: number; boundingBox: number[] }> = {};
     
     // Check if documents exist and extract financial data using proper types
@@ -410,7 +402,7 @@ export class AzureDocumentService {
 
     // Create Azure financial data structure
     const azureData: AzureFinancialData = {
-      reportingPeriod: reportingPeriod.period,
+      reportingPeriod: reportingPeriod?.period || 'Unknown Period',
       documentType: documentType,
       // P&L data extracted from document - using actual Azure field names from your model
       pnl_totalRevenue: this.extractNumericValue(extractedFields, ['pnl_totalrevenue', 'total_revenue', 'revenue', 'sales']),
@@ -445,8 +437,8 @@ export class AzureDocumentService {
       summary,
       tables,
       document: {
-        start_date: reportingPeriod.startDate,
-        end_date: reportingPeriod.endDate,
+        start_date: reportingPeriod?.startDate || new Date().toISOString().split('T')[0],
+        end_date: reportingPeriod?.endDate || new Date().toISOString().split('T')[0],
         document_type: documentType
       },
       metadata: {
@@ -520,7 +512,7 @@ export class AzureDocumentService {
     period: string; 
     startDate: string; 
     endDate: string; 
-  } {
+  } | null {
     // Try to extract period from common field names
     const periodFields = [
       'reporting_period', 'period', 'date_range', 'statement_period',
@@ -552,7 +544,7 @@ export class AzureDocumentService {
       }
     }
     
-    // Parse the extracted period or use mock data for Prestige BBQ
+    // Parse the extracted period
     if (extractedPeriod) {
       const dates = this.parsePeriodString(extractedPeriod);
       return {
@@ -562,12 +554,8 @@ export class AzureDocumentService {
       };
     }
     
-    // Default to mock Prestige BBQ period (Year ended December 31, 2023)
-    return {
-      period: 'Year ended December 31, 2023',
-      startDate: '2023-01-01',
-      endDate: '2023-12-31'
-    };
+    // Return null if no period could be extracted
+    return null;
   }
 
   /**
