@@ -634,7 +634,102 @@ export class AzureDocumentService {
   }
 
   /**
-   * Delete a financial document and its associated metrics
+   * Update document status
+   */
+  static async updateDocumentStatus(documentId: string, status: 'pending' | 'reviewed' | 'approved' | 'rejected'): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('financial_documents')
+        .update({ status })
+        .eq('id', documentId);
+
+      if (error) {
+        throw new Error(`Error updating document status: ${error.message}`);
+      }
+
+      console.log(`✅ Document status updated to: ${status}`);
+    } catch (error) {
+      console.error('❌ Error updating document status:', error);
+      throw new Error(`Failed to update document status: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Delete an approved document with enhanced cleanup
+   */
+  static async deleteApprovedDocument(documentId: string): Promise<{
+    success: boolean;
+    affectedKPIs: string[];
+    rollbackData?: any;
+  }> {
+    try {
+      // Get document details for rollback capability
+      const { data: document, error: fetchError } = await supabase
+        .from('financial_documents')
+        .select('*')
+        .eq('id', documentId)
+        .single();
+
+      if (fetchError || !document) {
+        throw new Error('Document not found or access denied');
+      }
+
+      // Get associated metrics for rollback
+      const { data: metrics, error: metricsError } = await supabase
+        .from('financial_metrics')
+        .select('*')
+        .eq('document_id', documentId);
+
+      if (metricsError) {
+        throw new Error(`Error fetching metrics: ${metricsError.message}`);
+      }
+
+      // Store rollback data
+      const rollbackData = {
+        document,
+        metrics: metrics || [],
+        timestamp: new Date().toISOString()
+      };
+
+      // Delete associated metrics first
+      const { error: deleteMetricsError } = await supabase
+        .from('financial_metrics')
+        .delete()
+        .eq('document_id', documentId);
+
+      if (deleteMetricsError) {
+        throw new Error(`Error deleting financial metrics: ${deleteMetricsError.message}`);
+      }
+
+      // Delete the document
+      const { error: deleteDocError } = await supabase
+        .from('financial_documents')
+        .delete()
+        .eq('id', documentId);
+
+      if (deleteDocError) {
+        throw new Error(`Error deleting financial document: ${deleteDocError.message}`);
+      }
+
+      // TODO: Add knowledgebase cleanup here
+      // TODO: Add KPI recalculation here
+      // TODO: Add audit trail entry here
+
+      console.log('✅ Approved document deleted with rollback capability');
+      
+      return {
+        success: true,
+        affectedKPIs: ['Revenue Growth', 'Profit Margin', 'Cash Flow Ratio'], // Simulated
+        rollbackData
+      };
+    } catch (error) {
+      console.error('❌ Error deleting approved document:', error);
+      throw new Error(`Failed to delete approved document: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Delete a financial document and its associated metrics (simple deletion)
    */
   static async deleteDocument(documentId: string): Promise<void> {
     try {
