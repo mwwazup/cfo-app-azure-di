@@ -3,6 +3,7 @@ import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, C
 import { AzureDocumentService, type ExtractedFinancialData } from '../../services/azureDocumentService';
 import { useAuth } from '../../contexts/auth-context';
 import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
+import { WhereDidTheMoneyGo } from './WhereDidTheMoneyGo';
 
 interface ProcessingResult {
   document: Omit<FinancialDocument, 'id' | 'user_id'> & { user_id: string };
@@ -291,15 +292,19 @@ export const FinancialStatements: React.FC = () => {
     try {
       // Load document data for display
       if (document.id) {
-        // First check if we have summary_metrics
-        if (document.summary_metrics) {
+        // First try to load actual metrics from database
+        const actualMetrics = await AzureDocumentService.getFinancialMetrics(document.id);
+        if (actualMetrics && actualMetrics.length > 0) {
+          setDocumentMetrics(actualMetrics);
+        } else if (document.summary_metrics) {
+          // Fallback to summary_metrics if no database metrics found
           const metrics = Object.keys(document.summary_metrics).map(key => ({
             id: `${document.id}_${key}`,
             document_id: document.id!,
             label: key,
             value: document.summary_metrics[key],
             category: 'Financial Data',
-            is_verified: false
+            is_verified: document.status === 'approved'
           }));
           setDocumentMetrics(metrics);
         } else if (document.raw_json) {
@@ -310,59 +315,12 @@ export const FinancialStatements: React.FC = () => {
             label: key,
             value: document.raw_json[key],
             category: 'Financial Data',
-            is_verified: false
+            is_verified: document.status === 'approved'
           }));
           setDocumentMetrics(metrics);
         } else {
-          // Create sample financial metrics for demonstration
-          const sampleFinancialMetrics = [
-            {
-              id: `${document.id}_revenue`,
-              document_id: document.id!,
-              label: 'Total Revenue',
-              value: 125000,
-              category: 'Income Statement',
-              is_verified: document.status === 'approved',
-              display_value: formatCurrency(125000)
-            },
-            {
-              id: `${document.id}_cogs`,
-              document_id: document.id!,
-              label: 'Cost of Goods Sold',
-              value: 75000,
-              category: 'Income Statement',
-              is_verified: document.status === 'approved',
-              display_value: formatCurrency(75000)
-            },
-            {
-              id: `${document.id}_gross_profit`,
-              document_id: document.id!,
-              label: 'Gross Profit',
-              value: 50000,
-              category: 'Income Statement',
-              is_verified: document.status === 'approved',
-              display_value: formatCurrency(50000)
-            },
-            {
-              id: `${document.id}_operating_expenses`,
-              document_id: document.id!,
-              label: 'Operating Expenses',
-              value: 30000,
-              category: 'Income Statement',
-              is_verified: document.status === 'approved',
-              display_value: formatCurrency(30000)
-            },
-            {
-              id: `${document.id}_net_income`,
-              document_id: document.id!,
-              label: 'Net Income',
-              value: 20000,
-              category: 'Income Statement',
-              is_verified: document.status === 'approved',
-              display_value: formatCurrency(20000)
-            }
-          ];
-          setDocumentMetrics(sampleFinancialMetrics);
+          // No extracted data available - show message
+          setDocumentMetrics([]);
         }
       } else {
         setDocumentMetrics([]);
@@ -726,6 +684,9 @@ export const FinancialStatements: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Where Did The Money Go Section */}
+      <WhereDidTheMoneyGo documents={documents} />
 
       {/* Documents List */}
       <div className="bg-card rounded-lg border border-border">
@@ -1166,46 +1127,51 @@ export const FinancialStatements: React.FC = () => {
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full border border-border rounded-md">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Field</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Value</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Category</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {documentMetrics.map((metric) => (
-                        <tr key={metric.id}>
-                          <td className="px-4 py-2 text-sm text-foreground capitalize">
-                            {String(metric.label || '').replace(/_/g, ' ')}
-                          </td>
-                          <td className="px-4 py-2 text-sm text-foreground font-medium">
-                            {(metric as any).display_value || formatCurrency(Number(metric.value || 0))}
-                          </td>
-                          <td className="px-4 py-2 text-sm text-muted-foreground capitalize">
-                            {String(metric.category || 'unknown')}
-                          </td>
-                          <td className="px-4 py-2 text-sm">
-                            {metric.is_verified ? (
-                              <span className="text-green-600 flex items-center">
-                                <CheckCircle className="h-4 w-4 mr-1" />
-                                Verified
-                              </span>
-                            ) : (
-                              <span className="text-yellow-600 flex items-center">
-                                <AlertCircle className="h-4 w-4 mr-1" />
-                                Pending
-                              </span>
-                            )}
-                          </td>
+                documentMetrics.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border border-border rounded-md">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Field</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Value</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Category</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {documentMetrics.map((metric) => (
+                          <tr key={metric.id}>
+                            <td className="px-4 py-2 text-sm text-foreground capitalize">
+                              {String(metric.label || '').replace(/_/g, ' ')}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-foreground font-medium">
+                              {(metric as any).display_value || formatCurrency(Number(metric.value || 0))}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-muted-foreground capitalize">
+                              {String(metric.category || 'unknown')}
+                            </td>
+                            <td className="px-4 py-2 text-sm">
+                              <div className={`flex items-center ${getStatusColor(selectedDocument?.status || 'pending')}`}>
+                                {getStatusIcon(selectedDocument?.status || 'pending')}
+                                <span className="ml-2 text-sm capitalize">{selectedDocument?.status || 'pending'}</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">No extracted data available</p>
+                    <p className="text-sm">
+                      This document may not have been processed yet, or the extraction failed.
+                      <br />
+                      Try re-uploading the document or contact support if the issue persists.
+                    </p>
+                  </div>
+                )
               )}
             </div>
 

@@ -729,6 +729,28 @@ export class AzureDocumentService {
   }
 
   /**
+   * Get financial metrics for a specific document
+   */
+  static async getFinancialMetrics(documentId: string): Promise<FinancialMetric[]> {
+    try {
+      const { data, error } = await supabase
+        .from('financial_metrics')
+        .select('*')
+        .eq('document_id', documentId)
+        .order('label', { ascending: true });
+
+      if (error) {
+        throw new Error(`Error fetching financial metrics: ${error.message}`);
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('❌ Error getting financial metrics:', error);
+      throw new Error(`Failed to get financial metrics: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
    * Delete a financial document and its associated metrics (simple deletion)
    */
   static async deleteDocument(documentId: string): Promise<void> {
