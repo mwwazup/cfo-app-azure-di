@@ -12,13 +12,6 @@
 
 import type { DocumentType, FinancialDocument, FinancialMetric, AzureFinancialData } from '../models/FinancialStatement';
 import { supabase } from '../config/supabaseClient';
-import { createClient } from '@supabase/supabase-js';
-
-// Service role client for bypassing RLS
-const supabaseServiceRole = createClient(
-  import.meta.env.VITE_SUPABASE_URL || '',
-  import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || ''
-);
 
 // API endpoint for document analysis
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5180';
@@ -245,8 +238,8 @@ export class AzureDocumentService {
         source: 'azure_document_intelligence',
       };
 
-      // Insert financial document using service role to bypass RLS
-      const { data: document, error: docError } = await supabaseServiceRole
+      // Insert financial document using regular client
+      const { data: document, error: docError } = await supabase
         .from('financial_documents')
         .insert(documentToSave)
         .select()
