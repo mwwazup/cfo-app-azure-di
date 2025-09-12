@@ -10,7 +10,7 @@ import { LoginPage } from './pages/auth/login';
 import { OnboardingPage } from './pages/onboarding';
 import { DashboardPage } from './pages/dashboard';
 import { MasterRevenuePage } from './pages/revenue/master';
-import { PlaygroundPage } from './pages/revenue/playground';
+// import { PlaygroundPage } from './pages/revenue/playground'; // Hidden - not in use
 import { FinancialStatementsPage } from './pages/financial-statements';
 import { YourBigFigPage } from './pages/coach/your-big-fig';
 import { MomentumPage } from './pages/momentum';
@@ -39,7 +39,7 @@ function App() {
               
               <Route path="/revenue" element={<DashboardLayout />}>
                 <Route path="master" element={<MasterRevenuePage />} />
-                <Route path="playground" element={<PlaygroundPage />} />
+                {/* <Route path="playground" element={<PlaygroundPage />} /> */} {/* Hidden - not in use */}
               </Route>
               
               <Route path="/financial-statements" element={<DashboardLayout />}>

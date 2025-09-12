@@ -1,19 +1,18 @@
-import React from 'react';
 import { Outlet, Link, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/auth-context';
 import { Button } from '../ui/button';
 import { 
   LayoutDashboard, 
   TrendingUp, 
-  PlayCircle, 
-  LogOut,
-  Menu,
-  X,
-  Heart,
-  FileText,
-  BookOpen
+  FileText, 
+  Heart, 
+  BookOpen, 
+  LogOut, 
+  Menu, 
+  X 
 } from 'lucide-react';
 import { useState } from 'react';
+import VoiceCoach from '../VoiceCoach';
 
 export function DashboardLayout() {
   const { user, logout } = useAuth();
@@ -27,7 +26,7 @@ export function DashboardLayout() {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Master Revenue', href: '/revenue/master', icon: TrendingUp },
-    { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle },
+    // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
     { name: 'Your Big FIG', href: '/coach/your-big-fig', icon: Heart },
     { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
@@ -124,7 +123,7 @@ export function DashboardLayout() {
             <div className="flex items-center w-full">
               <div className="flex-1">
                 <p className="text-sm font-medium text-foreground">
-                  {user.firstName} {user.lastName}
+                  {user.first_name} {user.last_name}
                 </p>
                 <p className="text-xs text-muted">
                   {user.email}
@@ -158,7 +157,7 @@ export function DashboardLayout() {
                 <div className="flex items-center space-x-4">
                   <div className="hidden md:block">
                     <span className="text-sm text-muted">
-                      Welcome, {user.firstName}
+                      Welcome, {user.first_name}
                     </span>
                   </div>
                 </div>
@@ -175,6 +174,9 @@ export function DashboardLayout() {
           </main>
         </div>
       </div>
+      
+      {/* Global Voice Coach - Floating Button */}
+      <VoiceCoach />
     </div>
   );
 }

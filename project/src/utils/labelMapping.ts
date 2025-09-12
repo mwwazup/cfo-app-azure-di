@@ -9,30 +9,51 @@ export interface LabelMapping {
 }
 
 export const LABEL_MAP: Record<string, LabelMapping> = {
-  // Revenue mappings
+  // Revenue mappings (with synonyms)
   'total revenue': { type: 'kpi', key: 'revenue_total' },
   'revenue': { type: 'kpi', key: 'revenue_total' },
   'gross sales': { type: 'kpi', key: 'revenue_total' },
+  'total sales': { type: 'kpi', key: 'revenue_total' },
+  'sales': { type: 'kpi', key: 'revenue_total' },
+  'income': { type: 'kpi', key: 'revenue_total' },
+  'total income': { type: 'kpi', key: 'revenue_total' },
   'sales revenue': { type: 'revenue', key: 'sales_revenue' },
   'service revenue': { type: 'revenue', key: 'service_revenue' },
   'other revenue': { type: 'revenue', key: 'other_revenue' },
   'interest income': { type: 'revenue', key: 'interest_income' },
 
-  // Cost of Goods Sold
-  'cost of goods sold': { type: 'expense', key: 'cogs_total' },
-  'cogs': { type: 'expense', key: 'cogs_total' },
-  'cost of sales': { type: 'expense', key: 'cogs_total' },
-  'direct costs': { type: 'expense', key: 'cogs_total' },
+  // Cost of Goods Sold (with synonyms)
+  'cost of goods sold': { type: 'kpi', key: 'cogs_total' },
+  'cogs': { type: 'kpi', key: 'cogs_total' },
+  'cost of sales': { type: 'kpi', key: 'cogs_total' },
+  'direct costs': { type: 'kpi', key: 'cogs_total' },
+  'cost of revenue': { type: 'kpi', key: 'cogs_total' },
+  'direct materials': { type: 'expense', key: 'cogs_total' },
+  'direct labor': { type: 'expense', key: 'cogs_total' },
 
-  // Operating Expenses
-  'operating expenses': { type: 'expense', key: 'opex_total' },
-  'opex': { type: 'expense', key: 'opex_total' },
-  'total expenses': { type: 'expense', key: 'opex_total' },
+  // Operating Expenses (with synonyms)
+  'operating expenses': { type: 'kpi', key: 'opex_total' },
+  'opex': { type: 'kpi', key: 'opex_total' },
+  'total expenses': { type: 'kpi', key: 'opex_total' },
+  'operating costs': { type: 'kpi', key: 'opex_total' },
+  'expenses': { type: 'kpi', key: 'opex_total' },
   'salaries and wages': { type: 'expense', key: 'salaries_wages' },
+  'payroll': { type: 'expense', key: 'salaries_wages' },
+  'wages': { type: 'expense', key: 'salaries_wages' },
+  'compensation': { type: 'expense', key: 'salaries_wages' },
+  'benefits': { type: 'expense', key: 'salaries_wages' },
+  'employee costs': { type: 'expense', key: 'salaries_wages' },
   'rent expense': { type: 'expense', key: 'rent_expense' },
+  'rent': { type: 'expense', key: 'rent_expense' },
+  'lease': { type: 'expense', key: 'rent_expense' },
+  'facilities': { type: 'expense', key: 'rent_expense' },
   'utilities': { type: 'expense', key: 'utilities' },
+  'office expenses': { type: 'expense', key: 'utilities' },
+  'building costs': { type: 'expense', key: 'utilities' },
   'marketing': { type: 'expense', key: 'marketing' },
   'advertising': { type: 'expense', key: 'marketing' },
+  'promotion': { type: 'expense', key: 'marketing' },
+  'sales expense': { type: 'expense', key: 'marketing' },
   'insurance': { type: 'expense', key: 'insurance' },
   'office supplies': { type: 'expense', key: 'office_supplies' },
   'depreciation': { type: 'expense', key: 'depreciation' },
@@ -40,13 +61,17 @@ export const LABEL_MAP: Record<string, LabelMapping> = {
   'travel': { type: 'expense', key: 'travel' },
   'meals and entertainment': { type: 'expense', key: 'meals_entertainment' },
 
-  // KPIs
+  // KPIs (with synonyms)
   'gross profit': { type: 'kpi', key: 'gross_profit' },
   'gross income': { type: 'kpi', key: 'gross_profit' },
+  'gross margin': { type: 'kpi', key: 'gross_profit' },
   'net income': { type: 'kpi', key: 'net_income' },
   'net profit': { type: 'kpi', key: 'net_income' },
   'net operating income': { type: 'kpi', key: 'net_income' },
+  'net earnings': { type: 'kpi', key: 'net_income' },
+  'profit': { type: 'kpi', key: 'net_income' },
   'operating income': { type: 'kpi', key: 'operating_income' },
+  'operating profit': { type: 'kpi', key: 'operating_income' },
   'ebitda': { type: 'kpi', key: 'ebitda' },
   'earnings before tax': { type: 'kpi', key: 'earnings_before_tax' },
 };
@@ -83,13 +108,15 @@ export function parseMonetaryValue(value: string | number): number {
     return 0;
   }
   
-  // Remove currency symbols, commas, and whitespace
-  const cleanValue = value
-    .replace(/[$,\s()]/g, '')
-    .replace(/[()]/g, '-'); // Convert parentheses to negative
+  // Check if value is in parentheses (negative)
+  const isNegative = value.includes('(') && value.includes(')');
+  
+  // Remove currency symbols, commas, whitespace, and parentheses
+  const cleanValue = value.replace(/[$,\s()]/g, '');
   
   const numericValue = parseFloat(cleanValue);
-  return isNaN(numericValue) ? 0 : numericValue;
+  const result = isNaN(numericValue) ? 0 : numericValue;
+  return isNegative ? -result : result;
 }
 
 /**

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { promisify } from 'util';
 import { createClient } from '@supabase/supabase-js';
-import { mapLabel, parseMonetaryValue, calculateKPIs } from './src/utils/labelMapping.js';
+import { mapLabel, parseMonetaryValue, calculateKPIs } from './src/utils/labelMapping.ts';
 
 // Convert this file's URL to a path
 const __filename = fileURLToPath(import.meta.url);

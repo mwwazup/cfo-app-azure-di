@@ -1,16 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Pie } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { TrendingDown, TrendingUp } from 'lucide-react';
-import type { FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
-import { AzureDocumentService } from '../../services/azureDocumentService';
+import { TrendingDown, TrendingUp, Loader2 } from 'lucide-react';
+import { useDocumentsMeta, useSelectedDocument } from '../../hooks/useDocuments';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
 interface WhereDidTheMoneyGoProps {
-  documents: FinancialDocument[];
+  // No props needed - component fetches its own data
 }
 
 
@@ -20,44 +19,24 @@ interface ExpenseCategory {
   color: string;
 }
 
-export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = ({ documents }) => {
+export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
-  const [documentMetrics, setDocumentMetrics] = useState<Record<string, FinancialMetric[]>>({});
+  
+  // Fetch documents metadata
+  const { data: documents, isLoading: docsLoading, error: docsError } = useDocumentsMeta();
+  
+  // Fetch selected document data
+  const { kpis, isLoading: kpisLoading, isError: kpisError } = useSelectedDocument(selectedDocumentId);
 
-  // Load financial metrics for all documents and auto-select most recent
-  useEffect(() => {
-    const loadMetrics = async () => {
-      const metricsMap: Record<string, FinancialMetric[]> = {};
-      
-      for (const doc of documents) {
-        if (doc.id) {
-          try {
-            const metrics = await AzureDocumentService.getFinancialMetrics(doc.id);
-            if (metrics && metrics.length > 0) {
-              metricsMap[doc.id] = metrics;
-              console.log(`📊 Loaded ${metrics.length} metrics for document ${doc.id}:`, metrics);
-            }
-          } catch (error) {
-            console.error(`Error loading metrics for document ${doc.id}:`, error);
-          }
-        }
+  // Auto-select the most recent document when documents load
+  React.useEffect(() => {
+    if (!selectedDocumentId && documents && documents.length > 0) {
+      const sortedDocs = documents
+        .filter(doc => doc.start_date)
+        .sort((a, b) => new Date(b.start_date!).getTime() - new Date(a.start_date!).getTime());
+      if (sortedDocs.length > 0) {
+        setSelectedDocumentId(sortedDocs[0].id);
       }
-      
-      setDocumentMetrics(metricsMap);
-      
-      // Auto-select the most recent document if none selected
-      if (!selectedDocumentId && documents.length > 0) {
-        const sortedDocs = documents
-          .filter(doc => doc.start_date)
-          .sort((a, b) => new Date(b.start_date!).getTime() - new Date(a.start_date!).getTime());
-        if (sortedDocs.length > 0) {
-          setSelectedDocumentId(sortedDocs[0].id!);
-        }
-      }
-    };
-
-    if (documents.length > 0) {
-      loadMetrics();
     }
   }, [documents, selectedDocumentId]);
 
@@ -79,135 +58,64 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = ({ document
 
   // Get available document periods for selection
   const availableDocuments = useMemo(() => {
-    console.log('🔍 Building available documents list from:', documents);
-    const result = documents
-      .filter(doc => {
-        console.log(`🔍 Document ${doc.id}: type=${doc.document_type}, start_date=${doc.start_date}, end_date=${doc.end_date}`);
-        // Only include P&L documents that have proper date ranges
-        return doc.document_type === 'pnl' && doc.start_date && doc.end_date;
-      })
-      .map(doc => {
-        const label = `P&L - ${formatPeriodLabel(doc.start_date!, doc.end_date!)}`;
-        console.log(`🔍 Created label for ${doc.id}: ${label}`);
-        return {
-          id: doc.id!,
-          label,
-          start_date: doc.start_date!,
-          end_date: doc.end_date!,
-          document: doc
-        };
-      })
-      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
+    if (!documents) return [];
     
-    console.log('🔍 Final available documents:', result);
-    return result;
+    return documents
+      .filter(doc => doc.document_type === 'pnl' && doc.start_date && doc.end_date)
+      .map(doc => ({
+        id: doc.id,
+        label: `P&L - ${formatPeriodLabel(doc.start_date!, doc.end_date!)}`,
+        start_date: doc.start_date!,
+        end_date: doc.end_date!,
+        document: doc
+      }))
+      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
   }, [documents]);
 
-  // Filter documents based on selected document (single document view)
-  const filteredDocuments = useMemo(() => {
-    // Only work with P&L documents
-    const pnlDocuments = documents.filter(doc => doc.document_type === 'pnl');
-    
-    // Always show single document view
-    if (selectedDocumentId) {
-      const selectedDoc = pnlDocuments.find(doc => doc.id === selectedDocumentId);
-      return selectedDoc ? [selectedDoc] : [];
-    }
 
-    // If no document selected, return empty (will be auto-selected by useEffect)
-    return [];
-  }, [documents, selectedDocumentId]);
-
-  // Aggregate financial data from documents using real Supabase metrics
+  // Process KPIs into chart data using memoization with guards
   const financialData = useMemo((): { revenue: number; expenses: ExpenseCategory[] } => {
-    const aggregatedExpenses: Record<string, number> = {};
-    let totalRevenue = 0;
-
-    console.log(`🔍 FILTERED DOCUMENTS (${filteredDocuments.length}):`, filteredDocuments.map(d => ({
-      id: d.id,
-      period: `${d.start_date} to ${d.end_date}`,
-      type: d.document_type
-    })));
-
-    filteredDocuments.forEach(doc => {
-      console.log(`🔍 Processing document ${doc.id} (${doc.start_date} to ${doc.end_date}):`, doc);
-      
-      // Use actual metrics from Supabase instead of summary_metrics
-      const metrics = doc.id ? documentMetrics[doc.id] : [];
-      console.log(`📊 Document metrics from Supabase:`, metrics);
-      
-      if (metrics && metrics.length > 0) {
-        metrics.forEach(metric => {
-          console.log(`🔍 Processing metric: "${metric.label}" with value:`, metric.value);
-          const numValue = typeof metric.value === 'number' ? metric.value : parseFloat(String(metric.value)) || 0;
-          
-          const lowerLabel = metric.label.toLowerCase();
-          console.log(`🔍 Lowercase label: "${lowerLabel}"`);
-          
-          // Only match "Total Revenue" exactly - not "Net Income" 
-          if (lowerLabel === 'total revenue') {
-            console.log(`💰 REVENUE MATCH: "${metric.label}" -> ${numValue} (from doc ${doc.id})`);
-            totalRevenue = Math.abs(numValue); // Use assignment, not addition for single document
-          }
-          // Categorize expenses
-          else if (lowerLabel.includes('cost of goods') || lowerLabel.includes('cogs') || 
-                   lowerLabel.includes('cost of sales') || lowerLabel.includes('direct costs')) {
-            console.log(`📊 EXPENSE MATCH (COGS): "${metric.label}" -> ${numValue}`);
-            aggregatedExpenses['Cost of Goods Sold'] = (aggregatedExpenses['Cost of Goods Sold'] || 0) + Math.abs(numValue);
-          } else if (lowerLabel.includes('operating expense') || lowerLabel.includes('operating costs')) {
-            console.log(`📊 EXPENSE MATCH (Operating): "${metric.label}" -> ${numValue}`);
-            aggregatedExpenses['Operating Expenses'] = (aggregatedExpenses['Operating Expenses'] || 0) + Math.abs(numValue);
-          } else if (lowerLabel.includes('marketing') || lowerLabel.includes('advertising') || 
-                     lowerLabel.includes('promotion') || lowerLabel.includes('sales expense')) {
-            console.log(`📊 EXPENSE MATCH (Marketing): "${metric.label}" -> ${numValue}`);
-            aggregatedExpenses['Marketing & Advertising'] = (aggregatedExpenses['Marketing & Advertising'] || 0) + Math.abs(numValue);
-          } else if (lowerLabel.includes('salary') || lowerLabel.includes('payroll') || 
-                     lowerLabel.includes('wages') || lowerLabel.includes('compensation') || 
-                     lowerLabel.includes('benefits') || lowerLabel.includes('employee')) {
-            console.log(`📊 EXPENSE MATCH (Payroll): "${metric.label}" -> ${numValue}`);
-            aggregatedExpenses['Payroll & Benefits'] = (aggregatedExpenses['Payroll & Benefits'] || 0) + Math.abs(numValue);
-          } else if (lowerLabel.includes('rent') || lowerLabel.includes('utilities') || 
-                     lowerLabel.includes('office') || lowerLabel.includes('facilities') || 
-                     lowerLabel.includes('lease') || lowerLabel.includes('building')) {
-            console.log(`📊 EXPENSE MATCH (Facilities): "${metric.label}" -> ${numValue}`);
-            aggregatedExpenses['Facilities & Utilities'] = (aggregatedExpenses['Facilities & Utilities'] || 0) + Math.abs(numValue);
-          } else if (lowerLabel.includes('expense') && !lowerLabel.includes('operating')) {
-            console.log(`📊 EXPENSE MATCH (Other): "${metric.label}" -> ${numValue}`);
-            aggregatedExpenses['Other Expenses'] = (aggregatedExpenses['Other Expenses'] || 0) + Math.abs(numValue);
-          } else {
-            console.log(`❌ NO MATCH for metric: "${metric.label}" (${lowerLabel})`);
-          }
-        });
-      }
-    });
-
-    console.log(`💰 Final calculated revenue: ${totalRevenue}`);
-    console.log(`📊 Final aggregated expenses:`, aggregatedExpenses);
-
-
-    // Return empty data if no documents are available
-    if (Object.keys(aggregatedExpenses).length === 0 && totalRevenue === 0) {
-      console.log('⚠️ No financial data found, returning empty result');
-      return {
-        revenue: 0,
-        expenses: []
-      };
+    // Guard: only process if we have KPIs and a selected document
+    if (!kpis || !selectedDocumentId) {
+      return { revenue: 0, expenses: [] };
     }
 
-    // Convert expenses to array with colors
-    const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#6b7280', '#ec4899', '#14b8a6'];
-    const expenses = Object.entries(aggregatedExpenses)
-      .filter(([_, value]) => value > 0)
-      .map(([name, value], index) => ({
-        name,
-        value,
-        color: colors[index % colors.length]
-      }));
+    // Use precomputed KPIs from server
+    const totalRevenue = kpis.revenue_total || 0;
+    const cogsTotal = kpis.cogs_total || 0;
+    const opexTotal = kpis.opex_total || 0;
+
+    // Create expense categories from KPI totals
+    const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#6b7280'];
+    const expenses: ExpenseCategory[] = [];
+
+    if (cogsTotal > 0) {
+      expenses.push({
+        name: 'Cost of Goods Sold',
+        value: cogsTotal,
+        color: colors[0]
+      });
+    }
+
+    if (opexTotal > 0) {
+      expenses.push({
+        name: 'Operating Expenses',
+        value: opexTotal,
+        color: colors[1]
+      });
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('💰 Revenue:', totalRevenue, 'COGS:', cogsTotal, 'OpEx:', opexTotal);
+    }
 
     return { revenue: totalRevenue, expenses };
-  }, [filteredDocuments, documentMetrics]);
+  }, [kpis, selectedDocumentId]);
 
-  const totalExpenses = financialData.expenses.reduce((sum, category) => sum + category.value, 0);
+  const totalExpenses = useMemo(() => 
+    financialData.expenses.reduce((sum, category) => sum + category.value, 0),
+    [financialData.expenses]
+  );
 
   const chartData = {
     labels: financialData.expenses.map(item => item.name),
@@ -258,6 +166,68 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = ({ document
   };
 
 
+  // Loading state
+  if (docsLoading) {
+    return (
+      <Card className="w-full">
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <TrendingDown className="h-5 w-5 text-accent" />
+            <CardTitle className="text-xl font-semibold">Where Did The Money Go?</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-muted-foreground">Loading documents...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Error state
+  if (docsError) {
+    return (
+      <Card className="w-full">
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <TrendingDown className="h-5 w-5 text-accent" />
+            <CardTitle className="text-xl font-semibold">Where Did The Money Go?</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-12 text-muted-foreground">
+            <TrendingDown className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p className="text-lg font-medium mb-2">Error loading documents</p>
+            <p className="text-sm">{docsError.message}</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Empty state
+  if (!documents || documents.length === 0) {
+    return (
+      <Card className="w-full">
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <TrendingDown className="h-5 w-5 text-accent" />
+            <CardTitle className="text-xl font-semibold">Where Did The Money Go?</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-12 text-muted-foreground">
+            <TrendingDown className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p className="text-lg font-medium mb-2">Upload to start</p>
+            <p className="text-sm">Upload financial documents to see expense breakdowns and analysis.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -276,7 +246,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = ({ document
             </SelectTrigger>
             <SelectContent>
               {availableDocuments.map((doc) => (
-                <SelectItem key={doc.document.id} value={doc.document.id!}>
+                <SelectItem key={doc.document.id} value={doc.document.id}>
                   {doc.document.source || 'Untitled Document'} ({formatPeriodLabel(doc.start_date, doc.end_date)})
                 </SelectItem>
               ))}
@@ -286,7 +256,18 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = ({ document
       </CardHeader>
 
       <CardContent>
-        {financialData.expenses.length > 0 || financialData.revenue > 0 ? (
+        {kpisLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-muted-foreground">Loading financial data...</span>
+          </div>
+        ) : kpisError ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <TrendingDown className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p className="text-lg font-medium mb-2">Error loading financial data</p>
+            <p className="text-sm">Please try selecting a different document.</p>
+          </div>
+        ) : financialData.expenses.length > 0 || financialData.revenue > 0 ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Chart */}
             <div className="lg:col-span-2">
@@ -315,7 +296,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = ({ document
                   .sort((a: ExpenseCategory, b: ExpenseCategory) => b.value - a.value)
                   .slice(0, 5)
                   .map((category: ExpenseCategory) => {
-                    const percentage = ((category.value / totalExpenses) * 100).toFixed(1);
+                    const percentage = totalExpenses > 0 ? ((category.value / totalExpenses) * 100).toFixed(1) : '0';
                     return (
                       <div key={category.name} className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
@@ -340,9 +321,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = ({ document
             <TrendingDown className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p className="text-lg font-medium mb-2">No financial data available</p>
             <p className="text-sm">
-              {filteredDocuments.length === 0 
-                ? "No documents match the selected time period. Try selecting a different period or upload financial documents."
-                : "No financial metrics found in the selected documents. Ensure documents contain revenue and expense data."}
+              No financial metrics found in the selected document. Ensure the document contains revenue and expense data.
             </p>
           </div>
         )}

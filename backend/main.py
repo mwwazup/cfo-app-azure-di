@@ -9,7 +9,7 @@ import openai
 from supabase import create_client, Client
 import httpx
 from datetime import datetime
-from api import auth, chat, memory, business, financial, document_analysis
+from api import auth, chat, memory, business, financial, document_analysis, document_ingest
 from db import init_db, get_neo4j_driver, close_neo4j_driver
 
 # Load environment variables
@@ -47,6 +47,7 @@ app.include_router(memory.router)
 app.include_router(business.router)
 app.include_router(financial.router)
 app.include_router(document_analysis.router)
+app.include_router(document_ingest.router)
 
 @app.on_event("startup")
 async def startup_event():

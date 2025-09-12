@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, RotateCcw, Calendar, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, RotateCcw, Calendar, ChevronLeft, ChevronRight, Settings, Edit3 } from 'lucide-react';
 import { AzureDocumentService, type ExtractedFinancialData } from '../../services/azureDocumentService';
 import { useAuth } from '../../contexts/auth-context';
 import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
 import { WhereDidTheMoneyGo } from './WhereDidTheMoneyGo';
+import { ManualPLForm } from './ManualPLForm';
+import { ManualBalanceSheetForm } from './ManualBalanceSheetForm';
+import { ManualCashFlowForm } from './ManualCashFlowForm';
 
 interface ProcessingResult {
   document: Omit<FinancialDocument, 'id' | 'user_id'> & { user_id: string };
@@ -43,6 +46,9 @@ export const FinancialStatements: React.FC = () => {
   });
   const [selectedStartDate, setSelectedStartDate] = useState<Date | null>(null);
   const [selectedEndDate, setSelectedEndDate] = useState<Date | null>(null);
+  const [showManualPLForm, setShowManualPLForm] = useState(false);
+  const [showManualBalanceSheetForm, setShowManualBalanceSheetForm] = useState(false);
+  const [showManualCashFlowForm, setShowManualCashFlowForm] = useState(false);
 
   const loadFinancialDocuments = useCallback(async () => {
     try {
@@ -609,17 +615,28 @@ export const FinancialStatements: React.FC = () => {
                       Upload your P&L statement to analyze revenue, expenses, and profitability
                     </p>
                   </div>
-                  <label className="inline-flex items-center px-4 py-2 rounded-lg cursor-pointer transition-colors" style={{ backgroundColor: '#d0b46a', color: 'black' }}>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload P&L
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={(e) => handleFileUpload(e, 'pnl')}
+                  <div className="space-y-2">
+                    <label className="inline-flex items-center px-4 py-2 rounded-lg cursor-pointer transition-colors" style={{ backgroundColor: '#d0b46a', color: 'black' }}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload P&L
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => handleFileUpload(e, 'pnl')}
+                        disabled={isUploading}
+                      />
+                    </label>
+                    <button
+                      onClick={() => setShowManualPLForm(true)}
+                      className="inline-flex items-center px-4 py-2 rounded-lg border-2 transition-colors w-full justify-center"
+                      style={{ borderColor: '#d0b46a', color: '#d0b46a' }}
                       disabled={isUploading}
-                    />
-                  </label>
+                    >
+                      <Edit3 className="h-4 w-4 mr-2" />
+                      Manual Entry
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -635,17 +652,28 @@ export const FinancialStatements: React.FC = () => {
                       Upload your balance sheet to analyze assets, liabilities, and equity
                     </p>
                   </div>
-                  <label className="inline-flex items-center px-4 py-2 rounded-lg cursor-pointer transition-colors" style={{ backgroundColor: '#d0b46a', color: 'black' }}>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload Balance Sheet
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={(e) => handleFileUpload(e, 'balance_sheet')}
+                  <div className="space-y-2">
+                    <label className="inline-flex items-center px-4 py-2 rounded-lg cursor-pointer transition-colors" style={{ backgroundColor: '#d0b46a', color: 'black' }}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Balance Sheet
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => handleFileUpload(e, 'balance_sheet')}
+                        disabled={isUploading}
+                      />
+                    </label>
+                    <button
+                      onClick={() => setShowManualBalanceSheetForm(true)}
+                      className="inline-flex items-center px-4 py-2 rounded-lg border-2 transition-colors w-full justify-center"
+                      style={{ borderColor: '#d0b46a', color: '#d0b46a' }}
                       disabled={isUploading}
-                    />
-                  </label>
+                    >
+                      <Edit3 className="h-4 w-4 mr-2" />
+                      Manual Entry
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -661,17 +689,28 @@ export const FinancialStatements: React.FC = () => {
                       Upload your cash flow statement to analyze cash movements and liquidity
                     </p>
                   </div>
-                  <label className="inline-flex items-center px-4 py-2 rounded-lg cursor-pointer transition-colors" style={{ backgroundColor: '#d0b46a', color: 'black' }}>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload Cash Flow
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={(e) => handleFileUpload(e, 'cash_flow')}
+                  <div className="space-y-2">
+                    <label className="inline-flex items-center px-4 py-2 rounded-lg cursor-pointer transition-colors" style={{ backgroundColor: '#d0b46a', color: 'black' }}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Cash Flow
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => handleFileUpload(e, 'cash_flow')}
+                        disabled={isUploading}
+                      />
+                    </label>
+                    <button
+                      onClick={() => setShowManualCashFlowForm(true)}
+                      className="inline-flex items-center px-4 py-2 rounded-lg border-2 transition-colors w-full justify-center"
+                      style={{ borderColor: '#d0b46a', color: '#d0b46a' }}
                       disabled={isUploading}
-                    />
-                  </label>
+                    >
+                      <Edit3 className="h-4 w-4 mr-2" />
+                      Manual Entry
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -686,7 +725,7 @@ export const FinancialStatements: React.FC = () => {
       </div>
 
       {/* Where Did The Money Go Section */}
-      <WhereDidTheMoneyGo documents={documents} />
+      <WhereDidTheMoneyGo />
 
       {/* Documents List */}
       <div className="bg-card rounded-lg border border-border">
@@ -1288,6 +1327,28 @@ export const FinancialStatements: React.FC = () => {
             )}
           </div>
         </div>
+      )}
+
+      {/* Manual Form Modals */}
+      {showManualPLForm && (
+        <ManualPLForm
+          onClose={() => setShowManualPLForm(false)}
+          onSave={loadFinancialDocuments}
+        />
+      )}
+
+      {showManualBalanceSheetForm && (
+        <ManualBalanceSheetForm
+          onClose={() => setShowManualBalanceSheetForm(false)}
+          onSave={loadFinancialDocuments}
+        />
+      )}
+
+      {showManualCashFlowForm && (
+        <ManualCashFlowForm
+          onClose={() => setShowManualCashFlowForm(false)}
+          onSave={loadFinancialDocuments}
+        />
       )}
     </div>
   );

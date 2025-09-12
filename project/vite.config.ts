@@ -18,4 +18,13 @@ export default defineConfig({
       path: false,
     },
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5180',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
 });

@@ -1,100 +1,109 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/auth-context';
 
+
 // Types for API responses
 interface DocumentMeta {
   id: string;
   document_type: string;
-  start_date: string;
-  end_date: string;
-  status: string;
+  start_date?: string;
+  end_date?: string;
+  source?: string;
   created_at: string;
-  label: string;
 }
 
 interface DocumentKPIs {
-  document_id: string;
+  doc_id: string;
   revenue_total: number;
-  expense_total: number;
+  cogs_total: number;
+  opex_total: number;
   gross_profit: number;
-  gross_margin: number;
   net_income: number;
-  net_margin: number;
-  created_at: string;
+  gross_margin_percent: number;
+  net_margin_percent: number;
 }
 
 interface DocumentMetrics {
-  revenue: Array<{
-    document_id: string;
-    metric_type: string;
-    metric_key: string;
-    label: string;
-    value: number;
-    confidence: number;
-  }>;
-  expenses: Array<{
-    document_id: string;
-    metric_type: string;
-    metric_key: string;
-    label: string;
-    value: number;
-    confidence: number;
-  }>;
-  kpis: Array<{
-    document_id: string;
-    metric_type: string;
-    metric_key: string;
-    label: string;
-    value: number;
-    confidence: number;
-  }>;
+  id: string;
+  doc_id: string;
+  metric_key: string;
+  label: string;
+  value: number;
+  confidence: number;
+}
+
+interface IngestDocumentRequest {
+  file_data: string;
+  filename: string;
+  document_type: string;
+}
+
+interface IngestDocumentResponse {
+  success: boolean;
+  doc_id: string;
+  message?: string;
 }
 
 // API functions
 const api = {
-  ingestDocument: async (file: string, userId: string, documentType = 'profit_loss') => {
+  ingestDocument: async (data: IngestDocumentRequest): Promise<IngestDocumentResponse> => {
     const response = await fetch('/api/di/ingest', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file, userId, documentType })
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
+      },
+      body: JSON.stringify(data)
     });
     
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error || 'Document ingestion failed');
+      throw new Error(error.detail || 'Document ingestion failed');
     }
     
     return response.json();
   },
 
-  getDocumentsMeta: async (userId: string): Promise<{ docs: DocumentMeta[] }> => {
-    const response = await fetch(`/api/docs/meta?user=${userId}`);
+  getDocumentsMeta: async (userId: string): Promise<DocumentMeta[]> => {
+    const response = await fetch(`/api/docs/meta?user_id=${userId}`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
+      }
+    });
     
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error || 'Failed to fetch documents');
+      throw new Error(error.detail || 'Failed to fetch documents');
     }
     
     return response.json();
   },
 
-  getDocumentKPIs: async (docId: string): Promise<{ kpis: DocumentKPIs }> => {
-    const response = await fetch(`/api/docs/kpis?id=${docId}`);
+  getDocumentKPIs: async (docId: string): Promise<DocumentKPIs> => {
+    const response = await fetch(`/api/docs/kpis?doc_id=${docId}`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
+      }
+    });
     
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error || 'Failed to fetch KPIs');
+      throw new Error(error.detail || 'Failed to fetch KPIs');
     }
     
     return response.json();
   },
 
-  getDocumentMetrics: async (docId: string): Promise<{ metrics: DocumentMetrics; total: number }> => {
-    const response = await fetch(`/api/docs/metrics?id=${docId}`);
+  getDocumentMetrics: async (docId: string): Promise<DocumentMetrics[]> => {
+    const response = await fetch(`/api/docs/metrics?doc_id=${docId}`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
+      }
+    });
     
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error || 'Failed to fetch metrics');
+      throw new Error(error.detail || 'Failed to fetch metrics');
     }
     
     return response.json();
@@ -106,7 +115,7 @@ export const useDocumentsMeta = () => {
   const { user } = useAuth();
   
   return useQuery({
-    queryKey: ['documents', 'meta', user?.id],
+    queryKey: ['docs-meta', user?.id],
     queryFn: () => api.getDocumentsMeta(user!.id),
     enabled: !!user?.id,
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -116,7 +125,7 @@ export const useDocumentsMeta = () => {
 
 export const useDocumentKPIs = (docId: string | null) => {
   return useQuery({
-    queryKey: ['documents', 'kpis', docId],
+    queryKey: ['doc-kpis', docId],
     queryFn: () => api.getDocumentKPIs(docId!),
     enabled: !!docId,
     staleTime: 10 * 60 * 1000, // 10 minutes - KPIs don't change often
@@ -124,11 +133,11 @@ export const useDocumentKPIs = (docId: string | null) => {
   });
 };
 
-export const useDocumentMetrics = (docId: string | null) => {
+export const useDocumentMetrics = (docId: string | null, showDetails: boolean = false) => {
   return useQuery({
-    queryKey: ['documents', 'metrics', docId],
+    queryKey: ['doc-metrics', docId],
     queryFn: () => api.getDocumentMetrics(docId!),
-    enabled: !!docId,
+    enabled: !!(docId && showDetails),
     staleTime: 10 * 60 * 1000, // 10 minutes
     gcTime: 30 * 60 * 1000, // 30 minutes
   });
@@ -139,33 +148,43 @@ export const useIngestDocument = () => {
   const { user } = useAuth();
   
   return useMutation({
-    mutationFn: ({ file, documentType }: { file: string; documentType?: string }) =>
-      api.ingestDocument(file, user!.id, documentType),
-    onSuccess: () => {
+    mutationFn: ({ fileData, filename, documentType }: { 
+      fileData: string; 
+      filename: string;
+      documentType?: string;
+    }) => api.ingestDocument({ 
+      file_data: fileData, 
+      filename, 
+      document_type: documentType || 'financial_statement' 
+    }),
+    onSuccess: (data) => {
       // Invalidate documents meta to refetch the list
-      queryClient.invalidateQueries({ queryKey: ['documents', 'meta'] });
+      queryClient.invalidateQueries({ queryKey: ['docs-meta', user?.id] });
+      return data;
     },
     onError: (error) => {
-      console.error('Document ingestion failed:', error);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Document ingestion failed:', error);
+      }
     }
   });
 };
 
 // Utility hook for getting selected document data
-export const useSelectedDocument = (selectedDocId: string | null) => {
+export const useSelectedDocument = (selectedDocId: string | null, showDetails: boolean = false) => {
   const kpisQuery = useDocumentKPIs(selectedDocId);
-  const metricsQuery = useDocumentMetrics(selectedDocId);
+  const metricsQuery = useDocumentMetrics(selectedDocId, showDetails);
   
   return {
-    kpis: kpisQuery.data?.kpis,
-    metrics: metricsQuery.data?.metrics,
-    isLoading: kpisQuery.isLoading || metricsQuery.isLoading,
+    kpis: kpisQuery.data,
+    metrics: metricsQuery.data,
+    isLoading: kpisQuery.isLoading || (showDetails && metricsQuery.isLoading),
     isError: kpisQuery.isError || metricsQuery.isError,
     error: kpisQuery.error || metricsQuery.error,
     // Only refetch if we have a selected document
     refetch: selectedDocId ? () => {
       kpisQuery.refetch();
-      metricsQuery.refetch();
+      if (showDetails) metricsQuery.refetch();
     } : undefined
   };
 };
