@@ -9,7 +9,8 @@ import {
   BookOpen, 
   LogOut, 
   Menu, 
-  X 
+  X,
+  MessageSquare 
 } from 'lucide-react';
 import { useState } from 'react';
 import VoiceCoach from '../VoiceCoach';
@@ -29,6 +30,7 @@ export function DashboardLayout() {
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
     { name: 'Your Big FIG', href: '/coach/your-big-fig', icon: Heart },
+    { name: 'WaveRider Coach', href: '/coach/wave-rider', icon: MessageSquare },
     { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
   ];
 

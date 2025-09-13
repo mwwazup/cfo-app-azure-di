@@ -1,0 +1,11 @@
+[functions.temporal-rag]
+  # Enable CORS
+  allow_origins = ["*"]
+  # Set the maximum duration for the function to run
+  max_duration = 300
+  # Set the memory limit
+  memory_mb = 512
+  # Enable JWT verification
+  verify_jwt = true
+  # Allow both GET and POST methods
+  methods = ["POST", "OPTIONS"]

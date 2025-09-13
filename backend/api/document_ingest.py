@@ -8,15 +8,39 @@ import uuid
 import base64
 import os
 import logging
-from datetime import datetime
+import os
+import asyncio
+import time
+from datetime import datetime, timedelta
+from typing import Optional
+from fastapi import HTTPException, status
 from api.auth import get_current_user, User
 from supabase import create_client, Client
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["document-ingest"])
+
+# Custom exceptions
+class DocumentProcessingError(Exception):
+    """Raised when document processing fails"""
+    pass
+
+class StorageError(Exception):
+    """Raised when storage operations fail"""
+    pass
+
+class ValidationError(Exception):
+    """Raised when input validation fails"""
+    pass
+
+# Retry configuration
+RETRY_ATTEMPTS = 3
+RETRY_MIN_WAIT = 1  # seconds
+RETRY_MAX_WAIT = 10  # seconds
 
 # Initialize Supabase client
 def get_supabase_client():
@@ -61,7 +85,52 @@ class DocumentMetric(BaseModel):
     value: float
     confidence: float
 
-@router.post("/di/ingest", response_model=DocumentIngestResponse)
+def validate_environment() -> None:
+    """Validate required environment variables"""
+    required_vars = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "AZURE_DI_ENDPOINT", "AZURE_DI_KEY"]
+    missing = [var for var in required_vars if not os.getenv(var)]
+    if missing:
+        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+
+def validate_document_request(request: DocumentIngestRequest) -> None:
+    """Validate document ingestion request"""
+    if not request.file_data or not request.filename:
+        raise ValidationError("File data and filename are required")
+    
+    try:
+        # Basic base64 validation
+        if len(request.file_data) > 10 * 1024 * 1024:  # 10MB max
+            raise ValidationError("File size exceeds maximum limit of 10MB")
+        if not all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in request.file_data):
+            raise ValidationError("Invalid base64 data")
+    except Exception as e:
+        raise ValidationError(f"Invalid file data: {str(e)}")
+
+@retry(
+    stop=stop_after_attempt(RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=1, min=RETRY_MIN_WAIT, max=RETRY_MAX_WAIT),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, StorageError)),
+    reraise=True
+)
+async def _process_with_retry(file_data: bytes) -> Any:
+    """Process document with retry logic"""
+    try:
+        return await _process_document_with_azure_di(file_data)
+    except Exception as e:
+        logger.error(f"Azure Document Intelligence processing failed: {str(e)}", exc_info=True)
+        raise StorageError(f"Failed to process document: {str(e)}")
+
+@router.post(
+    "/di/ingest",
+    response_model=DocumentIngestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        400: {"description": "Invalid request"},
+        401: {"description": "Unauthorized"},
+        500: {"description": "Internal server error"},
+        503: {"description": "Service unavailable"}
+    }
+)
 async def ingest_document(
     request: DocumentIngestRequest,
     current_user: User = Depends(get_current_user)
@@ -95,52 +164,77 @@ async def ingest_document(
         # Calculate KPIs from normalized metrics
         kpis = _calculate_kpis_from_metrics(normalized_metrics)
         
-        # Extract document metadata (dates, type, etc.)
-        doc_metadata = _extract_document_metadata(azure_result, request.filename, request.document_type)
+        # Process with Azure Document Intelligence with retry
+        azure_result = await _process_with_retry(file_data)
         
-        # Store in Supabase
-        supabase = get_supabase_client()
+        # Generate a unique document ID
+        doc_id = str(uuid.uuid4())
         
-        # Insert document record
-        doc_record = {
-            "id": doc_id,
-            "user_id": current_user.id,
-            "document_type": doc_metadata["document_type"],
-            "source": doc_metadata["source"],
-            "start_date": doc_metadata.get("start_date"),
-            "end_date": doc_metadata.get("end_date"),
-            "created_at": datetime.utcnow().isoformat(),
-            "file_size": len(file_data),
-            "filename": request.filename
-        }
+        # Normalize and store the document data
+        try:
+            normalized_data = _normalize_azure_fields(azure_result, doc_id)
+        except Exception as e:
+            raise DocumentProcessingError(f"Failed to normalize document data: {str(e)}")
         
-        # Insert into documents table (assuming it exists from memory)
-        supabase.table("documents").insert(doc_record).execute()
+        # Initialize Supabase client
+        try:
+            supabase = get_supabase_client()
+        except Exception as e:
+            raise StorageError(f"Failed to initialize storage client: {str(e)}")
         
-        # Insert metrics
-        if normalized_metrics:
-            supabase.table("document_metrics").insert(normalized_metrics).execute()
-        
-        # Insert KPIs
-        kpi_record = {
-            "doc_id": doc_id,
-            "user_id": current_user.id,
-            **kpis,
-            "created_at": datetime.utcnow().isoformat()
-        }
-        supabase.table("document_kpis").insert(kpi_record).execute()
-        
-        logger.info(f"Successfully ingested document {doc_id} with {len(normalized_metrics)} metrics")
-        
-        return DocumentIngestResponse(
-            success=True,
-            doc_id=doc_id,
-            message=f"Document processed successfully with {len(normalized_metrics)} metrics"
+        # Store document data in a transaction
+        try:
+            # Extract and store document metadata
+            doc_meta = _extract_document_metadata(azure_result, request.filename, request.document_type)
+            
+            # Store metrics
+            metrics = normalized_data.get("metrics", [])
+            if metrics:
+                result = supabase.table("document_metrics").insert(metrics).execute()
+                if hasattr(result, 'error') and result.error:
+                    raise StorageError(f"Failed to store metrics: {result.error.message}")
+            
+            # Calculate and store KPIs
+            kpis = _calculate_kpis_from_metrics(metrics)
+            if kpis:
+                result = supabase.table("document_kpis").insert(kpis).execute()
+                if hasattr(result, 'error') and result.error:
+                    raise StorageError(f"Failed to store KPIs: {result.error.message}")
+            
+            processing_time = time.time() - start_time
+            logger.info(f"Successfully processed document {doc_id} in {processing_time:.2f} seconds")
+            
+            return DocumentIngestResponse(
+                success=True,
+                doc_id=doc_id,
+                message=f"Document processed successfully in {processing_time:.2f} seconds"
+            )
+            
+        except Exception as e:
+            # Attempt cleanup on failure
+            try:
+                cleanup_failed_ingestion(supabase, doc_id)
+            except Exception as cleanup_error:
+                logger.error(f"Failed to clean up after error: {str(cleanup_error)}")
+            raise
+    except StorageError as e:
+        logger.error(f"Storage error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Storage service error: {str(e)}"
         )
-        
+    except DocumentProcessingError as e:
+        logger.error(f"Document processing error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to process document: {str(e)}"
+        )
     except Exception as e:
-        logger.error(f"Error ingesting document: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Document ingestion failed: {str(e)}")
+        logger.error(f"Unexpected error during document ingestion: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while processing your document"
+        )
 
 @router.get("/docs/meta")
 async def get_documents_metadata(
@@ -260,37 +354,80 @@ async def get_document_metrics(
 
 # Helper functions
 
-async def _process_document_with_azure_di(file_data: bytes) -> Dict[str, Any]:
-    """Process document with Azure Document Intelligence."""
-    # Import and use existing Azure DI processing
-    from api.document_analysis import DocumentIntelligenceClient, AzureKeyCredential
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
+async def _process_document_with_azure_di(file_data: bytes) -> Any:
+    """Process document with Azure Document Intelligence.
     
-    endpoint = os.getenv("DI_ENDPOINT")
-    key = os.getenv("DI_KEY")
-    model_id = os.getenv("DI_MODEL_ID", "PNL")
+    Args:
+        file_data: Binary content of the document to process
+        
+    Returns:
+        The analysis result from Azure Document Intelligence
+        
+    Raises:
+        ConnectionError: If connection to Azure fails
+        TimeoutError: If the request times out
+        Exception: For other processing errors
+    """
+    endpoint = os.getenv("AZURE_DI_ENDPOINT")
+    key = os.getenv("AZURE_DI_KEY")
     
     if not endpoint or not key:
-        raise HTTPException(status_code=500, detail="Azure DI credentials not configured")
+        raise RuntimeError("Azure Document Intelligence credentials not configured")
     
-    client = DocumentIntelligenceClient(endpoint=endpoint, credential=AzureKeyCredential(key))
+    try:
+        # Create client with timeout
+        document_intelligence_client = DocumentIntelligenceClient(
+            endpoint=endpoint, 
+            credential=AzureKeyCredential(key),
+            logging_enable=True
+        )
+        
+        # Process with timeout
+        poller = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: document_intelligence_client.begin_analyze_document(
+                "prebuilt-document",
+                analyze_request=file_data,
+                content_type="application/octet-stream",
+                output_content_format="markdown",
+                features=["ocr.highResolution"],
+                locale="en-US"
+            )
+        )
+        
+        # Wait for result with timeout
+        try:
+            result = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(None, poller.result),
+                timeout=300  # 5 minute timeout
+            )
+            return result
+            
+        except asyncio.TimeoutError:
+            poller.cancel()
+            raise TimeoutError("Document processing timed out after 5 minutes")
+            
+    except Exception as e:
+        logger.error(f"Azure Document Intelligence error: {str(e)}", exc_info=True)
+        if isinstance(e, (ConnectionError, TimeoutError)):
+            raise
+        raise Exception(f"Document processing failed: {str(e)}")
+
+def cleanup_failed_ingestion(supabase: Client, doc_id: str) -> None:
+    """Clean up partially ingested document data on failure.
     
-    # Convert to base64 for Azure DI
-    base64_data = base64.b64encode(file_data).decode('utf-8')
-    analyze_request = {"base64Source": base64_data}
-    
-    # Run in executor
-    loop = asyncio.get_event_loop()
-    executor = ThreadPoolExecutor()
-    
-    poller = await loop.run_in_executor(
-        executor,
-        lambda: client.begin_analyze_document(model_id, analyze_request)
-    )
-    result = await loop.run_in_executor(executor, poller.result)
-    
-    return result
+    Args:
+        supabase: Supabase client instance
+        doc_id: ID of the document to clean up
+    """
+    try:
+        # Delete any partially created records
+        supabase.table("document_metrics").delete().eq("doc_id", doc_id).execute()
+        supabase.table("document_kpis").delete().eq("doc_id", doc_id).execute()
+        logger.info(f"Cleaned up failed ingestion for document {doc_id}")
+    except Exception as e:
+        logger.error(f"Failed to clean up after failed ingestion: {str(e)}")
+    # Document processing complete
 
 def _normalize_azure_fields(azure_result: Any, doc_id: str) -> List[Dict[str, Any]]:
     """Normalize Azure DI fields using canonical LABEL_MAP."""

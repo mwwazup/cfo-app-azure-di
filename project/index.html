@@ -9,5 +9,9 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Point the UI to your deployed Edge Functions (no trailing slash)
+      window.__SUPABASE_FUNCTIONS_URL__ = "https://inczgmmgpnabtxciezio.supabase.co/functions/v1";
+    </script>
   </body>
 </html>

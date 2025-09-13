@@ -1,19 +1,46 @@
 """
 Document Analysis API endpoints for Azure Document Intelligence integration.
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict, Any
+from fastapi import APIRouter, HTTPException, status, Depends, Query
+from pydantic import BaseModel, Field, validator
+from typing import List, Dict, Any, Optional
 import base64
 import os
 import tempfile
 import logging
 import time
+import re
+import uuid
+from datetime import datetime
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import (
+    ServiceRequestError, 
+    ClientAuthenticationError,
+    ResourceNotFoundError,
+    ResourceExistsError,
+    ResourceModifiedError,
+    ResourceNotModifiedError,
+    map_error
+)
 from azure.ai.documentintelligence import DocumentIntelligenceClient
-from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
+from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, AnalyzeResult
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+# Custom exceptions
+class DocumentAnalysisError(Exception):
+    """Raised when document analysis fails"""
+    pass
+
+class ValidationError(Exception):
+    """Raised when input validation fails"""
+    pass
+
+# Retry configuration
+MAX_RETRIES = 3
+MIN_RETRY_DELAY = 1  # second
+MAX_RETRY_DELAY = 10  # seconds
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,114 +48,259 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["document-analysis"])
 
+# Request/Response Models
 class DocumentAnalysisRequest(BaseModel):
-    files: List[str]  # Base64 encoded files
-    userId: str
+    """Request model for document analysis"""
+    files: List[str] = Field(..., min_items=1, max_items=10, description="List of base64 encoded files")
+    userId: str = Field(..., min_length=1, description="User ID initiating the analysis")
+    
+    @validator('files', each_item=True)
+    def validate_base64(cls, v):
+        """Validate base64 encoded strings"""
+        if not v:
+            raise ValueError("Empty file data")
+            
+        # Basic base64 validation
+        if len(v) > 15 * 1024 * 1024:  # 15MB max per file
+            raise ValueError("File size exceeds maximum limit of 15MB")
+            
+        # Check if it's valid base64
+        try:
+            # Remove data URL prefix if present
+            if "," in v:
+                v = v.split(",")[1]
+            # Check if it's base64
+            if not re.match(r'^[A-Za-z0-9+/=]+$', v):
+                raise ValueError("Invalid base64 data")
+        except Exception as e:
+            raise ValueError(f"Invalid file data: {str(e)}")
+        return v
 
 class DocumentAnalysisResponse(BaseModel):
-    success: bool
-    result: Dict[str, Any]
-    error: str = None
+    """Response model for document analysis"""
+    success: bool = Field(..., description="Whether the analysis was successful")
+    result: Optional[Dict[str, Any]] = Field(None, description="Analysis results")
+    error: Optional[str] = Field(None, description="Error message if analysis failed")
+    processing_time: Optional[float] = Field(None, description="Processing time in seconds")
+    document_id: Optional[str] = Field(None, description="Unique ID for the processed document")
 
-@router.post("/documentAnalysis")
+@router.post(
+    "/documentAnalysis",
+    response_model=DocumentAnalysisResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        400: {"description": "Invalid request"},
+        401: {"description": "Unauthorized"},
+        500: {"description": "Internal server error"},
+        503: {"description": "Service unavailable"}
+    }
+)
 async def analyze_document(request: DocumentAnalysisRequest):
     """
     Analyze documents using Azure Document Intelligence.
-    Processes P&L documents and extracts financial data.
+    Processes financial documents and extracts structured data.
+    
+    Args:
+        request: DocumentAnalysisRequest containing base64 encoded files and user ID
+        
+    Returns:
+        DocumentAnalysisResponse with analysis results or error details
     """
+    start_time = time.time()
+    document_id = str(uuid.uuid4())
+    
     try:
         logger.info(f"Processing document analysis request for user: {request.userId}")
         logger.info(f"Number of files to process: {len(request.files)}")
         
-        # Get Azure DI credentials from environment
-        endpoint = os.getenv("DI_ENDPOINT")
-        key = os.getenv("DI_KEY")
-        model_id = os.getenv("DI_MODEL_ID", "PNL")
+        # Validate environment variables
+        endpoint = os.getenv("AZURE_DI_ENDPOINT")
+        key = os.getenv("AZURE_DI_KEY")
+        model_id = os.getenv("AZURE_DI_MODEL_ID", "prebuilt-document")
         
-        logger.info(f"Azure DI Endpoint: {endpoint[:50] if endpoint else 'None'}...")
-        logger.info(f"Azure DI Key: {'***' if key else 'None'} (length: {len(key) if key else 0})")
-        logger.info(f"Azure DI Model ID: {model_id}")
+        if not all([endpoint, key]):
+            raise DocumentAnalysisError("Azure Document Intelligence credentials not configured")
         
-        if not endpoint or not key:
-            raise HTTPException(
-                status_code=500, 
-                detail="Azure Document Intelligence credentials not configured. Please set DI_ENDPOINT and DI_KEY environment variables."
-            )
+        logger.info(f"Processing {len(request.files)} files with Azure Document Intelligence")
         
-        logger.info("Using real Azure Document Intelligence API")
-        
-        # Process the first file (assuming single file upload for now)
-        if not request.files:
-            raise ValueError("No files provided for analysis")
-            
-        # Accept both raw base64 and data URLs (e.g., "data:application/pdf;base64,AAAA...")
-        raw_input = request.files[0]
-        base64_str = raw_input.split(",", 1)[1] if "," in raw_input else raw_input
-        file_data = base64.b64decode(base64_str)
-        
-        try:
-            # Initialize Azure Document Intelligence client
-            document_intelligence_client = DocumentIntelligenceClient(
-                endpoint=endpoint, 
-                credential=AzureKeyCredential(key)
-            )
-            
-            # Analyze document directly with bytes data
-            logger.info(f"Analyzing document with model: {model_id}")
-            logger.info(f"File bytes length: {len(file_data)}")
-            
-            # Use asyncio to run the sync Azure DI client in async context
-            loop = asyncio.get_event_loop()
-            executor = ThreadPoolExecutor()
-            
-            # Convert bytes to base64 for Azure DI API
-            base64_data = base64.b64encode(file_data).decode('utf-8')
-            
-            # Create request body with base64Source
-            analyze_request = {
-                "base64Source": base64_data
-            }
-            
-            # Call Azure DI with proper request format
-            poller = await loop.run_in_executor(
-                executor,
-                lambda: document_intelligence_client.begin_analyze_document(
-                    model_id,
-                    analyze_request
+        # Process each file
+        results = []
+        for i, file_data in enumerate(request.files, 1):
+            try:
+                # Process document with retry logic
+                result = await _process_document(
+                    file_data=file_data,
+                    endpoint=endpoint,
+                    key=key,
+                    model_id=model_id,
+                    file_index=i
                 )
-            )
-            result = await loop.run_in_executor(executor, poller.result)
-            
-            logger.info("Azure DI analysis completed, processing result...")
-            
-            # Process the Azure result
-            processed_result = await _process_azure_result(result)
-            
-            logger.info("Document analysis completed successfully")
-            return {"success": True, "data": processed_result}
-            
-        except Exception as azure_error:
-            logger.error(f"Azure DI error: {str(azure_error)}")
-            # Log the specific error type for debugging
-            logger.error(f"Azure DI error type: {type(azure_error)}")
-            raise azure_error
+                results.append(result)
+            except Exception as e:
+                logger.error(f"Failed to process file {i}: {str(e)}", exc_info=True)
+                # Continue with next file even if one fails
+                continue
                 
+        if not results:
+            raise DocumentAnalysisError("Failed to process any files")
+            
+        processing_time = time.time() - start_time
+        logger.info(f"Successfully processed {len(results)}/{len(request.files)} files in {processing_time:.2f}s")
+        
+        return DocumentAnalysisResponse(
+            success=True,
+            result={"documents": results},
+            processing_time=processing_time,
+            document_id=document_id
+        )
+        
+    except ValidationError as e:
+        logger.warning(f"Validation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid request: {str(e)}"
+        )
+    except (ClientAuthenticationError, ResourceNotFoundError) as e:
+        logger.error(f"Authentication/Resource error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document intelligence service is currently unavailable. Please try again later."
+        )
+    except (ServiceRequestError, TimeoutError) as e:
+        logger.error(f"Network error during document processing: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to connect to document processing service. Please check your connection and try again."
+        )
+    except DocumentAnalysisError as e:
+        logger.error(f"Document processing failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to process document: {str(e)}"
+        )
     except Exception as e:
-        logger.error(f"Error processing document: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Document processing failed: {str(e)}")
+        logger.error(f"Unexpected error during document analysis: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while processing your document"
+        )
+        
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=wait_exponential(multiplier=1, min=MIN_RETRY_DELAY, max=MAX_RETRY_DELAY),
+    retry=retry_if_exception_type((ServiceRequestError, TimeoutError)),
+    reraise=True
+)
+async def _process_document(
+    file_data: str,
+    endpoint: str,
+    key: str,
+    model_id: str,
+    file_index: int
+) -> Dict[str, Any]:
+    """Process a single document with Azure Document Intelligence.
+    
+    Args:
+        file_data: Base64 encoded file data
+        endpoint: Azure Document Intelligence endpoint
+        key: Azure Document Intelligence key
+        model_id: Model ID to use for analysis
+        file_index: Index of the file being processed (for logging)
+        
+    Returns:
+        Processed document result
+        
+    Raises:
+        DocumentAnalysisError: If document processing fails
+    """
+    temp_file_path = None
+    try:
+        # Remove data URL prefix if present
+        if "," in file_data:
+            file_data = file_data.split(",")[1]
+            
+        # Decode base64 data
+        try:
+            file_bytes = base64.b64decode(file_data)
+        except Exception as e:
+            raise ValidationError(f"Invalid base64 data in file {file_index}: {str(e)}")
+        
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(file_bytes)
+            temp_file_path = temp_file.name
+        
+        # Initialize the client with timeout
+        document_intelligence_client = DocumentIntelligenceClient(
+            endpoint=endpoint, 
+            credential=AzureKeyCredential(key),
+            logging_enable=True
+        )
+        
+        # Process with timeout
+        poller = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: document_intelligence_client.begin_analyze_document(
+                model_id=model_id,
+                analyze_request={"base64Source": file_bytes},
+                content_type="application/octet-stream",
+                output_content_format="markdown",
+                features=["ocr.highResolution"],
+                locale="en-US"
+            )
+        )
+        
+        # Wait for result with timeout
+        try:
+            result = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(None, poller.result),
+                timeout=300  # 5 minute timeout
+            )
+            
+            # Process the result
+            processed_result = await _process_azure_result(result)
+            return processed_result
+            
+        except asyncio.TimeoutError:
+            poller.cancel()
+            raise TimeoutError(f"Document processing timed out after 5 minutes for file {file_index}")
+            
+    except Exception as e:
+        error_msg = f"Failed to process file {file_index}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise DocumentAnalysisError(error_msg) from e
+        
+    finally:
+        # Clean up the temporary file
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temporary file {temp_file_path}: {str(e)}")
 
 
 async def _process_azure_result(result) -> Dict[str, Any]:
     """
     Process real Azure Document Intelligence result and extract P&L financial data.
+    
+    Args:
+        result: Azure Document Intelligence result object
+        
+    Returns:
+        Dict containing processed document data
+        
+    Raises:
+        HTTPException: If processing fails
     """
     try:
-        logger.info("Processing real Azure Document Intelligence result")
+        logger.info("Processing Azure Document Intelligence result")
         
         # Convert Azure DI result to our expected format
         analyze_result = {
             "apiVersion": result.api_version if hasattr(result, 'api_version') else "2024-11-30",
-            "modelId": result.model_id if hasattr(result, 'model_id') else "prebuilt-layout",
+            "modelId": result.model_id if hasattr(result, 'model_id') else "prebuilt-document",
             "stringIndexType": "utf16CodeUnit",
             "content": result.content if hasattr(result, 'content') else "",
             "pages": [],
@@ -139,9 +311,9 @@ async def _process_azure_result(result) -> Dict[str, Any]:
         
         # Process pages if available
         if hasattr(result, 'pages') and result.pages:
-            for page in result.pages:
-                page_data = {
-                    "pageNumber": page.page_number if hasattr(page, 'page_number') else 1,
+            analyze_result["pages"] = [
+                {
+                    "pageNumber": page.page_number if hasattr(page, 'page_number') else idx + 1,
                     "angle": page.angle if hasattr(page, 'angle') else 0,
                     "width": page.width if hasattr(page, 'width') else 8.5,
                     "height": page.height if hasattr(page, 'height') else 11,
@@ -149,7 +321,8 @@ async def _process_azure_result(result) -> Dict[str, Any]:
                     "words": [],
                     "lines": []
                 }
-                analyze_result["pages"].append(page_data)
+                for idx, page in enumerate(result.pages)
+            ]
         
         # Process tables if available
         if hasattr(result, 'tables') and result.tables:
@@ -157,77 +330,75 @@ async def _process_azure_result(result) -> Dict[str, Any]:
                 table_data = {
                     "rowCount": table.row_count if hasattr(table, 'row_count') else 0,
                     "columnCount": table.column_count if hasattr(table, 'column_count') else 0,
-                    "cells": [],
-                    "boundingRegions": []
-                }
-                
-                if hasattr(table, 'cells'):
-                    for cell in table.cells:
-                        cell_data = {
+                    "cells": [
+                        {
                             "kind": cell.kind if hasattr(cell, 'kind') else "content",
                             "rowIndex": cell.row_index if hasattr(cell, 'row_index') else 0,
                             "columnIndex": cell.column_index if hasattr(cell, 'column_index') else 0,
                             "content": cell.content if hasattr(cell, 'content') else "",
                             "boundingRegions": []
                         }
-                        table_data["cells"].append(cell_data)
-                
+                        for cell in table.cells
+                    ] if hasattr(table, 'cells') else [],
+                    "boundingRegions": []
+                }
                 analyze_result["tables"].append(table_data)
         
         # Process key-value pairs if available
         if hasattr(result, 'key_value_pairs') and result.key_value_pairs:
-            for kvp in result.key_value_pairs:
-                kvp_data = {
+            analyze_result["keyValuePairs"] = [
+                {
                     "key": {"content": kvp.key.content if hasattr(kvp.key, 'content') else ""},
                     "value": {"content": kvp.value.content if hasattr(kvp.value, 'content') else ""},
                     "confidence": kvp.confidence if hasattr(kvp, 'confidence') else 0.5
                 }
-                analyze_result["keyValuePairs"].append(kvp_data)
+                for kvp in result.key_value_pairs
+            ]
         
-        # Process documents and extract P&L fields
+        # Process documents and extract financial fields
         extracted_fields = {}
         if hasattr(result, 'documents') and result.documents:
             for doc in result.documents:
                 if hasattr(doc, 'fields') and doc.fields:
-                    # Extract all fields from the document (including reportingPeriod)
                     for field_name, field_value in doc.fields.items():
-                        # Include P&L fields and period/date fields
-                        if (any(keyword in field_name.lower() for keyword in ['revenue', 'income', 'expense', 'cost', 'profit', 'loss']) or
-                            any(keyword in field_name.lower() for keyword in ['period', 'date', 'reporting'])):
+                        # Include financial fields and metadata
+                        if any(keyword in field_name.lower() for keyword in 
+                              ['revenue', 'income', 'expense', 'cost', 'profit', 'loss', 'margin', 
+                               'period', 'date', 'year', 'month', 'quarter', 'reporting']):
                             extracted_fields[field_name] = {
                                 "type": field_value.value_type if hasattr(field_value, 'value_type') else "string",
-                                "value": field_value.value if hasattr(field_value, 'value') else field_value.content if hasattr(field_value, 'content') else "",
-                                "valueString": str(field_value.value) if hasattr(field_value, 'value') else field_value.content if hasattr(field_value, 'content') else "",
+                                "value": field_value.value if hasattr(field_value, 'value') else "",
+                                "valueString": str(field_value.value) if hasattr(field_value, 'value') else "",
                                 "confidence": field_value.confidence if hasattr(field_value, 'confidence') else 0.5,
-                                "content": field_value.content if hasattr(field_value, 'content') else str(field_value.value) if hasattr(field_value, 'value') else ""
+                                "content": field_value.content if hasattr(field_value, 'content') else ""
                             }
         
-        # If no specific P&L fields found, try to extract from tables and content
+        # Fallback to content extraction if no fields found
         if not extracted_fields:
-            logger.info("No specific P&L fields found, attempting to extract from tables and content")
+            logger.info("No fields found in document, extracting from content")
             extracted_fields = _extract_pnl_from_content(analyze_result)
         
         # Create document structure with extracted fields
-        document_data = {
-            "docType": "PNL",
+        analyze_result["documents"].append({
+            "docType": "financial",
             "boundingRegions": [{"pageNumber": 1, "boundingBox": [0, 0, 8.5, 0, 8.5, 11, 0, 11]}],
             "fields": extracted_fields,
             "confidence": 0.85
-        }
-        analyze_result["documents"].append(document_data)
+        })
         
-        logger.info(f"Extracted {len(extracted_fields)} P&L fields from Azure DI result")
+        logger.info(f"Extracted {len(extracted_fields)} fields from document")
         
         return {
             "status": "succeeded",
-            "createdDateTime": "2025-01-10T21:00:00Z",
-            "lastUpdatedDateTime": "2025-01-10T21:00:05Z",
+            "createdDateTime": datetime.utcnow().isoformat() + "Z",
+            "lastUpdatedDateTime": datetime.utcnow().isoformat() + "Z",
             "analyzeResult": analyze_result
         }
         
     except Exception as e:
-        logger.error(f"Error processing Azure result: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")
+        error_msg = f"Error processing Azure result: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise DocumentAnalysisError(error_msg) from e
 
 
 def _extract_pnl_from_content(analyze_result: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,10 +1,8 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/auth-context';
 import { RevenueProvider } from './contexts/revenue-context';
 import { DashboardLayout } from './components/layout/dashboard-layout';
 import HeroSection from './components/landing/hero-section';
-import LoginForm from './components/auth/login-form';
 import SignupForm from './components/auth/signup-form';
 import { LoginPage } from './pages/auth/login';
 import { OnboardingPage } from './pages/onboarding';
@@ -13,6 +11,7 @@ import { MasterRevenuePage } from './pages/revenue/master';
 // import { PlaygroundPage } from './pages/revenue/playground'; // Hidden - not in use
 import { FinancialStatementsPage } from './pages/financial-statements';
 import { YourBigFigPage } from './pages/coach/your-big-fig';
+import WaveRiderCoachPage from './pages/coach/wave-rider';
 import { MomentumPage } from './pages/momentum';
 import { MomentumWizardPage } from './pages/momentum/wizard';
 import { CallbackPage } from './pages/auth/callback';
@@ -48,6 +47,7 @@ function App() {
               
               <Route path="/coach" element={<DashboardLayout />}>
                 <Route path="your-big-fig" element={<YourBigFigPage />} />
+                <Route path="wave-rider" element={<WaveRiderCoachPage />} />
               </Route>
               
               <Route path="/momentum" element={<DashboardLayout />}>
