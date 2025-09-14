@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import VoiceCoach from '../../components/VoiceCoach';
 import GraphSeeder from '../../components/GraphSeeder';
 import CoachPanel from '../../components/CoachPanel';
+import GeminiTTS from '../../components/GeminiTTS';
 
 export default function WaveRiderCoachPage() {
   return (
@@ -28,12 +29,22 @@ export default function WaveRiderCoachPage() {
           </div>
         </div>
 
-        <div className="bg-gray-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Knowledge Base</h2>
-          <p className="text-sm text-gray-300 mb-4">
-            Load sample data to get started. This will populate your knowledge base with example business metrics and insights.
-          </p>
-          <GraphSeeder />
+        <div className="space-y-6">
+          <div className="bg-gray-800 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">Knowledge Base</h2>
+            <p className="text-sm text-gray-300 mb-4">
+              Load sample data to get started. This will populate your knowledge base with example business metrics and insights.
+            </p>
+            <GraphSeeder />
+          </div>
+
+          <div className="bg-gray-800 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">Gemini TTS</h2>
+            <p className="text-sm text-gray-300 mb-4">
+              Test the Gemini Text-to-Speech functionality with different voices.
+            </p>
+            <GeminiTTS />
+          </div>
         </div>
       </div>
       

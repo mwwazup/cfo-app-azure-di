@@ -32,11 +32,16 @@ export function LoginPage() {
     e.preventDefault();
     setError('');
     
-    const success = await login(formData.email, formData.password);
-    if (success) {
-      navigate('/dashboard');
-    } else {
-      setError('Invalid email or password');
+    try {
+      const success = await login(formData.email, formData.password);
+      if (success) {
+        navigate('/dashboard');
+      } else {
+        setError('Invalid email or password');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Failed to connect to the server. Please try again.');
     }
   };
 

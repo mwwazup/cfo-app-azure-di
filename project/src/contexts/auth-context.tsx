@@ -1,45 +1,22 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-
+import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../config/supabaseClient';
-
-// Fetch the user's profile (first and last name) from Supabase `profiles` table
-async function fetchUserProfile(userId: string): Promise<{ first_name: string; last_name: string }> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('first_name, last_name')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (error) {
-    console.error('Failed to fetch user profile', error.message);
-  }
-
-  // data may be null when no row exists yet
-  return { first_name: data?.first_name ?? '', last_name: data?.last_name ?? '' };
-}
-
-// Ensure a profile row exists; create if missing
-async function ensureProfile(userId: string, first_name: string, last_name: string) {
-  const { error: upsertError } = await supabase
-    .from('profiles')
-    .upsert({ id: userId, first_name: first_name, last_name: last_name }, { onConflict: 'id', ignoreDuplicates: true });
-  if (upsertError) {
-    console.error('Failed to upsert profile:', upsertError.message);
-  }
-}
 
 interface User {
   id: string;
   email: string;
-  first_name: string;
-  last_name: string;
+  first_name?: string;
+  last_name?: string;
+  user_metadata?: {
+    first_name?: string;
+    last_name?: string;
+  };
 }
 
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<boolean>;
   signup: (userData: SignupData) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -52,140 +29,151 @@ interface SignupData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Check if user is already logged in
   useEffect(() => {
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { first_name, last_name } = await fetchUserProfile(session.user.id);
-        const currentUser = {
-          id: session.user.id,
-          email: session.user.email ?? '',
-          first_name,
-          last_name
-        };
-        setUser(currentUser);
-        localStorage.setItem('bigfigcfo-user', JSON.stringify(currentUser));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (session?.user) {
+          const userData = await fetchUserProfile(session.user.id);
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            first_name: userData?.first_name || session.user.user_metadata?.first_name,
+            last_name: userData?.last_name || session.user.user_metadata?.last_name
+          });
+        } else {
+          setUser(null);
+        }
+        setIsLoading(false);
       }
-      setIsLoading(false);
+    );
+
+    // Check current session
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const userData = await fetchUserProfile(session.user.id);
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            first_name: userData?.first_name || session.user.user_metadata?.first_name,
+            last_name: userData?.last_name || session.user.user_metadata?.last_name
+          });
+        }
+      } catch (error) {
+        console.error('Session check error:', error);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
-    init();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        fetchUserProfile(session.user.id).then(({ first_name, last_name }) => {
-          const currentUser = {
-            id: session.user.id,
-            email: session.user.email ?? '',
-            first_name,
-            last_name
-          };
-          setUser(currentUser);
-          localStorage.setItem('bigfigcfo-user', JSON.stringify(currentUser));
-        });
-      } else {
-        setUser(null);
-        localStorage.removeItem('bigfigcfo-user');
-      }
-    });
-
+    checkSession();
     return () => {
-      subscription.unsubscribe();
+      subscription?.unsubscribe();
     };
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    setIsLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error || !data.session?.user) {
-      console.error('Login failed:', error?.message);
-      setIsLoading(false);
-      return false;
+  const fetchUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', userId)
+        .single();
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      return null;
     }
-
-    const { first_name, last_name } = await fetchUserProfile(data.session.user.id);
-    await ensureProfile(data.session.user.id, first_name, last_name);
-    const loggedInUser: User = {
-      id: data.session.user.id,
-      email: data.session.user.email ?? email,
-      first_name,
-      last_name
-    };
-    setUser(loggedInUser);
-    localStorage.setItem('bigfigcfo-user', JSON.stringify(loggedInUser));
-    setIsLoading(false);
-    return true;
   };
 
-  const signup = async (userData: SignupData): Promise<boolean> => {
-    setIsLoading(true);
-
+  const login = async (email: string, password: string): Promise<boolean> => {
     try {
+      setIsLoading(true);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+      if (!data.user) return false;
+
+      // Fetch additional user data if needed
+      const userData = await fetchUserProfile(data.user.id);
+      setUser({
+        id: data.user.id,
+        email: data.user.email || '',
+        first_name: userData?.first_name || data.user.user_metadata?.first_name,
+        last_name: userData?.last_name || data.user.user_metadata?.last_name
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Login error:', error);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  const signup = async (userData: SignupData): Promise<boolean> => {
+    try {
+      setIsLoading(true);
       const { data, error } = await supabase.auth.signUp({
         email: userData.email,
         password: userData.password,
         options: {
           data: {
             first_name: userData.first_name,
-            last_name: userData.last_name
-          }
-        }
+            last_name: userData.last_name,
+          },
+        },
       });
 
       if (error) throw error;
-      
-      if (data?.user) {
-        // Workaround for Supabase v2 GA bug: manually confirm user email
-        // This bypasses the email confirmation requirement
-        try {
-          // Call backend endpoint to confirm user email
-          const response = await fetch('http://localhost:5175/api/confirmUser', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ userId: data.user.id }),
-          });
-          
-          const result = await response.json();
-          if (!result.success) {
-            console.warn('Failed to auto-confirm user email via backend');
-          }
-        } catch (adminError) {
-          console.warn('Failed to auto-confirm user email:', adminError);
-          // Continue with signup even if confirmation fails
-        }
-        
-        // Profile creation is handled by database trigger
-        const newUser: User = {
+      if (!data.user) return false;
+
+      // Create user profile
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({
           id: data.user.id,
-          email: data.user.email ?? userData.email,
           first_name: userData.first_name,
-          last_name: userData.last_name
-        };
-        setUser(newUser);
-        localStorage.setItem('bigfigcfo-user', JSON.stringify(newUser));
-        setIsLoading(false);
-        return true;
-      }
-      
-      setIsLoading(false);
+          last_name: userData.last_name,
+          email: userData.email,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (profileError) throw profileError;
+
+      // Auto-login after signup
+      return await login(userData.email, userData.password);
+    } catch (error) {
+      console.error('Signup error:', error);
       return false;
-    } catch (err) {
-      console.error('Signup Error:', err);
+    } finally {
       setIsLoading(false);
-      return false;
     }
   };
 
-  const logout = () => {
-    supabase.auth.signOut();
-    setUser(null);
-    localStorage.removeItem('bigfigcfo-user');
+  const logout = async () => {
+    try {
+      setIsLoading(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setUser(null);
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -193,7 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
+};
 
 export function useAuth() {
   const context = useContext(AuthContext);
