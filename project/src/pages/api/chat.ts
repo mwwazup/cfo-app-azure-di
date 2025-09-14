@@ -82,7 +82,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     try {
       // Generate AI response
-      const response = await generateAIResponse(message, conversation || [], user.id);
+      const response = await generateAIResponse(message, conversation || []);
       
       // Log the interaction for analytics
       await logInteraction({
@@ -114,68 +114,14 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 }
 
-// Helper function to generate AI response using Gemini API
+// Helper function to generate AI response using Gemini API - DISABLED
 async function generateAIResponse(
-  message: string, 
-  conversation: ChatMessage[],
-  userId: string
+  _message: string, 
+  _conversation: ChatMessage[]
 ): Promise<string> {
-  try {
-    // Format the conversation for Gemini
-    const contents = [
-      {
-        role: 'user',
-        parts: [{
-          text: 'You are a helpful financial assistant. Provide clear, concise, and accurate responses.'
-        }]
-      },
-      {
-        role: 'model',
-        parts: [{
-          text: 'I understand. I am a helpful financial assistant ready to provide clear and accurate responses.'
-        }]
-      },
-      ...conversation.flatMap(msg => [
-        {
-          role: msg.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: msg.content }]
-        }
-      ]),
-      {
-        role: 'user',
-        parts: [{ text: message }]
-      }
-    ];
-
-    // Call Gemini API directly
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${env.geminiApiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents,
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1000,
-        },
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      console.error('Gemini API error:', error);
-      throw new Error('Failed to get response from Gemini');
-    }
-
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || 
-           "I'm sorry, I couldn't generate a response. Please try again.";
-    
-  } catch (error) {
-    console.error('Error in generateAIResponse:', error);
-    return "I'm sorry, I encountered an error while processing your request. Please try rephrasing your question or try again later.";
-  }
+  // DISABLED: Gemini integration removed for stability
+  // Return a placeholder response instead of calling Gemini API
+  return "AI chat functionality is currently disabled. Please check back later.";
 }
 
 // Helper function to log interactions

@@ -1,8 +1,8 @@
 import { Outlet } from 'react-router-dom';
-import VoiceCoach from '../../components/VoiceCoach';
+// import VoiceCoach from '../../components/VoiceCoach'; // DISABLED - Archived for future use
 import GraphSeeder from '../../components/GraphSeeder';
 import CoachPanel from '../../components/CoachPanel';
-import GeminiTTS from '../../components/GeminiTTS';
+// import GeminiTTS from '../../components/GeminiTTS'; // DISABLED - Archived for future use
 
 export default function WaveRiderCoachPage() {
   return (
@@ -18,7 +18,8 @@ export default function WaveRiderCoachPage() {
             <h2 className="text-lg font-semibold text-white mb-4">Voice Coach</h2>
             <p className="text-sm text-gray-300 mb-4">Press and hold to talk with your AI business coach</p>
             <div className="flex justify-center">
-              <VoiceCoach />
+              {/* <VoiceCoach /> */}
+              <p className="text-gray-500 text-sm">Voice Coach feature disabled</p>
             </div>
           </div>
 
@@ -43,7 +44,8 @@ export default function WaveRiderCoachPage() {
             <p className="text-sm text-gray-300 mb-4">
               Test the Gemini Text-to-Speech functionality with different voices.
             </p>
-            <GeminiTTS />
+            {/* <GeminiTTS /> */}
+            <p className="text-gray-500 text-sm">Gemini TTS feature disabled</p>
           </div>
         </div>
       </div>

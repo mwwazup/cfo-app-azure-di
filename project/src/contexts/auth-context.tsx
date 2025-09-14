@@ -35,19 +35,44 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Check if user is already logged in
   useEffect(() => {
+    // Set a timeout to ensure loading state doesn't persist indefinitely
+    const timeoutId = setTimeout(() => {
+      console.log('Auth timeout reached, setting loading to false');
+      setIsLoading(false);
+    }, 5000); // 5 second timeout
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        console.log('Auth state change:', _event, !!session);
+        clearTimeout(timeoutId); // Clear timeout since we got a response
+        
         if (session?.user) {
-          const userData = await fetchUserProfile(session.user.id);
-          setUser({
+          console.log('Setting user from session');
+          // Set user immediately without waiting for profile fetch
+          const newUser = {
             id: session.user.id,
             email: session.user.email || '',
-            first_name: userData?.first_name || session.user.user_metadata?.first_name,
-            last_name: userData?.last_name || session.user.user_metadata?.last_name
+            first_name: session.user.user_metadata?.first_name,
+            last_name: session.user.user_metadata?.last_name
+          };
+          console.log('About to set user:', newUser);
+          setUser(newUser);
+          
+          // Fetch profile in background (don't await)
+          fetchUserProfile(session.user.id).then(userData => {
+            if (userData) {
+              setUser(prev => prev ? {
+                ...prev,
+                first_name: userData.first_name || prev.first_name,
+                last_name: userData.last_name || prev.last_name
+              } : null);
+            }
           });
         } else {
+          console.log('No session user, clearing user state');
           setUser(null);
         }
+        console.log('Setting isLoading to false from auth state change');
         setIsLoading(false);
       }
     );
@@ -55,41 +80,60 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     // Check current session
     const checkSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        console.log('Checking session...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+        console.log('Session check result:', { session: !!session, error });
+        
+        if (error) {
+          console.error('Session check error:', error);
+          setIsLoading(false);
+          return;
+        }
+        
         if (session?.user) {
-          const userData = await fetchUserProfile(session.user.id);
+          console.log('User found in session, setting user immediately');
           setUser({
             id: session.user.id,
             email: session.user.email || '',
-            first_name: userData?.first_name || session.user.user_metadata?.first_name,
-            last_name: userData?.last_name || session.user.user_metadata?.last_name
+            first_name: session.user.user_metadata?.first_name,
+            last_name: session.user.user_metadata?.last_name
           });
+        } else {
+          console.log('No user in session');
+          setUser(null);
         }
       } catch (error) {
         console.error('Session check error:', error);
       } finally {
+        console.log('Setting isLoading to false');
         setIsLoading(false);
       }
     };
 
     checkSession();
     return () => {
+      clearTimeout(timeoutId);
       subscription?.unsubscribe();
     };
   }, []);
 
   const fetchUserProfile = async (userId: string) => {
     try {
+      console.log('Fetching profile for user:', userId);
       const { data, error } = await supabase
         .from('profiles')
         .select('first_name, last_name')
         .eq('id', userId)
         .single();
       
-      if (error) throw error;
+      console.log('Profile fetch result:', { data, error });
+      if (error) {
+        console.warn('Profile fetch error (this is OK):', error);
+        return null;
+      }
       return data;
     } catch (error) {
-      console.error('Error fetching user profile:', error);
+      console.warn('Error fetching user profile (this is OK):', error);
       return null;
     }
   };
@@ -102,7 +146,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Login error:', error);
+        return false;
+      }
       if (!data.user) return false;
 
       // Fetch additional user data if needed

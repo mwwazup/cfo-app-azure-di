@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Mail, Home } from 'lucide-react';
 import { useAuth } from '../../contexts/auth-context';
 import { Button } from '../../components/ui/button';
+import { supabase } from '../../config/supabaseClient';
 
 export function LoginPage() {
   const { user, login, isLoading } = useAuth();
@@ -15,7 +16,9 @@ export function LoginPage() {
   const [error, setError] = useState('');
 
   // Redirect if already logged in
-  if (user) {
+  console.log('Login page - user:', !!user, 'isLoading:', isLoading);
+  if (user && !isLoading) {
+    console.log('Redirecting to dashboard');
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -49,6 +52,16 @@ export function LoginPage() {
     navigate('/');
   };
 
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setError('');
+      console.log('Logged out successfully');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Top Navigation */}
@@ -70,8 +83,17 @@ export function LoginPage() {
             </div>
           </div>
           
-          <div className="text-sm text-muted">
+          <div className="text-sm text-muted flex items-center gap-2">
             Sign In
+            {user && (
+              <Button variant="ghost" size="sm" onClick={handleLogout}>
+                Clear Session
+              </Button>
+            )}
+            {/* Debug info */}
+            <span className="text-xs text-gray-500">
+              User: {user ? 'Yes' : 'No'} | Loading: {isLoading ? 'Yes' : 'No'}
+            </span>
           </div>
         </div>
       </header>
@@ -179,13 +201,22 @@ export function LoginPage() {
               </div>
             </div>
 
-            <div>
+            <div className="space-y-3">
               <Button
                 type="submit"
                 className="w-full"
                 disabled={isLoading}
               >
                 {isLoading ? 'Signing in...' : 'Sign in'}
+              </Button>
+              
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleLogout}
+              >
+                Clear Session & Reset
               </Button>
             </div>
           </form>

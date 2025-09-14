@@ -13,7 +13,7 @@ import {
   MessageSquare 
 } from 'lucide-react';
 import { useState } from 'react';
-import VoiceCoach from '../VoiceCoach';
+// import VoiceCoach from '../VoiceCoach'; // DISABLED - Archived for future use
 
 export function DashboardLayout() {
   const { user, logout } = useAuth();
@@ -177,8 +177,8 @@ export function DashboardLayout() {
         </div>
       </div>
       
-      {/* Global Voice Coach - Floating Button */}
-      <VoiceCoach />
+      {/* Global Voice Coach - Floating Button - DISABLED */}
+      {/* <VoiceCoach /> */}
     </div>
   );
 }
