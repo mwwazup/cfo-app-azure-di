@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, MessageCircle, Clock, Tag, Loader2, Edit3, Trash2, Save, X, Check } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, MessageCircle, Clock, Tag, Loader2, Edit3, Trash2, Save, X, Check, Send } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { useAuth } from '../../contexts/auth-context';
@@ -33,10 +33,40 @@ export default function WaveRiderCoachPage() {
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [showTagInput, setShowTagInput] = useState(false);
   const [newTag, setNewTag] = useState('');
+  const [textInput, setTextInput] = useState('');
+  const [inputMethod, setInputMethod] = useState<'voice' | 'text'>('voice');
   
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const startTimeRef = useRef<Date | null>(null);
+
+  // Load conversation history on component mount
+  useEffect(() => {
+    const loadConversationHistory = async () => {
+      if (user?.id) {
+        try {
+          const response = await fetch(`http://localhost:8000/api/voice-coach/conversations?user_id=${user.id}&limit=20`);
+          if (response.ok) {
+            const data = await response.json();
+            const historyConversations = data.conversations.map((conv: any) => ({
+              id: conv.id,
+              timestamp: new Date(conv.created_at),
+              question: conv.question,
+              answer: conv.answer,
+              tags: conv.tags || [],
+              duration: conv.duration_seconds,
+              saved: true
+            }));
+            setConversations(historyConversations);
+          }
+        } catch (error) {
+          console.error('Failed to load conversation history:', error);
+        }
+      }
+    };
+
+    loadConversationHistory();
+  }, [user?.id]);
 
   // Initialize speech recognition and synthesis
   useEffect(() => {
@@ -159,10 +189,11 @@ export default function WaveRiderCoachPage() {
     }
   };
 
-  const handleQuestionSubmit = async (question: string) => {
+  const handleQuestionSubmit = async (question: string, fromVoice: boolean = false) => {
     if (!question.trim() || isProcessing) return;
 
     setIsProcessing(true);
+    setInputMethod(fromVoice ? 'voice' : 'text');
 
     try {
       // Call voice coach API
@@ -183,15 +214,30 @@ export default function WaveRiderCoachPage() {
       const data = await response.json();
       const answer = data.answer || "I understand your question about your business. Let me analyze your data and provide insights based on your current performance metrics.";
 
-      // Create conversation record (not saved by default)
+      // Save conversation to database
+      const saveResponse = await fetch('http://localhost:8000/api/voice-coach/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          answer,
+          tags: data.tags || ['general'],
+          duration_seconds: startTimeRef.current ? Math.round((new Date().getTime() - startTimeRef.current.getTime()) / 1000) : undefined,
+          user_id: user?.id || 'anonymous'
+        })
+      });
+
+      const saveData = await saveResponse.json();
+
+      // Create conversation record
       const conversation: Conversation = {
-        id: Date.now().toString(),
+        id: saveData.conversation_id || Date.now().toString(),
         timestamp: new Date(),
         question,
         answer,
-        tags: customTags.length > 0 ? customTags : ['general'],
+        tags: data.tags || ['general'],
         duration: startTimeRef.current ? Math.round((new Date().getTime() - startTimeRef.current.getTime()) / 1000) : undefined,
-        saved: false
+        saved: saveData.success || false
       };
 
       setConversations(prev => [conversation, ...prev]);
@@ -200,8 +246,10 @@ export default function WaveRiderCoachPage() {
       setPendingMessage(null);
       setCustomTags([]);
 
-      // Speak the answer
-      speakAnswer(answer);
+      // Only speak the answer if it came from voice input
+      if (fromVoice) {
+        speakAnswer(answer);
+      }
 
       // Save conversation to database
       try {
@@ -258,8 +306,21 @@ export default function WaveRiderCoachPage() {
       synthRef.current.cancel();
       setIsSpeaking(true);
       
+      // Clean up text for better speech synthesis
+      let cleanedText = text
+        // Replace currency formatting for better speech
+        .replace(/\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, (_, amount) => {
+          // Convert $61,348.00 to "61,348 dollars"
+          const cleanAmount = amount.replace(/\.00$/, '');
+          return `${cleanAmount} dollars`;
+        })
+        // Replace other decimal numbers that might cause issues
+        .replace(/(\d+)\.00\b/g, '$1')
+        // Replace periods in numbers with "point" to avoid sentence breaks
+        .replace(/(\d+)\.(\d+)/g, '$1 point $2');
+      
       // Use smaller chunks and ensure proper sequencing
-      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+      const sentences = cleanedText.split(/[.!?]+/).filter(s => s.trim().length > 0);
       let currentSentence = 0;
       
       const speakSentence = () => {
@@ -443,8 +504,9 @@ export default function WaveRiderCoachPage() {
                         size="sm"
                         variant="ghost"
                         onClick={() => {
-                          setPendingMessage({ ...pendingMessage, isEditing: true });
-                          setEditingTranscript(pendingMessage.text);
+                          if (pendingMessage && !pendingMessage.isEditing) {
+                            handleQuestionSubmit(pendingMessage.text, true);
+                          }
                         }}
                       >
                         <Edit3 className="h-3 w-3" />
@@ -551,7 +613,7 @@ export default function WaveRiderCoachPage() {
         <CardContent>
           <div className="space-y-4">
             {/* SMS-Style Chat Messages */}
-            <div className="max-h-96 overflow-y-auto space-y-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg border">
+            <div className="max-h-96 overflow-y-auto space-y-4 p-4 bg-background/50 rounded-lg border border-border">
               {conversations.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <MessageCircle className="h-12 w-12 mx-auto mb-3 opacity-30" />
@@ -564,7 +626,7 @@ export default function WaveRiderCoachPage() {
                     {/* User Message Bubble */}
                     <div className="flex justify-end">
                       <div className="max-w-[75%] lg:max-w-[60%]">
-                        <div className="bg-blue-500 text-white rounded-3xl rounded-br-lg px-4 py-3 shadow-sm">
+                        <div className="bg-primary text-primary-foreground rounded-3xl rounded-br-lg px-4 py-3 shadow-sm">
                           <p className="text-sm leading-relaxed">{conversation.question}</p>
                         </div>
                         <div className="flex items-center justify-end gap-2 mt-1 px-2">
@@ -574,7 +636,7 @@ export default function WaveRiderCoachPage() {
                           {conversation.tags.length > 0 && (
                             <div className="flex gap-1">
                               {conversation.tags.slice(0, 2).map(tag => (
-                                <span key={tag} className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                                <span key={tag} className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full border border-primary/20">
                                   {tag}
                                 </span>
                               ))}
@@ -587,14 +649,14 @@ export default function WaveRiderCoachPage() {
                     {/* AI Coach Response Bubble */}
                     <div className="flex justify-start">
                       <div className="max-w-[75%] lg:max-w-[60%]">
-                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-3xl rounded-bl-lg px-4 py-3 shadow-sm">
+                        <div className="bg-card text-card-foreground border border-border rounded-3xl rounded-bl-lg px-4 py-3 shadow-sm">
                           <div className="flex items-start gap-2 mb-2">
                             <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
                               <span className="text-xs font-bold text-white">AI</span>
                             </div>
                             <span className="text-xs font-medium text-muted-foreground mt-1">Coach</span>
                           </div>
-                          <p className="text-sm leading-relaxed text-foreground">{conversation.answer}</p>
+                          <p className="text-sm leading-relaxed text-card-foreground">{conversation.answer}</p>
                         </div>
                         <div className="flex items-center justify-between mt-1 px-2">
                           <span className="text-xs text-muted-foreground">Just now</span>
@@ -604,7 +666,7 @@ export default function WaveRiderCoachPage() {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => saveConversation(conversation.id)}
-                                className="h-7 px-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-800"
+                                className="h-7 px-2 text-xs hover:bg-accent hover:text-accent-foreground"
                               >
                                 <Save className="h-3 w-3 mr-1" />
                                 Save
@@ -614,7 +676,7 @@ export default function WaveRiderCoachPage() {
                               size="sm"
                               variant="ghost"
                               onClick={() => deleteConversation(conversation.id)}
-                              className="h-7 px-2 text-xs text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>
@@ -628,6 +690,43 @@ export default function WaveRiderCoachPage() {
             </div>
             
             
+            {/* Text Input Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-foreground">Type a Question:</p>
+              </div>
+              
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Type your question here..."
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && !isProcessing) {
+                      handleQuestionSubmit(textInput, false);
+                      setTextInput('');
+                    }
+                  }}
+                  className="flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  disabled={isProcessing}
+                />
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (textInput.trim()) {
+                      handleQuestionSubmit(textInput, false);
+                      setTextInput('');
+                    }
+                  }}
+                  disabled={!textInput.trim() || isProcessing}
+                  className="px-4"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
             {/* Tag Assignment Section */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">

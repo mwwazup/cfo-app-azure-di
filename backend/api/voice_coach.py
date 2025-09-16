@@ -125,6 +125,53 @@ async def get_user_financial_data(user_id: str, question: str) -> Optional[str]:
         # Extract date/period from question
         lower_q = question.lower()
         
+        # Look for difference/comparison queries first
+        difference_match = re.search(r'(?:difference|compare|between)\s+.*?(january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:of\s+)?(\d{4})\s+and\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:of\s+)?(\d{4})', lower_q)
+        
+        if difference_match:
+            month1_name = difference_match.group(1)
+            year1 = difference_match.group(2)
+            month2_name = difference_match.group(3)
+            year2 = difference_match.group(4)
+            
+            # Convert month names to numbers
+            month_map = {
+                'january': 1, 'february': 2, 'march': 3, 'april': 4,
+                'may': 5, 'june': 6, 'july': 7, 'august': 8,
+                'september': 9, 'october': 10, 'november': 11, 'december': 12
+            }
+            month1_num = month_map.get(month1_name)
+            month2_num = month_map.get(month2_name)
+            
+            if month1_num and month2_num:
+                # Get revenue for both periods
+                response = supabase.table("revenue_entries").select("*").eq("user_id", user_id).execute()
+                
+                if response.data:
+                    revenue1 = 0
+                    revenue2 = 0
+                    
+                    for entry in response.data:
+                        entry_year = entry.get('year')
+                        entry_month = entry.get('month')
+                        amount = entry.get('actual_revenue', 0) or entry.get('amount', 0) or entry.get('revenue', 0)
+                        
+                        if entry_year == int(year1) and entry_month == month1_num and amount:
+                            revenue1 += float(amount)
+                        elif entry_year == int(year2) and entry_month == month2_num and amount:
+                            revenue2 += float(amount)
+                    
+                    if revenue1 >= 0 and revenue2 >= 0:
+                        difference = revenue2 - revenue1
+                        if difference > 0:
+                            return f"Revenue increased by {difference:,.0f} dollars from {month1_name.title()} {year1} ({revenue1:,.0f} dollars) to {month2_name.title()} {year2} ({revenue2:,.0f} dollars)."
+                        elif difference < 0:
+                            return f"Revenue decreased by {abs(difference):,.0f} dollars from {month1_name.title()} {year1} ({revenue1:,.0f} dollars) to {month2_name.title()} {year2} ({revenue2:,.0f} dollars)."
+                        else:
+                            return f"Revenue remained the same at {revenue1:,.0f} dollars between {month1_name.title()} {year1} and {month2_name.title()} {year2}."
+                    else:
+                        return f"I found data for {month1_name.title()} {year1} ({revenue1:,.0f} dollars) and {month2_name.title()} {year2} ({revenue2:,.0f} dollars), but one or both periods have no revenue data."
+        
         # Look for specific months/years - make case insensitive and handle "of" preposition
         month_year_match = re.search(r'(january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:of\s+)?(\d{4})', lower_q)
         year_match = re.search(r'(\d{4})', lower_q)
@@ -157,7 +204,7 @@ async def get_user_financial_data(user_id: str, question: str) -> Optional[str]:
                                 month_revenue += float(amount)
                     
                     if month_revenue > 0:
-                        return f"Based on your revenue records, your total revenue for {month_name.title()} {year} was ${month_revenue:,.2f}."
+                        return f"Based on your revenue records, your total revenue for {month_name.title()} {year} was {month_revenue:,.0f} dollars."
                     else:
                         return f"I couldn't find revenue data for {month_name.title()} {year} in your revenue_entries table."
         
@@ -179,9 +226,65 @@ async def get_user_financial_data(user_id: str, question: str) -> Optional[str]:
                             entry_count += 1
                 
                 if year_revenue > 0:
-                    return f"Based on your revenue records, your total revenue for {year} was ${year_revenue:,.2f} from {entry_count} entries."
+                    return f"Based on your revenue records, your total revenue for {year} was {year_revenue:,.0f} dollars from {entry_count} entries."
                 else:
                     return f"I found revenue entries for {year} but couldn't calculate a total. Please check your revenue_entries table format."
+        
+        # Check for gap analysis queries
+        if any(word in lower_q for word in ['gap', 'target', 'shortfall', 'need to fill', 'behind target']):
+            # Try to get KPI data from document_kpis table first
+            try:
+                kpi_response = supabase.table("document_kpis").select("*").eq("user_id", user_id).execute()
+                
+                if kpi_response.data:
+                    revenue_gap = None
+                    for kpi in kpi_response.data:
+                        kpi_name = kpi.get('kpi_name', '').lower()
+                        if 'revenue gap' in kpi_name or 'gap to target' in kpi_name:
+                            revenue_gap = kpi.get('value', 0)
+                            break
+                    
+                    if revenue_gap is not None:
+                        if revenue_gap > 0:
+                            return f"Based on your KPI analysis, you have a revenue gap of {revenue_gap:,.0f} dollars to fill this year."
+                        elif revenue_gap < 0:
+                            return f"Great news! You've exceeded your target by {abs(revenue_gap):,.0f} dollars this year."
+                        else:
+                            return f"You're exactly on target this year with no revenue gap to fill."
+            except Exception as e:
+                print(f"Error querying document_kpis: {e}")
+            
+            # Fallback to revenue_entries calculation
+            current_year = datetime.now().year
+            response = supabase.table("revenue_entries").select("*").eq("user_id", user_id).execute()
+            
+            if response.data:
+                actual_revenue = 0
+                target_revenue = 0
+                entry_count = 0
+                
+                for entry in response.data:
+                    entry_year = entry.get('year')
+                    if entry_year == current_year:
+                        actual = entry.get('actual_revenue', 0) or entry.get('amount', 0) or entry.get('revenue', 0)
+                        target = entry.get('target_revenue', 0) or entry.get('target', 0)
+                        
+                        if actual:
+                            actual_revenue += float(actual)
+                            entry_count += 1
+                        if target:
+                            target_revenue += float(target)
+                
+                if target_revenue > 0 and actual_revenue >= 0:
+                    gap = target_revenue - actual_revenue
+                    if gap > 0:
+                        return f"Based on your {current_year} data, you have a revenue gap of {gap:,.0f} dollars to fill. Your target is {target_revenue:,.0f} dollars and you've achieved {actual_revenue:,.0f} dollars so far from {entry_count} entries."
+                    elif gap < 0:
+                        return f"Great news! You've exceeded your {current_year} target by {abs(gap):,.0f} dollars. Your target was {target_revenue:,.0f} dollars and you've achieved {actual_revenue:,.0f} dollars."
+                    else:
+                        return f"You're exactly on target for {current_year}! Both your target and actual revenue are {actual_revenue:,.0f} dollars."
+                else:
+                    return f"I found {entry_count} revenue entries for {current_year} but couldn't find target revenue data to calculate your gap. Please ensure your revenue_entries table includes target_revenue values."
         
         # General revenue query
         if any(word in lower_q for word in ['revenue', 'sales', 'income']):
@@ -197,7 +300,7 @@ async def get_user_financial_data(user_id: str, question: str) -> Optional[str]:
                         total_revenue += float(amount)
                 
                 if total_revenue > 0:
-                    return f"Based on your revenue records ({entry_count} entries), your total recorded revenue is ${total_revenue:,.2f}. For specific period analysis, please ask about a particular month and year."
+                    return f"Based on your revenue records ({entry_count} entries), your total recorded revenue is {total_revenue:,.0f} dollars. For specific period analysis, please ask about a particular month and year."
                 else:
                     return f"I found {entry_count} revenue entries in your account, but couldn't extract clear revenue data. Please check your revenue_entries table format."
         
@@ -275,7 +378,7 @@ async def save_conversation(request: SaveConversationRequest):
             "created_at": datetime.now().isoformat()
         }
         
-        response = supabase.table("voice_coach_conversations").insert(conversation_data).execute()
+        response = supabase.table("voice_conversations").insert(conversation_data).execute()
         
         if response.data:
             return {"success": True, "conversation_id": response.data[0]["id"]}
@@ -288,43 +391,42 @@ async def save_conversation(request: SaveConversationRequest):
         # Return success with offline ID instead of throwing error
         return {"success": True, "conversation_id": "offline-" + str(datetime.now().timestamp())}
 
-@router.get("/conversations", response_model=ConversationHistoryResponse)
+@router.get("/conversations")
 async def get_conversation_history(
+    user_id: str,
     limit: int = 50,
     offset: int = 0,
     tags: Optional[str] = None
 ):
     """Get user's conversation history with optional filtering."""
     
+    if not supabase:
+        return {"conversations": [], "total_count": 0}
+    
     try:
-        # Skip auth for now - use test user
-        user_id = "test-user"
-        
-        # Build query
+        # Build query with user filter
         query = supabase.table("voice_conversations").select("*").eq("user_id", user_id)
         
-        # Add tag filtering if specified
+        # Add tag filtering if provided
         if tags:
             tag_list = [tag.strip() for tag in tags.split(",")]
             query = query.overlaps("tags", tag_list)
         
-        # Add pagination and ordering
-        query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
-        
-        result = query.execute()
+        # Add ordering and pagination
+        response = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
         
         # Get total count for pagination
-        count_result = supabase.table("voice_conversations").select("id", count="exact").eq("user_id", user_id).execute()
-        total_count = count_result.count if count_result.count else 0
+        count_response = supabase.table("voice_conversations").select("id", count="exact").eq("user_id", user_id).execute()
+        total_count = count_response.count if count_response.count else 0
         
-        return ConversationHistoryResponse(
-            conversations=result.data or [],
-            total_count=total_count
-        )
+        return {
+            "conversations": response.data or [],
+            "total_count": total_count
+        }
         
     except Exception as e:
-        print(f"Error fetching conversation history: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch conversations: {str(e)}")
+        print(f"Error retrieving conversation history: {e}")
+        return {"conversations": [], "total_count": 0}
 
 @router.get("/tags")
 async def get_available_tags():
