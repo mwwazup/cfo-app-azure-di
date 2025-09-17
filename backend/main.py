@@ -9,8 +9,10 @@ import openai
 from supabase import create_client, Client
 import httpx
 from datetime import datetime
-from api import auth, chat, memory, business, financial, document_analysis, document_ingest, voice_coach
+from api import auth, chat, memory, business, financial, document_analysis, document_ingest, voice_coach, voice_coach_v2
 from db import init_db, get_neo4j_driver, close_neo4j_driver
+from rag import rag_seed, rag_query
+from routers import rag_compat
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
@@ -18,8 +20,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 # Initialize FastAPI app
 app = FastAPI(
     title="CFO App API",
-    description="Backend API for CFO App with Supabase, OpenAI, Zep, and Neo4j integration",
-    version="1.0.0"
+    description="Backend API for CFO App with Supabase, OpenAI, Zep, Neo4j, and RAG integration",
+    version="2.0.0"
 )
 
 # Initialize database connections
@@ -49,6 +51,10 @@ app.include_router(financial.router)
 app.include_router(document_analysis.router)
 app.include_router(document_ingest.router)
 app.include_router(voice_coach.router)
+app.include_router(rag_seed.router)
+app.include_router(rag_query.router)
+app.include_router(voice_coach_v2.router)
+app.include_router(rag_compat.router)
 
 @app.on_event("startup")
 async def startup_event():

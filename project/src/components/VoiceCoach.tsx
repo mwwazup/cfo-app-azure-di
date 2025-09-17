@@ -8,6 +8,7 @@ export default function VoiceCoach() {
   const [isHolding, setIsHolding] = useState(false);
   const [isEnabled, setIsEnabled] = useState(false);
   const [status, setStatus] = useState<"disabled"|"idle"|"connecting"|"live">("disabled");
+  const [error, setError] = useState<string | null>(null);
 
   // Helper: fetch ephemeral session from your Supabase Edge Function
   async function getRealtimeSession() {
@@ -38,14 +39,24 @@ export default function VoiceCoach() {
     if (status === 'live' || status === 'connecting') return;
     
     setStatus("connecting");
+    setError(null);
 
     try {
       const session = await getRealtimeSession();
       const EPHEMERAL_KEY = session?.client_secret?.value; // OpenAI ephemeral key
 
-      // Create PeerConnection
+      // Create PeerConnection with error handling
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
+      
+      // Add connection state monitoring
+      pc.onconnectionstatechange = () => {
+        console.log('Connection state:', pc.connectionState);
+        if (pc.connectionState === 'failed') {
+          setError('Connection failed');
+          setStatus('idle');
+        }
+      };
 
       // Play remote audio (the coach's voice)
       const audioEl = document.createElement("audio");
@@ -90,10 +101,10 @@ export default function VoiceCoach() {
       };
       await pc.setRemoteDescription(answer);
       setStatus("live");
-    } catch (error) {
-      console.error("Failed to connect voice coach:", error);
+    } catch (err) {
+      console.error("Connection failed:", err);
+      setError(err instanceof Error ? err.message : 'Connection failed');
       setStatus("idle");
-      setIsEnabled(false);
     }
   }
 
@@ -133,19 +144,13 @@ export default function VoiceCoach() {
     } else {
       // Turn on
       setIsEnabled(true);
-      await connect();
+      setStatus("idle");
+      // Don't auto-connect, let user manually connect when ready
     }
   }
 
   useEffect(() => {
-    // Only connect if enabled
-    if (isEnabled) {
-      connect().catch((e) => {
-        console.error(e);
-        setStatus("idle");
-      });
-    }
-    
+    // Remove auto-connect on enable to prevent double-click issues
     return () => {
       if (pcRef.current) {
         pcRef.current.close();
@@ -157,7 +162,7 @@ export default function VoiceCoach() {
         micStreamRef.current = null;
       }
     };
-  }, [isEnabled]);
+  }, []);
 
   const getButtonIcon = () => {
     if (status === "connecting") return <Loader2 className="h-6 w-6 animate-spin" />;
@@ -191,6 +196,19 @@ export default function VoiceCoach() {
           {status === "live" && isHolding && "Release to let coach respond"}
         </div>
         
+        {/* Error Display */}
+        {error && (
+          <div className="absolute bottom-full right-0 mb-16 px-3 py-2 bg-red-500 text-white text-sm rounded-lg max-w-xs">
+            {error}
+            <button 
+              onClick={() => setError(null)}
+              className="ml-2 text-red-200 hover:text-white"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        
         <div className="flex items-center gap-3">
           {/* Toggle Switch */}
           <button
@@ -209,14 +227,21 @@ export default function VoiceCoach() {
           
           {/* Main Button */}
           <button
-            onMouseDown={startTalking}
-            onMouseUp={stopTalking}
-            onTouchStart={startTalking}
-            onTouchEnd={stopTalking}
+            onMouseDown={status === "live" ? startTalking : undefined}
+            onMouseUp={status === "live" ? stopTalking : undefined}
+            onTouchStart={status === "live" ? startTalking : undefined}
+            onTouchEnd={status === "live" ? stopTalking : undefined}
+            onClick={status === "idle" && isEnabled ? connect : undefined}
             className={`w-16 h-16 rounded-full shadow-lg transition-all duration-200 transform hover:scale-105 active:scale-95 ${getButtonColor()} text-white flex items-center justify-center`}
-            disabled={!isEnabled || status === "idle"}
+            disabled={!isEnabled}
             aria-pressed={isHolding}
-            title={isEnabled ? (status === "live" ? "Hold to talk to your AI coach" : "Voice coach connecting...") : "Turn on voice coach"}
+            title={
+              !isEnabled ? "Turn on voice coach first" :
+              status === "idle" ? "Click to connect to voice coach" :
+              status === "connecting" ? "Connecting..." :
+              status === "live" ? "Hold to talk to your AI coach" :
+              "Voice coach unavailable"
+            }
           >
             {getButtonIcon()}
           </button>

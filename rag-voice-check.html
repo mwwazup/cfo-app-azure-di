@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WaveRider RAG & Voice Coach Tester (No cURL)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f5f5f5; padding:20px; }
+    .wrap { max-width: 900px; margin:0 auto; background:#fff; padding:24px; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 4px; }
+    .sub { color:#555; margin:0 0 20px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+    input, button { padding:10px 12px; border-radius:8px; border:1px solid #ddd; font-size:14px; }
+    input { flex:1; min-width: 280px; }
+    button { background:#3b82f6; color:#fff; cursor:pointer; border:none; }
+    button:hover { background:#2563eb; }
+    button.secondary { background:#6b7280; }
+    .status { padding:10px; border-radius:8px; margin-top:10px; font-weight:bold; }
+    .ok { background:#dcfce7; color:#166534; }
+    .info { background:#dbeafe; color:#1d4ed8; }
+    .warn { background:#fff7ed; color:#9a3412; }
+    .err { background:#fef2f2; color:#dc2626; }
+    .panel { background:#f8fafc; border:1px solid #e5e7eb; padding:12px; border-radius:8px; margin-top:14px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    pre { margin:0; white-space:pre-wrap; word-break:break-word; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:13px; }
+    .small { font-size:12px; color:#555; }
+    .badge { display:inline-block; padding:3px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; margin-left:6px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>WaveRider RAG & Voice Coach Tester</h1>
+    <p class="sub">Click buttons—no terminal required. This verifies your **RAG** path vs. the legacy path.</p>
+
+    <div class="panel">
+      <div class="row">
+        <input id="baseUrl" value="http://localhost:8000" />
+        <input id="userId" value="e2e72fa4-3e63-4b9d-ab12-1ed2ca583fa3" />
+      </div>
+      <div class="row">
+        <input id="question" value="What was my best month in 2023 and why?" />
+      </div>
+      <div class="small">Use your real User ID (UUID) above.</div>
+    </div>
+
+    <div class="row" style="margin-top:14px;">
+      <button onclick="health()">1) Health</button>
+      <button onclick="seed()"    >2) Seed Graph</button>
+      <button onclick="statusFn()">3) Seed Status</button>
+      <button onclick="askRag()"  >4) Ask RAG</button>
+      <button onclick="askV2()"   >5) Ask Voice Coach V2</button>
+      <button onclick="getActions()">6) Get Actions</button>
+      <button onclick="debugUsers()" style="background:#f59e0b;">🔍 Find Users</button>
+      <button onclick="testAction()" style="background:#ef4444;">🧪 Test Action Storage</button>
+      <button class="secondary" onclick="clearAll()">Clear</button>
+    </div>
+
+    <div id="status" class="status info">Ready</div>
+
+    <div class="grid">
+      <div class="panel">
+        <b>Result</b><span id="ragBadge" class="badge" style="display:none;">RAG DETECTED</span>
+        <pre id="out">{}</pre>
+      </div>
+      <div class="panel">
+        <b>Notes</b>
+        <pre id="notes">
+• If you see "evidence", "actions", or "data_sources": you're on the RAG path.
+• If you only see "answer" without those: that's the older v1 path.
+• After "Seed Graph", "Seed Status" should show "entities" > 0 for your user.
+        </pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const S = (id) => document.getElementById(id);
+    const set = (el, msg, kind='info') => { el.textContent = msg; el.className = 'status ' + kind; };
+    const show = (el, obj) => el.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+    const ragBadge = S('ragBadge');
+
+    function clearAll() { set(S('status'), 'Ready', 'info'); show(S('out'), '{}'); ragBadge.style.display = 'none'; }
+    function markRag(obj) { const hasRag = obj && (obj.evidence || obj.actions || obj.data_sources); ragBadge.style.display = hasRag ? 'inline-block' : 'none'; }
+
+    async function health() {
+      clearAll();
+      const base = S('baseUrl').value.trim();
+      set(S('status'), 'Checking health...', 'info');
+      try { const r = await fetch(base + '/health'); const j = await r.json(); show(S('out'), j); set(S('status'), 'Server is up', 'ok'); }
+      catch (e) { set(S('status'), 'Health check failed: ' + e.message, 'err'); }
+    }
+
+    async function seed() {
+      const base = S('baseUrl').value.trim();
+      const user = S('userId').value.trim();
+      set(S('status'), 'Seeding graph from revenue_entries...', 'info');
+      ragBadge.style.display = 'none';
+      try {
+        const r = await fetch(base + '/api/rag/seed/user/sync-v2', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user, rebuild_graph: true, data_sources: ['revenue_entries'] })
+        });
+        const j = await r.json(); show(S('out'), j);
+        set(S('status'), j.success ? 'Seed complete' : 'Seed finished with warnings', j.success ? 'ok' : 'warn');
+      } catch (e) { set(S('status'), 'Seeding failed: ' + e.message, 'err'); }
+    }
+
+    async function statusFn() {
+      const base = S('baseUrl').value.trim();
+      const user = S('userId').value.trim();
+      set(S('status'), 'Getting graph status...', 'info'); ragBadge.style.display = 'none';
+      try {
+        const r = await fetch(base + '/api/rag/seed/status-v2/' + encodeURIComponent(user));
+        const j = await r.json(); show(S('out'), j);
+        const ok = (j.entities || 0) > 0; set(S('status'), ok ? 'Graph ready (entities > 0)' : 'Graph empty (seed first)', ok ? 'ok' : 'warn');
+      } catch (e) { set(S('status'), 'Status failed: ' + e.message, 'err'); }
+    }
+
+    async function askRag() {
+      const base = S('baseUrl').value.trim();
+      const user = S('userId').value.trim();
+      const q = S('question').value.trim();
+      set(S('status'), 'Asking RAG...', 'info'); ragBadge.style.display = 'none';
+      try {
+        const r = await fetch(base + '/api/rag/query/ask-v2', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user, question: q, include_evidence: true, include_actions: true })
+        });
+        const j = await r.json(); show(S('out'), j); markRag(j);
+        set(S('status'), j.answer ? 'RAG answered' : 'RAG responded without answer', j.answer ? 'ok' : 'warn');
+      } catch (e) { set(S('status'), 'RAG ask failed: ' + e.message, 'err'); }
+    }
+
+    async function askV2() {
+      const base = S('baseUrl').value.trim();
+      const user = S('userId').value.trim();
+      const q = S('question').value.trim();
+      set(S('status'), 'Asking Voice Coach V2...', 'info'); ragBadge.style.display = 'none';
+      try {
+        const r = await fetch(base + '/api/voice-coach/v2/ask-fixed', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: user,
+            question: q,
+            context_window: '12_months',
+            auto_seed: true,
+            timestamp: new Date().toISOString()   // ✅ REQUIRED by your FastAPI model
+          })
+        });
+        const j = await r.json(); show(S('out'), j); markRag(j);
+        set(S('status'), j.answer ? 'V2 answered' : 'V2 responded without answer', j.answer ? 'ok' : 'warn');
+      } catch (e) { set(S('status'), 'V2 ask failed: ' + e.message, 'err'); }
+    }
+
+    async function getActions() {
+      const base = S('baseUrl').value.trim();
+      const user = S('userId').value.trim();
+      set(S('status'), 'Getting actions...', 'info'); ragBadge.style.display = 'none';
+      try {
+        const r = await fetch(base + '/api/voice-coach/v2/actions-fixed/' + encodeURIComponent(user));
+        const j = await r.json(); show(S('out'), j);
+        const count = (j.actions || []).length || 0; set(S('status'), `Retrieved ${count} action(s)`, 'ok');
+      } catch (e) { set(S('status'), 'Get actions failed: ' + e.message, 'err'); }
+    }
+
+    async function debugUsers() {
+      const base = S('baseUrl').value.trim();
+      set(S('status'), 'Finding users with revenue data...', 'info'); ragBadge.style.display = 'none';
+      try {
+        const r = await fetch(base + '/api/rag/debug/users');
+        const j = await r.json(); show(S('out'), j);
+        if (j.user_ids && j.user_ids.length > 0) {
+          set(S('status'), `Found ${j.count} user(s) with revenue data`, 'ok');
+        } else {
+          set(S('status'), 'No users found with revenue data', 'warn');
+        }
+      } catch (e) { set(S('status'), 'Debug users failed: ' + e.message, 'err'); }
+    }
+
+    async function testAction() {
+      const base = S('baseUrl').value.trim();
+      const user = S('userId').value.trim();
+      set(S('status'), 'Testing action storage...', 'info'); ragBadge.style.display = 'none';
+      try {
+        const r = await fetch(base + '/api/rag/debug/test-action', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user })
+        });
+        const j = await r.json(); show(S('out'), j);
+        if (j.success) {
+          set(S('status'), 'Action storage test completed - check backend console', 'ok');
+        } else {
+          set(S('status'), 'Action storage test failed: ' + (j.error || 'unknown'), 'err');
+        }
+      } catch (e) { set(S('status'), 'Action test failed: ' + e.message, 'err'); }
+    }
+  </script>
+</body>
+</html>
