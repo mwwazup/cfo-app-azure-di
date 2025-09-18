@@ -17,11 +17,11 @@ export class KPIDataService {
   static async getKpis(userId: string, year: number): Promise<RevenueKPI | undefined> {
     try {
       const { data, error } = await supabase
-        .from<RevenueKPI>('revenue_kpis')
+        .from('revenue_kpis')
         .select('*')
         .eq('user_id', userId)
         .eq('year', year)
-        .single();
+        .maybeSingle(); // Use maybeSingle() instead of single() to handle empty results
 
       if (error) {
         console.error('Error fetching KPIs:', error.message);

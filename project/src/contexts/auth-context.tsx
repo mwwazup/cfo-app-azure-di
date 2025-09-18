@@ -124,7 +124,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         .from('profiles')
         .select('first_name, last_name')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
       
       console.log('Profile fetch result:', { data, error });
       if (error) {

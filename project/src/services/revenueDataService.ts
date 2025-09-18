@@ -68,7 +68,7 @@ export class RevenueDataService {
         .eq('user_id', userId)
         .eq('year', year)
         .eq('month', month)
-        .single();
+        .maybeSingle();
 
       if (existingRecord) {
         // Update existing record, preserving other fields
