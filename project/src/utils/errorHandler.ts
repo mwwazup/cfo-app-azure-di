@@ -8,10 +8,10 @@ export function initializeErrorHandling() {
   window.addEventListener('error', (event) => {
     console.warn('Caught external error:', event.error);
     
-    // If it's from share-modal.js or similar external scripts, ignore it
-    if (event.filename?.includes('share-modal') || 
-        event.message?.includes('share-modal') ||
-        event.message?.includes('addEventListener')) {
+    // If it's from external scripts, prevent it from breaking the app
+    if (event.filename?.includes('extension') || 
+        event.message?.includes('extension') ||
+        event.message?.includes('chrome-extension')) {
       event.preventDefault();
       return false;
     }

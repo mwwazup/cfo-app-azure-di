@@ -1,43 +1,60 @@
 """
-Voice Coach API endpoints for processing voice interactions and generating AI responses.
+Voice Coach API with robust intent + synonym handling.
+- Maps "total revenue / gross revenue / topline / sales / turnover / income" to revenue.
+- Understands "to date / YTD / so far / through {Month} {Year} / as of {Month} {Year}".
+- Uses desired_revenue as canonical actual amount.
+- Calls RAG V2 first; falls back to best-month and YTD+gap handlers.
 """
 
 import os
-import json
-from datetime import datetime
-from typing import Dict, List, Optional, Any
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
-import openai
-from supabase import create_client, Client
 import re
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Tuple
 
-# from db.db import get_current_user  # Not available, will handle auth differently
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+import httpx
+from supabase import create_client
 
-# Initialize OpenAI client
-openai.api_key = os.getenv("OPENAI_API_KEY")
+print(f"[voice_coach] Loaded from {__file__}")
 
-# Initialize Supabase client with fallback
-supabase = None
-try:
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
-    
-    if supabase_url and supabase_key:
-        supabase = create_client(supabase_url, supabase_key)
-        print("Supabase client initialized successfully")
-    else:
-        print("Warning: Supabase credentials not found, running in fallback mode")
-except Exception as e:
-    print(f"Failed to initialize Supabase client: {e}, running in fallback mode")
-    supabase = None
+# ---------- Clients ----------
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+
+BACKEND_BASE = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
+
+# Dev fallback UUID (your working user)
+DEV_DEFAULT_USER_ID = os.getenv("DEV_DEFAULT_USER_ID", "e2e72fa4-3e63-4b9d-ab12-1ed2ca583fa3")
 
 router = APIRouter(prefix="/api/voice-coach", tags=["voice-coach"])
 
+# ---------- Synonyms & Patterns ----------
+MONTHS = {
+    "jan":1,"january":1,"feb":2,"february":2,"mar":3,"march":3,"apr":4,"april":4,
+    "may":5,"jun":6,"june":6,"jul":7,"july":7,"aug":8,"august":8,
+    "sep":9,"sept":9,"september":9,"oct":10,"october":10,"nov":11,"november":11,"dec":12,"december":12
+}
+MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+REVENUE_SYNONYMS = {
+    "revenue","revenues","total revenue","gross revenue","topline","sales","income","turnover","gross sales"
+}
+YTD_PHRASES = {
+    "ytd","to date","year to date","so far","till now","up to now","through","as of"
+}
+BEST_PHRASES = {"best","highest","peak","max","top"}
+GAP_PHRASES  = {"gap","shortfall","behind target","remaining to goal","to hit my goal","to meet my goal","to reach my goal"}
+TOTAL_PHRASES = {"total","sum","aggregate","combined"}
+
+THROUGH_RE = re.compile(r"\b(?:through|as of)\s+([A-Za-z]+)\s+(20\d{2})\b", re.IGNORECASE)
+
+# ---------- Models ----------
 class VoiceCoachRequest(BaseModel):
     question: str
-    user_id: str
-    timestamp: str
+    user_id: Optional[str] = None
+    timestamp: Optional[str] = None
 
 class VoiceCoachResponse(BaseModel):
     answer: str
@@ -56,516 +73,364 @@ class ConversationHistoryResponse(BaseModel):
     conversations: List[Dict[str, Any]]
     total_count: int
 
-def extract_tags_from_question(question: str) -> List[str]:
-    """Extract relevant tags from the question text."""
-    tags = []
-    lower_question = question.lower()
-    
-    tag_keywords = {
-        'revenue': ['revenue', 'sales', 'income', 'earnings'],
-        'costs': ['cost', 'expense', 'spending', 'budget'],
-        'profit': ['profit', 'margin', 'profitability', 'bottom line'],
-        'growth': ['growth', 'grow', 'increase', 'expand', 'scale'],
-        'targets': ['target', 'goal', 'objective', 'aim'],
-        'performance': ['performance', 'month', 'quarter', 'year', 'period'],
-        'hiring': ['hire', 'staff', 'employee', 'team', 'personnel'],
-        'marketing': ['market', 'advertis', 'lead', 'customer', 'client'],
-        'pricing': ['price', 'pricing', 'rate', 'charge', 'fee']
-    }
-    
-    for tag, keywords in tag_keywords.items():
-        if any(keyword in lower_question for keyword in keywords):
-            tags.append(tag)
-    
-    return tags if tags else ['general']
+# ---------- Helpers ----------
+def ensure_user_id(uid: Optional[str]) -> str:
+    return uid if uid and isinstance(uid, str) and len(uid) >= 8 else DEV_DEFAULT_USER_ID
 
-def generate_business_coach_response(question: str, user_context: Dict = None) -> str:
-    """Generate AI response using OpenAI with business coaching context."""
-    
-    try:
-        # Check if OpenAI API key exists and is valid format
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key or not api_key.startswith("sk-"):
-            print("Invalid or missing OpenAI API key")
-            return get_fallback_response(question)
-        
-        system_prompt = """You are an experienced business coach and CFO advisor. 
-        You help entrepreneurs and business owners with strategic financial decisions, 
-        revenue optimization, cost management, and growth planning.
-        
-        Note: You currently don't have access to the user's specific financial data from their database.
-        If they ask for specific numbers (like "my August 2024 revenue"), acknowledge this limitation 
-        and suggest they check their financial statements, then provide general guidance on the topic.
-        
-        Provide practical, actionable advice in a conversational tone. Keep responses concise but valuable."""
-        
-        # Use the legacy OpenAI API format (compatible with older openai package)
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
-            max_tokens=300,
-            temperature=0.7
-        )
-        
-        return response.choices[0].message.content.strip()
-    
-    except Exception as e:
-        print(f"OpenAI API error: {e}")
-        return get_fallback_response(question)
+def month_name(m: int) -> str:
+    return MONTH_LABELS[max(0, min(11, m-1))]
 
-async def get_user_financial_data(user_id: str, question: str) -> Optional[str]:
-    """Retrieve user's financial data based on the question."""
-    if not supabase:
-        return None
-        
-    try:
-        # Extract date/period from question
-        lower_q = question.lower()
-        
-        # Look for difference/comparison queries first
-        difference_match = re.search(r'(?:difference|compare|between)\s+.*?(january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:of\s+)?(\d{4})\s+and\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:of\s+)?(\d{4})', lower_q)
-        
-        if difference_match:
-            month1_name = difference_match.group(1)
-            year1 = difference_match.group(2)
-            month2_name = difference_match.group(3)
-            year2 = difference_match.group(4)
-            
-            # Convert month names to numbers
-            month_map = {
-                'january': 1, 'february': 2, 'march': 3, 'april': 4,
-                'may': 5, 'june': 6, 'july': 7, 'august': 8,
-                'september': 9, 'october': 10, 'november': 11, 'december': 12
-            }
-            month1_num = month_map.get(month1_name)
-            month2_num = month_map.get(month2_name)
-            
-            if month1_num and month2_num:
-                # Get revenue for both periods
-                response = supabase.table("revenue_entries").select("*").eq("user_id", user_id).execute()
-                
-                if response.data:
-                    revenue1 = 0
-                    revenue2 = 0
-                    
-                    for entry in response.data:
-                        entry_year = entry.get('year')
-                        entry_month = entry.get('month')
-                        amount = entry.get('actual_revenue', 0) or entry.get('amount', 0) or entry.get('revenue', 0)
-                        
-                        if entry_year == int(year1) and entry_month == month1_num and amount:
-                            revenue1 += float(amount)
-                        elif entry_year == int(year2) and entry_month == month2_num and amount:
-                            revenue2 += float(amount)
-                    
-                    if revenue1 >= 0 and revenue2 >= 0:
-                        difference = revenue2 - revenue1
-                        if difference > 0:
-                            return f"Revenue increased by {difference:,.0f} dollars from {month1_name.title()} {year1} ({revenue1:,.0f} dollars) to {month2_name.title()} {year2} ({revenue2:,.0f} dollars)."
-                        elif difference < 0:
-                            return f"Revenue decreased by {abs(difference):,.0f} dollars from {month1_name.title()} {year1} ({revenue1:,.0f} dollars) to {month2_name.title()} {year2} ({revenue2:,.0f} dollars)."
-                        else:
-                            return f"Revenue remained the same at {revenue1:,.0f} dollars between {month1_name.title()} {year1} and {month2_name.title()} {year2}."
-                    else:
-                        return f"I found data for {month1_name.title()} {year1} ({revenue1:,.0f} dollars) and {month2_name.title()} {year2} ({revenue2:,.0f} dollars), but one or both periods have no revenue data."
-        
-        # Look for specific months/years - make case insensitive and handle "of" preposition
-        month_year_match = re.search(r'(january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:of\s+)?(\d{4})', lower_q)
-        year_match = re.search(r'(\d{4})', lower_q)
-        
-        if month_year_match:
-            month_name = month_year_match.group(1)
-            year = month_year_match.group(2)
-            
-            # Convert month name to number
-            month_map = {
-                'january': 1, 'february': 2, 'march': 3, 'april': 4,
-                'may': 5, 'june': 6, 'july': 7, 'august': 8,
-                'september': 9, 'october': 10, 'november': 11, 'december': 12
-            }
-            month_num = month_map.get(month_name)
-            
-            if month_num:
-                # Query revenue_entries table for specific month and year
-                response = supabase.table("revenue_entries").select("*").eq("user_id", user_id).execute()
-                
-                if response.data:
-                    month_revenue = 0
-                    
-                    for entry in response.data:
-                        entry_year = entry.get('year')
-                        entry_month = entry.get('month')
-                        if entry_year == int(year) and entry_month == month_num:
-                            amount = entry.get('actual_revenue', 0) or entry.get('amount', 0) or entry.get('revenue', 0)
-                            if amount:
-                                month_revenue += float(amount)
-                    
-                    if month_revenue > 0:
-                        return f"Based on your revenue records, your total revenue for {month_name.title()} {year} was {month_revenue:,.0f} dollars."
-                    else:
-                        return f"I couldn't find revenue data for {month_name.title()} {year} in your revenue_entries table."
-        
-        # Handle year-only queries
-        if year_match and not month_year_match:
-            year = year_match.group(1)
-            response = supabase.table("revenue_entries").select("*").eq("user_id", user_id).execute()
-            
-            if response.data:
-                year_revenue = 0
-                entry_count = 0
-                monthly_breakdown = []
-                
-                for entry in response.data:
-                    entry_year = entry.get('year')
-                    if entry_year == int(year):
-                        amount = entry.get('actual_revenue', 0) or entry.get('amount', 0) or entry.get('revenue', 0)
-                        if amount:
-                            year_revenue += float(amount)
-                            entry_count += 1
-                            month_name = entry.get('month', 'Unknown')
-                            monthly_breakdown.append(f"{month_name}: ${float(amount):,.0f}")
-                
-                if year_revenue > 0:
-                    breakdown_text = ". Monthly breakdown: " + ", ".join(monthly_breakdown[:6]) if monthly_breakdown else ""
-                    return f"Based on your revenue records, your total revenue for {year} was ${year_revenue:,.0f} from {entry_count} entries{breakdown_text}."
-                else:
-                    return f"I found {len(response.data)} revenue entries but none matched {year} or had valid revenue amounts. Available years: {list(set([str(e.get('year', 'Unknown')) for e in response.data]))}"
-        
-        # Check for gap analysis queries
-        if any(word in lower_q for word in ['gap', 'target', 'shortfall', 'need to fill', 'behind target']):
-            # Try to get KPI data from document_kpis table first
+def has_any(text: str, vocab: set) -> bool:
+    t = text.lower()
+    return any(phrase in t for phrase in vocab)
+
+def coalesce_amount(entry: Dict[str, Any]) -> Optional[float]:
+    """Treat desired_revenue as actual amount; fallback to other fields if needed."""
+    for key in ("desired_revenue", "actual_revenue", "amount", "revenue"):
+        val = entry.get(key)
+        if val is not None:
             try:
-                kpi_response = supabase.table("document_kpis").select("*").eq("user_id", user_id).execute()
-                
-                if kpi_response.data:
-                    revenue_gap = None
-                    for kpi in kpi_response.data:
-                        kpi_name = kpi.get('kpi_name', '').lower()
-                        if 'revenue gap' in kpi_name or 'gap to target' in kpi_name:
-                            revenue_gap = kpi.get('value', 0)
-                            break
-                    
-                    if revenue_gap is not None:
-                        if revenue_gap > 0:
-                            return f"Based on your KPI analysis, you have a revenue gap of {revenue_gap:,.0f} dollars to fill this year."
-                        elif revenue_gap < 0:
-                            return f"Great news! You've exceeded your target by {abs(revenue_gap):,.0f} dollars this year."
-                        else:
-                            return f"You're exactly on target this year with no revenue gap to fill."
-            except Exception as e:
-                print(f"Error querying document_kpis: {e}")
-            
-            # Fallback to revenue_entries calculation
-            current_year = datetime.now().year
-            response = supabase.table("revenue_entries").select("*").eq("user_id", user_id).execute()
-            
-            if response.data:
-                actual_revenue = 0
-                target_revenue = 0
-                entry_count = 0
-                
-                for entry in response.data:
-                    entry_year = entry.get('year')
-                    if entry_year == current_year:
-                        actual = entry.get('actual_revenue', 0) or entry.get('amount', 0) or entry.get('revenue', 0)
-                        target = entry.get('target_revenue', 0) or entry.get('target', 0)
-                        
-                        if actual:
-                            actual_revenue += float(actual)
-                            entry_count += 1
-                        if target:
-                            target_revenue += float(target)
-                
-                if target_revenue > 0 and actual_revenue >= 0:
-                    gap = target_revenue - actual_revenue
-                    if gap > 0:
-                        return f"Based on your {current_year} data, you have a revenue gap of {gap:,.0f} dollars to fill. Your target is {target_revenue:,.0f} dollars and you've achieved {actual_revenue:,.0f} dollars so far from {entry_count} entries."
-                    elif gap < 0:
-                        return f"Great news! You've exceeded your {current_year} target by {abs(gap):,.0f} dollars. Your target was {target_revenue:,.0f} dollars and you've achieved {actual_revenue:,.0f} dollars."
-                    else:
-                        return f"You're exactly on target for {current_year}! Both your target and actual revenue are {actual_revenue:,.0f} dollars."
-                else:
-                    return f"I found {entry_count} revenue entries for {current_year} but couldn't find target revenue data to calculate your gap. Please ensure your revenue_entries table includes target_revenue values."
-        
-        # General revenue query - including strategic analysis
-        if any(word in lower_q for word in ['revenue', 'sales', 'income', 'strategic', 'analysis', 'total']):
-            response = supabase.table("revenue_entries").select("*").eq("user_id", user_id).execute()
-            
-            if response.data:
-                total_revenue = 0
-                entry_count = len(response.data)
-                yearly_data = {}
-                monthly_data = []
-                
-                for entry in response.data:
-                    amount = entry.get('actual_revenue', 0) or entry.get('amount', 0) or entry.get('revenue', 0)
-                    if amount:
-                        total_revenue += float(amount)
-                        year = entry.get('year', 'Unknown')
-                        month = entry.get('month', 'Unknown')
-                        
-                        if year not in yearly_data:
-                            yearly_data[year] = 0
-                        yearly_data[year] += float(amount)
-                        
-                        monthly_data.append({
-                            'year': year,
-                            'month': month,
-                            'amount': float(amount)
-                        })
-                
-                if total_revenue > 0:
-                    # Strategic analysis for 2024 specifically
-                    if '2024' in lower_q:
-                        revenue_2024 = yearly_data.get(2024, 0)
-                        if revenue_2024 > 0:
-                            # Get monthly breakdown for 2024
-                            months_2024 = [d for d in monthly_data if d['year'] == 2024]
-                            months_2024.sort(key=lambda x: x['month'])
-                            
-                            avg_monthly = revenue_2024 / len(months_2024) if months_2024 else 0
-                            highest_month = max(months_2024, key=lambda x: x['amount']) if months_2024 else None
-                            lowest_month = min(months_2024, key=lambda x: x['amount']) if months_2024 else None
-                            
-                            analysis = f"Strategic Analysis for 2024: Your total revenue was ${revenue_2024:,.0f} from {len(months_2024)} months. "
-                            analysis += f"Average monthly revenue: ${avg_monthly:,.0f}. "
-                            
-                            if highest_month and lowest_month:
-                                variance = ((highest_month['amount'] - lowest_month['amount']) / lowest_month['amount']) * 100
-                                analysis += f"Performance variance: {variance:.1f}% between highest (Month {highest_month['month']}: ${highest_month['amount']:,.0f}) and lowest (Month {lowest_month['month']}: ${lowest_month['amount']:,.0f}). "
-                                analysis += f"This indicates {'high volatility' if variance > 50 else 'moderate consistency'} in revenue generation."
-                            
-                            return analysis
-                        else:
-                            return f"No revenue data found for 2024. Available years: {list(yearly_data.keys())}"
-                    
-                    # General revenue response
-                    return f"Based on your revenue records ({entry_count} entries), your total recorded revenue is ${total_revenue:,.0f}. Yearly breakdown: " + ", ".join([f"{year}: ${amount:,.0f}" for year, amount in yearly_data.items()]) + ". For specific period analysis, please ask about a particular year."
-                else:
-                    return f"I found {entry_count} revenue entries in your account, but couldn't extract clear revenue data. Please check your revenue_entries table format."
-        
-    except Exception as e:
-        print(f"Error retrieving financial data: {e}")
-        return None
-    
+                return float(val)
+            except Exception:
+                continue
     return None
 
-def get_fallback_response(question: str) -> str:
-    """Provide a contextual fallback response based on the question."""
-    lower_q = question.lower()
-    
-    # Check for specific data requests first
-    if any(phrase in lower_q for phrase in ['what was my', 'my revenue', 'my sales', 'august 2024', 'total revenue']):
-        return "I don't have access to your specific financial data right now. To get your August 2024 revenue, please check your financial statements or accounting system. I can help you analyze that data once you have it, or provide guidance on improving your revenue going forward."
-    
-    elif any(word in lower_q for word in ['revenue', 'sales', 'income']) and 'improve' not in lower_q:
-        return "For revenue analysis, I'd need access to your financial data. However, I can help you understand key revenue metrics to track: monthly recurring revenue, customer acquisition cost, lifetime value, and conversion rates. Would you like guidance on analyzing any of these?"
-    
-    elif any(word in lower_q for word in ['cost', 'expense', 'budget']):
-        return "For cost management: 1) Review all recurring expenses monthly, 2) Negotiate with suppliers for better rates, 3) Automate repetitive tasks to reduce labor costs, and 4) Focus spending on activities that directly drive revenue growth."
-    
-    elif any(word in lower_q for word in ['profit', 'margin', 'profitability']):
-        return "To improve profitability: 1) Calculate profit margins by product/service, 2) Focus on your highest-margin offerings, 3) Reduce costs without sacrificing quality, and 4) Consider premium pricing for unique value propositions."
-    
-    else:
-        return "I'm here to help with your business questions. I can provide guidance on revenue growth, cost management, profitability analysis, and strategic planning. What specific area would you like to focus on?"
+def parse_years(question: str) -> List[int]:
+    years = re.findall(r'\b(20\d{2})\b', question)
+    out: List[int] = []
+    for y in years:
+        yi = int(y)
+        if yi not in out:
+            out.append(yi)
+    return out
 
-@router.post("/ask")
-async def ask_voice_coach(request: VoiceCoachRequest):
-    """Ask the voice coach a question."""
-    
+def parse_through_clause(question: str) -> Optional[Tuple[int,int]]:
+    """
+    Returns (year, month_number) if user said 'through/as of {Month} {Year}'.
+    """
+    m = THROUGH_RE.search(question)
+    if not m: return None
+    mon_str = m.group(1).strip().lower()
+    yr = int(m.group(2))
+    mon = MONTHS.get(mon_str)
+    return (yr, mon) if mon else None
+
+def detect_revenue_intent(question: str) -> Dict[str, Any]:
+    """
+    Normalize what the user means:
+    - metric: 'revenue' if any revenue synonyms present
+    - ytd: True if 'to date / YTD / ...' present
+    - through: (year, month) if 'through/as of Month Year' present
+    - wants_total: True if they said 'total/sum/aggregate'
+    - wants_best: True if they asked 'best/highest...'
+    - years: list of years mentioned
+    - wants_gap: True if asked about gap/goal/target
+    """
+    q = question.lower()
+    years = parse_years(q)
+    through = parse_through_clause(q)
+
+    metric_revenue = has_any(q, REVENUE_SYNONYMS) or ("revenue" in q)
+    ytd = has_any(q, YTD_PHRASES)
+    wants_total = has_any(q, TOTAL_PHRASES) or ("total revenue" in q or "revenue total" in q)
+    wants_best = has_any(q, BEST_PHRASES)
+    wants_gap = has_any(q, GAP_PHRASES) or ("target" in q or "goal" in q)
+
+    return {
+        "metric_revenue": metric_revenue,
+        "ytd": ytd,
+        "through": through,  # (year, month) or None
+        "wants_total": wants_total,
+        "wants_best": wants_best,
+        "wants_gap": wants_gap,
+        "years": years,
+    }
+
+def extract_tags_from_question(question: str) -> List[str]:
+    t = question.lower()
+    tags = []
+    if has_any(t, REVENUE_SYNONYMS) or "revenue" in t: tags.append("revenue")
+    if any(k in t for k in ["profit","margin","profitability"]): tags.append("profit")
+    if any(k in t for k in ["cost","expense","budget","spend"]): tags.append("costs")
+    if any(k in t for k in ["growth","increase","scale"]): tags.append("growth")
+    if any(k in t for k in ["target","goal","objective"]): tags.append("targets")
+    if any(k in t for k in ["compare","trend","best","worst"]): tags.append("performance")
+    return tags or ["general"]
+
+def fetch_revenue_rows(user_id: str) -> List[Dict[str, Any]]:
+    if not supabase:
+        return []
+    resp = supabase.table("revenue_entries").select("*").eq("user_id", user_id).limit(5000).execute()
+    return resp.data or []
+
+def get_annual_target(user_id: str, year: int) -> Optional[float]:
+    if not supabase:
+        return None
     try:
-        # First, try to get specific financial data if the question asks for it
-        # Use actual user ID from revenue_entries table
-        actual_user_id = request.user_id or "e2e72fa4-3e63-4b9d-ab12-1ed2ca583fa3"
-        financial_data_response = await get_user_financial_data(actual_user_id, request.question)
-        
-        if financial_data_response:
-            # We found specific financial data, use it as the answer
-            answer = financial_data_response
+        r = supabase.table("annual_targets").select("target_revenue").eq("user_id", user_id).eq("year", year).limit(1).execute()
+        if r.data and len(r.data) > 0:
+            return float(r.data[0]["target_revenue"])
+    except Exception:
+        pass
+    return None
+
+def best_month_per_year(rows: List[Dict[str, Any]], years: List[int]) -> Dict[int, Dict[str, Any]]:
+    result: Dict[int, Dict[str, Any]] = {}
+    for y in years:
+        best_amt = None
+        best_mon = None
+        for r in rows:
+            if r.get("year") == y:
+                amt = coalesce_amount(r)
+                if amt is None:
+                    continue
+                if best_amt is None or amt > best_amt:
+                    best_amt = amt
+                    best_mon = int(r.get("month"))
+        if best_amt is not None and best_mon is not None:
+            result[y] = {"month": best_mon, "amount": best_amt}
+    return result
+
+# ---------- Legacy handlers (robust) ----------
+def legacy_best_month_answer(question: str, user_id: str) -> Optional[str]:
+    intent = detect_revenue_intent(question)
+    if not (intent["metric_revenue"] and intent["wants_best"]):
+        # Also handle phrasings like “best month in 2023”
+        if not (intent["wants_best"] or "best month" in question.lower()):
+            return None
+
+    rows = fetch_revenue_rows(user_id)
+    if not rows:
+        return "I couldn't find any revenue rows for your account. Add data to revenue_entries and re-seed."
+
+    years = intent["years"]
+    if not years:
+        yrs_present = sorted({int(r["year"]) for r in rows if r.get("year")})
+        years = yrs_present[-2:] if len(yrs_present) >= 2 else yrs_present
+
+    winners = best_month_per_year(rows, years)
+    if not winners:
+        return f"I found revenue entries but couldn't determine a best month for {', '.join(map(str, years))}."
+
+    parts = []
+    for y in years:
+        w = winners.get(y)
+        if w:
+            parts.append(f"{y}: {month_name(w['month'])} with ${w['amount']:,.0f}")
         else:
-            # Try to generate AI response with OpenAI
-            answer = generate_business_coach_response(request.question)
-        
-        # Extract tags from question
-        tags = extract_tags_from_question(request.question)
-        
-        # Return response without saving to database (will be saved separately)
+            parts.append(f"{y}: no data")
+    return "Best performing revenue months → " + "; ".join(parts) + "."
+
+def legacy_ytd_and_gap_answer(question: str, user_id: str) -> Optional[str]:
+    """
+    Handles:
+      - 'total revenue to date in 2025'
+      - 'gross revenue YTD'
+      - 'total revenue through Sep 2025'
+      - 'what is the gap to my goal in 2025'
+    """
+    intent = detect_revenue_intent(question)
+    q = question.lower()
+
+    # Only run if it's clearly a revenue question
+    if not intent["metric_revenue"]:
+        return None
+
+    wants_ytdish = intent["ytd"] or "to date" in q or "so far" in q or intent["through"] is not None
+    mentions_year = len(intent["years"]) > 0
+
+    # Run if YTD-like phrasing OR they ask total with a year OR they mention gap
+    if not (wants_ytdish or (intent["wants_total"] and mentions_year) or intent["wants_gap"]):
+        return None
+
+    rows = fetch_revenue_rows(user_id)
+    if not rows:
+        return None
+
+    # Determine the year and the "up-to" month cap
+    year: int
+    cap_month: int
+
+    if intent["through"]:
+        # explicit cap like "through Sep 2025"
+        y, m = intent["through"]
+        year, cap_month = y, (m or datetime.utcnow().month)
+    else:
+        years = intent["years"] or [datetime.utcnow().year]
+        year = years[0]
+        cap_month = datetime.utcnow().month  # default YTD cap
+
+    # Sum months up to the cap for that year
+    ytd_amount = 0.0
+    month_lines: List[str] = []
+    for r in rows:
+        if r.get("year") == year:
+            try:
+                m = int(r.get("month"))
+            except Exception:
+                continue
+            if m <= cap_month:
+                amt = coalesce_amount(r)
+                if amt is not None:
+                    ytd_amount += amt
+                    month_lines.append((m, f"{month_name(m)}: ${amt:,.0f}"))
+
+    month_lines.sort(key=lambda t: t[0])
+    month_text = ", ".join([s for _, s in month_lines]) if month_lines else "No monthly rows found."
+
+    # Annual target and GAP
+    target = get_annual_target(user_id, year)
+    parts = [f"Revenue to {month_name(cap_month)} {year}: ${ytd_amount:,.0f}"]
+    if month_lines:
+        parts.append("Included → " + month_text)
+
+    if intent["wants_gap"] or "target" in q or "goal" in q:
+        if target is not None:
+            gap = target - ytd_amount
+            if gap > 0:
+                parts.append(f"Annual target: ${target:,.0f} → Gap to fill: ${gap:,.0f}")
+            elif gap < 0:
+                parts.append(f"Annual target: ${target:,.0f} → You’re ahead by ${abs(gap):,.0f}")
+            else:
+                parts.append(f"Annual target: ${target:,.0f} → Exactly on target.")
+        else:
+            parts.append("No annual target found. Set one in table 'annual_targets' to enable gap calculations.")
+
+    return " | ".join(parts)
+
+# ---------- RAG V2 Bridge ----------
+async def call_v2_rag(question: str, user_id: str) -> Optional[Dict[str, Any]]:
+    payload = {
+        "user_id": user_id,
+        "question": question,
+        "context_window": "12_months",
+        "auto_seed": True,
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(f"{BACKEND_BASE}/api/voice-coach/v2/ask", json=payload)
+            if r.status_code == 200:
+                return r.json()
+            return None
+    except Exception:
+        return None
+
+def save_conversation_row(user_id: str, question: str, answer: str, tags: List[str], duration_seconds: Optional[int]=None):
+    if not supabase:
+        return
+    try:
+        supabase.table("voice_conversations").insert({
+            "user_id": user_id,
+            "question": question,
+            "answer": answer,
+            "tags": tags,
+            "duration_seconds": duration_seconds,
+            "created_at": datetime.utcnow().isoformat() + "Z"
+        }).execute()
+    except Exception:
+        pass
+
+# ---------- Endpoints ----------
+@router.post("/ask", response_model=VoiceCoachResponse)
+async def ask_voice_coach(request: VoiceCoachRequest):
+    user_id = ensure_user_id(request.user_id)
+    question = request.question
+    tags = extract_tags_from_question(question)
+
+    # 1) Try RAG V2 (graph + vector)
+    v2 = await call_v2_rag(question, user_id)
+    if v2 and v2.get("answer"):
+        ans = v2["answer"]
+        save_conversation_row(user_id, question, ans, tags)
         return VoiceCoachResponse(
-            answer=answer,
-            conversation_id="temp-" + str(datetime.now().timestamp()),
+            answer=ans,
+            conversation_id="v2-" + str(datetime.utcnow().timestamp()),
             tags=tags
         )
-        
-    except Exception as e:
-        print(f"Error asking voice coach: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to ask voice coach: {str(e)}")
+
+    # 2) Smart deterministic fallbacks (synonym-aware)
+    ytd_gap = legacy_ytd_and_gap_answer(question, user_id)
+    if ytd_gap:
+        save_conversation_row(user_id, question, ytd_gap, tags)
+        return VoiceCoachResponse(
+            answer=ytd_gap,
+            conversation_id="ytd-" + str(datetime.utcnow().timestamp()),
+            tags=tags
+        )
+
+    bm = legacy_best_month_answer(question, user_id)
+    if bm:
+        save_conversation_row(user_id, question, bm, tags)
+        return VoiceCoachResponse(
+            answer=bm,
+            conversation_id="best-" + str(datetime.utcnow().timestamp()),
+            tags=tags
+        )
+
+    # 3) Minimal fallback
+    answer = (
+        "I can analyze your revenue by month/year once your graph is seeded. "
+        "Try: 'Compare Q4 2023 vs Q1 2024' or 'What drove my best month in 2024?'."
+    )
+    save_conversation_row(user_id, question, answer, tags)
+    return VoiceCoachResponse(
+        answer=answer,
+        conversation_id="fallback-" + str(datetime.utcnow().timestamp()),
+        tags=tags
+    )
 
 @router.post("/conversations")
 async def save_conversation(request: SaveConversationRequest):
-    """Save a conversation to the database."""
-    
     if not supabase:
-        # Return success without saving if no database connection
-        return {"success": True, "conversation_id": "offline-" + str(datetime.now().timestamp())}
-    
+        return {"success": True, "conversation_id": "offline-" + str(datetime.utcnow().timestamp())}
     try:
-        # Insert conversation into database
-        conversation_data = {
+        resp = supabase.table("voice_conversations").insert({
             "user_id": request.user_id,
             "question": request.question,
             "answer": request.answer,
             "tags": request.tags,
             "duration_seconds": request.duration_seconds,
-            "created_at": datetime.now().isoformat()
-        }
-        
-        response = supabase.table("voice_conversations").insert(conversation_data).execute()
-        
-        if response.data:
-            return {"success": True, "conversation_id": response.data[0]["id"]}
-        else:
-            # Fallback to offline mode if database insert fails
-            return {"success": True, "conversation_id": "offline-" + str(datetime.now().timestamp())}
-            
-    except Exception as e:
-        print(f"Error saving conversation: {e}")
-        # Return success with offline ID instead of throwing error
-        return {"success": True, "conversation_id": "offline-" + str(datetime.now().timestamp())}
+            "created_at": datetime.utcnow().isoformat() + "Z"
+        }).execute()
+        if resp.data:
+            return {"success": True, "conversation_id": resp.data[0]["id"]}
+        return {"success": True, "conversation_id": "offline-" + str(datetime.utcnow().timestamp())}
+    except Exception:
+        return {"success": True, "conversation_id": "offline-" + str(datetime.utcnow().timestamp())}
 
-@router.get("/conversations")
-async def get_conversation_history(
-    user_id: str,
-    limit: int = 50,
-    offset: int = 0,
-    tags: Optional[str] = None
-):
-    """Get user's conversation history with optional filtering."""
-    
+@router.get("/conversations", response_model=ConversationHistoryResponse)
+async def get_conversation_history(user_id: str, limit: int = 50, offset: int = 0, tags: Optional[str] = None):
     if not supabase:
         return {"conversations": [], "total_count": 0}
-    
     try:
-        # Build query with user filter
         query = supabase.table("voice_conversations").select("*").eq("user_id", user_id)
-        
-        # Add tag filtering if provided
         if tags:
-            tag_list = [tag.strip() for tag in tags.split(",")]
+            tag_list = [t.strip() for t in tags.split(",")]
             query = query.overlaps("tags", tag_list)
-        
-        # Add ordering and pagination
         response = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-        
-        # Get total count for pagination
-        count_response = supabase.table("voice_conversations").select("id", count="exact").eq("user_id", user_id).execute()
-        total_count = count_response.count if count_response.count else 0
-        
-        return {
-            "conversations": response.data or [],
-            "total_count": total_count
-        }
-        
+        count_resp = supabase.table("voice_conversations").select("id", count="exact").eq("user_id", user_id).execute()
+        total_count = count_resp.count or 0
+        return {"conversations": response.data or [], "total_count": total_count}
     except Exception as e:
-        print(f"Error retrieving conversation history: {e}")
-        return {"conversations": [], "total_count": 0}
+        raise HTTPException(status_code=500, detail=f"Failed to fetch conversations: {str(e)}")
 
 @router.get("/tags")
 async def get_available_tags():
-    """Get all available conversation tags."""
-    
     try:
         result = supabase.table("conversation_tags").select("*").order("name").execute()
         return {"tags": result.data or []}
-        
     except Exception as e:
-        print(f"Error fetching tags: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch tags: {str(e)}")
 
 @router.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str, user_id: str = "e2e72fa4-3e63-4b9d-ab12-1ed2ca583fa3"):
-    """Delete a specific conversation."""
-    
+async def delete_conversation(conversation_id: str, user_id: Optional[str] = None):
+    if not supabase or not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
     try:
-        # Use consistent user filtering - actual user ID or test-user for dev
-        
-        # Verify ownership and delete
         result = supabase.table("voice_conversations").delete().eq("id", conversation_id).eq("user_id", user_id).execute()
-        
         if not result.data:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        
         return {"message": "Conversation deleted successfully"}
-        
     except Exception as e:
-        print(f"Error deleting conversation: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete conversation: {str(e)}")
-
-async def get_user_business_context(user_id: str) -> Dict:
-    """Get user's business context for better AI responses."""
-    
-    try:
-        # This would fetch user's revenue data, business metrics, etc.
-        # For now, return empty context - can be enhanced later
-        return {}
-        
-    except Exception as e:
-        print(f"Error fetching user context: {e}")
-        return {}
-
-@router.get("/conversations/analytics")
-async def get_conversations_analytics():
-    """Get conversation analytics for the user."""
-    
-    try:
-        # Skip auth for now - use test user
-        user_id = "test-user"
-        
-        result = supabase.table("voice_conversation_analytics").select("*").eq("user_id", user_id).execute()
-        
-        if result.data:
-            return result.data[0]
-        else:
-            return {
-                "total_conversations": 0,
-                "avg_duration_seconds": 0,
-                "conversations_last_7_days": 0,
-                "conversations_last_30_days": 0,
-                "all_tags_used": [],
-                "first_conversation": None,
-                "last_conversation": None
-            }
-            
-    except Exception as e:
-        print(f"Error fetching analytics: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch analytics: {str(e)}")
-
-@router.get("/analytics")
-async def get_conversation_analytics():
-    """Get conversation analytics for the user."""
-    
-    try:
-        # Skip auth for now - use test user
-        user_id = "test-user"
-        
-        result = supabase.table("voice_conversation_analytics").select("*").eq("user_id", user_id).execute()
-        
-        if result.data:
-            return result.data[0]
-        else:
-            return {
-                "total_conversations": 0,
-                "avg_duration_seconds": 0,
-                "conversations_last_7_days": 0,
-                "conversations_last_30_days": 0,
-                "all_tags_used": [],
-                "first_conversation": None,
-                "last_conversation": None
-            }
-            
-    except Exception as e:
-        print(f"Error fetching analytics: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch analytics: {str(e)}")

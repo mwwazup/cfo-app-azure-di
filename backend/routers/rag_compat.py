@@ -287,8 +287,76 @@ def vc_v2_ask(payload: Dict[str, Any]):
         qvec = embed_small([q])[0]
         since = (datetime.utcnow() - timedelta(days=365*5)).isoformat()+"Z"
 
+        # Get direct revenue data first
+        print("DEBUG: V2 - Querying revenue_entries table directly")
+        revenue_ctx = ""
+        try:
+            # Get all revenue entries for user, ordered by year/month
+            revenue_data = supabase.table("revenue_entries").select("*").eq("user_id", user_id).order("year,month").execute().data or []
+            print(f"DEBUG: V2 - Found {len(revenue_data)} revenue entries")
+            
+            # Build revenue context
+            revenue_lines = []
+            total_2025 = 0
+            desired_revenue_goal = None
+            
+            for entry in revenue_data:
+                year = entry.get('year')
+                month = entry.get('month')
+                actual = entry.get('actual_revenue', 0)
+                desired = entry.get('desired_revenue', 0)
+                
+                print(f"DEBUG: Processing entry - {month}/{year}: actual=${actual}, desired=${desired}")
+                
+                # Track 2025 total and goal using the same logic as voice coach
+                if year == 2025:
+                    # Use coalesce logic like voice coach: desired_revenue as actual amount
+                    amount = desired or actual or 0
+                    if amount > 0:
+                        total_2025 += amount
+                        print(f"DEBUG: Adding to 2025 total: ${amount} (running total: ${total_2025})")
+                
+                # Look for revenue goal in desired_revenue field
+                if desired > 0 and not desired_revenue_goal:
+                    desired_revenue_goal = desired
+                    print(f"DEBUG: Found revenue goal: ${desired}")
+                
+                if actual > 0:
+                    revenue_lines.append(f"{month}/{year}: ${actual:,.0f} revenue")
+            
+            revenue_ctx = "\n".join(revenue_lines[-24:])  # Last 24 months
+            
+            # Try to get annual target from annual_targets table (like voice coach)
+            if not desired_revenue_goal:
+                try:
+                    annual_target_result = supabase.table("annual_targets").select("target_revenue").eq("user_id", user_id).eq("year", 2025).limit(1).execute()
+                    if annual_target_result.data and len(annual_target_result.data) > 0:
+                        desired_revenue_goal = float(annual_target_result.data[0]["target_revenue"])
+                        print(f"DEBUG: Found annual target from annual_targets table: ${desired_revenue_goal}")
+                except Exception as e:
+                    print(f"DEBUG: Could not fetch from annual_targets table: {e}")
+            
+            # Add summary for 2025
+            print(f"DEBUG: Final 2025 total: ${total_2025}, revenue goal: ${desired_revenue_goal}")
+            if total_2025 > 0:
+                revenue_ctx += f"\n\n2025 Total Revenue to Date: ${total_2025:,.0f}"
+            if desired_revenue_goal:
+                revenue_ctx += f"\nAnnual Revenue Goal: ${desired_revenue_goal:,.0f}"
+                if total_2025 > 0:
+                    gap = desired_revenue_goal - total_2025
+                    revenue_ctx += f"\nRemaining Gap to Goal: ${gap:,.0f}"
+                    print(f"DEBUG: Gap calculation: ${desired_revenue_goal} - ${total_2025} = ${gap}")
+            else:
+                revenue_ctx += f"\nNo annual revenue goal found. Set one to enable gap calculations."
+            
+            print(f"DEBUG: V2 - Revenue context length: {len(revenue_ctx)}")
+            
+        except Exception as e:
+            print(f"DEBUG: V2 - Revenue query failed: {e}")
+            revenue_ctx = ""
+        
         # Try user-scoped ANN RPC; fallback to recent nodes
-        ctx = ""
+        graph_ctx = ""
         top = []
         try:
             print("DEBUG: V2 - Trying user-scoped RPC")
@@ -297,14 +365,17 @@ def vc_v2_ask(payload: Dict[str, Any]):
                 {"q": qvec, "p_user_id": user_id, "since": since, "k": 8}
             ).execute()
             top = rpc.data or []
-            ctx = "\n".join(f"{n['label']} {n.get('props',{}).get('month','')}: {n.get('body','')}" for n in top[:12])
+            graph_ctx = "\n".join(f"{n['label']} {n.get('props',{}).get('month','')}: {n.get('body','')}" for n in top[:12])
             print(f"DEBUG: V2 - Found {len(top)} nodes via RPC")
         except Exception as e:
             print(f"DEBUG: V2 - RPC failed: {e}, trying fallback")
             rows = supabase.table("graph_nodes").select("*").eq("user_id", user_id).eq("label","Month").order("valid_from", desc=True).limit(12).execute().data or []
             top = rows
-            ctx = "\n".join(f"{r['label']} {r.get('props',{}).get('month','')}: {r.get('body','')}" for r in rows)
+            graph_ctx = "\n".join(f"{r['label']} {r.get('props',{}).get('month','')}: {r.get('body','')}" for r in rows)
             print(f"DEBUG: V2 - Found {len(rows)} nodes via fallback")
+        
+        # Combine contexts
+        ctx = f"REVENUE DATA:\n{revenue_ctx}\n\nADDITIONAL INSIGHTS:\n{graph_ctx}" if revenue_ctx else graph_ctx
 
         print(f"DEBUG: V2 - Context length: {len(ctx)}")
         

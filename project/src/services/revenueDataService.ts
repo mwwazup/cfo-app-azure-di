@@ -156,7 +156,6 @@ export class RevenueDataService {
         };
       });
 
-      // Verify the total equals the target (for debugging)
       const calculatedTotal = updates.reduce((sum, update) => sum + update.desired_revenue, 0);
       if (Math.abs(calculatedTotal - targetRevenue) > 0.01) {
         console.warn(`FIR distribution mismatch: ${calculatedTotal} vs ${targetRevenue}`);

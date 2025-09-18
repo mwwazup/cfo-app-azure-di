@@ -22,6 +22,9 @@ interface PendingMessage {
 
 export default function WaveRiderCoachPage() {
   const { user } = useAuth();
+  
+  // Temporary: Use dev user ID that has data for testing
+  const effectiveUserId = user?.id || 'e2e72fa4-3e63-4b9d-ab12-1ed2ca583fa3';
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -39,13 +42,14 @@ export default function WaveRiderCoachPage() {
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const startTimeRef = useRef<Date | null>(null);
+  const transcriptRef = useRef<string>('');
 
   // Load conversation history on component mount
   useEffect(() => {
     const loadConversationHistory = async () => {
-      if (user?.id) {
+      if (effectiveUserId) {
         try {
-          const response = await fetch(`http://localhost:8000/api/voice-coach/conversations?user_id=${user.id}&limit=20`);
+          const response = await fetch(`http://localhost:8000/api/voice-coach/conversations?user_id=${effectiveUserId}&limit=20`);
           if (response.ok) {
             const data = await response.json();
             const historyConversations = data.conversations.map((conv: any) => ({
@@ -66,29 +70,30 @@ export default function WaveRiderCoachPage() {
     };
 
     loadConversationHistory();
-  }, [user?.id]);
+  }, [effectiveUserId]);
 
   // Initialize speech recognition and synthesis
   useEffect(() => {
     if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
+      recognitionRef.current.continuous = true; // Allow longer speech
       recognitionRef.current.interimResults = true;
       recognitionRef.current.maxAlternatives = 1;
       recognitionRef.current.lang = 'en-US';
 
       recognitionRef.current.onstart = () => {
-        console.log('Speech recognition started');
-        // Don't set isListening here - it's already set in startListening()
+        console.log('🎤 Speech recognition started - microphone is active');
       };
 
       recognitionRef.current.onresult = (event: any) => {
+        console.log('🗣️ Speech result event fired:', event);
         let finalTranscript = '';
         let interimTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
+          console.log(`Result ${i}: "${transcript}" (final: ${event.results[i].isFinal})`);
           if (event.results[i].isFinal) {
             finalTranscript += transcript;
           } else {
@@ -98,47 +103,41 @@ export default function WaveRiderCoachPage() {
 
         const fullTranscript = finalTranscript || interimTranscript;
         setTranscript(fullTranscript);
-        console.log('Speech result:', fullTranscript);
+        transcriptRef.current = fullTranscript; // Store in ref for onend handler
+        console.log('📝 Full transcript:', fullTranscript);
       };
 
       recognitionRef.current.onend = () => {
-        console.log('Speech recognition ended');
-        if (isListening) {
-          // If we're still supposed to be listening, restart
-          setTimeout(() => {
-            if (recognitionRef.current && isListening) {
-              try {
-                recognitionRef.current.start();
-              } catch (e) {
-                console.log('Recognition restart failed:', e);
-                setIsListening(false);
-              }
-            }
-          }, 100);
+        console.log('🛑 Speech recognition ended');
+        setIsListening(false);
+        
+        // Create pending message if we have transcript
+        const currentTranscript = transcriptRef.current;
+        if (currentTranscript.trim()) {
+          console.log('📋 Creating pending message with transcript:', currentTranscript.trim());
+          setPendingMessage({
+            text: currentTranscript.trim(),
+            timestamp: new Date(),
+            isEditing: false
+          });
+          setEditingTranscript(currentTranscript.trim());
+        } else {
+          console.log('❌ No transcript to create pending message');
         }
       };
 
       recognitionRef.current.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        if (event.error === 'no-speech') {
-          // For no-speech, just continue listening without restarting
+        console.error('Speech recognition error:', event.error, event);
+        // For most errors, just stop listening and let user restart manually
+        if (event.error === 'aborted') {
+          // Aborted is normal when user stops manually
+          console.log('Speech recognition aborted by user');
           return;
-        } else if (event.error === 'audio-capture') {
-          // Don't stop listening for audio capture errors, just restart
-          setTimeout(() => {
-            if (recognitionRef.current && isListening) {
-              try {
-                recognitionRef.current.start();
-              } catch (e) {
-                console.log('Recognition restart after error failed:', e);
-                setIsListening(false);
-              }
-            }
-          }, 100);
-        } else if (event.error === 'aborted') {
-          // Aborted is normal when user stops manually, don't restart
+        } else if (event.error === 'no-speech') {
+          console.log('No speech detected - keeping listening state');
           return;
         } else {
+          console.log('Speech recognition error - stopping');
           setIsListening(false);
         }
       };
@@ -156,15 +155,26 @@ export default function WaveRiderCoachPage() {
     };
   }, [isListening]);
 
-  const startListening = () => {
+  const startListening = async () => {
+    // First check microphone permissions
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop()); // Clean up
+    } catch (error) {
+      console.error('Microphone access denied:', error);
+      alert('Microphone access is required for voice input. Please allow microphone access and try again.');
+      return;
+    }
+    
     if (recognitionRef.current && !isListening) {
       setTranscript('');
+      transcriptRef.current = ''; // Clear the ref too
       setPendingMessage(null);
       startTimeRef.current = new Date();
-      setIsListening(true); // Set listening state before starting
+      setIsListening(true);
+      
       try {
         recognitionRef.current.start();
-        console.log('Started speech recognition');
       } catch (error) {
         console.error('Error starting recognition:', error);
         setIsListening(false);
@@ -196,23 +206,66 @@ export default function WaveRiderCoachPage() {
     setInputMethod(fromVoice ? 'voice' : 'text');
 
     try {
-      // Call voice coach API
-      const response = await fetch('http://localhost:8000/api/voice-coach/ask', {
+      // Try RAG V2 endpoint first, then fallback to regular voice coach
+      let response = await fetch('http://localhost:8000/api/voice-coach/v2/ask-fixed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           question, 
-          user_id: user?.id,
-          timestamp: new Date().toISOString()
+          user_id: effectiveUserId
         })
       });
+      
+      // If RAG V2 fails, try the regular voice coach endpoint
+      if (!response.ok) {
+        response = await fetch('http://localhost:8000/api/voice-coach/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            question, 
+            user_id: effectiveUserId,
+            timestamp: new Date().toISOString()
+          })
+        });
+      }
 
       if (!response.ok) {
         throw new Error(`API request failed: ${response.status}`);
       }
       
       const data = await response.json();
-      const answer = data.answer || "I understand your question about your business. Let me analyze your data and provide insights based on your current performance metrics.";
+      let answer = data.answer || "I understand your question about your business. Let me analyze your data and provide insights based on your current performance metrics.";
+      
+      // If we get a "tenant not found" error, provide a helpful fallback
+      if (answer.includes('Tenant or user not found')) {
+        answer = "I'm ready to help analyze your business data! However, it looks like your revenue data hasn't been seeded into the system yet. Once you upload some financial documents or revenue data, I'll be able to provide specific insights about your business performance, trends, and recommendations.";
+      }
+
+      // Speak the answer using text-to-speech
+      if (synthRef.current && answer) {
+        console.log('🔊 Speaking AI response:', answer.substring(0, 50) + '...');
+        setIsSpeaking(true);
+        
+        const utterance = new SpeechSynthesisUtterance(answer);
+        utterance.rate = 0.9;
+        utterance.pitch = 1;
+        utterance.volume = 0.8;
+        
+        utterance.onend = () => {
+          console.log('🔇 Finished speaking');
+          setIsSpeaking(false);
+        };
+        
+        utterance.onerror = (error) => {
+          // Only log non-interrupted errors (interrupted is normal when user stops)
+          if (error.error !== 'interrupted') {
+            console.error('Speech synthesis error:', error);
+          }
+          setIsSpeaking(false);
+        };
+        
+        synthRef.current.speak(utterance);
+      }
 
       // Save conversation to database
       const saveResponse = await fetch('http://localhost:8000/api/voice-coach/conversations', {
@@ -223,7 +276,7 @@ export default function WaveRiderCoachPage() {
           answer,
           tags: data.tags || ['general'],
           duration_seconds: startTimeRef.current ? Math.round((new Date().getTime() - startTimeRef.current.getTime()) / 1000) : undefined,
-          user_id: user?.id || 'anonymous'
+          user_id: effectiveUserId
         })
       });
 
@@ -261,7 +314,7 @@ export default function WaveRiderCoachPage() {
             answer: conversation.answer,
             tags: conversation.tags,
             duration_seconds: conversation.duration,
-            user_id: user?.id || 'test-user'
+            user_id: effectiveUserId
           })
         });
         
@@ -417,6 +470,7 @@ export default function WaveRiderCoachPage() {
         <h1 className="text-3xl font-bold text-foreground">WaveRider Coach</h1>
         <p className="text-muted text-lg">Your AI-powered business coach with voice interaction</p>
       </div>
+
 
       {/* Voice Interface */}
       <Card>
