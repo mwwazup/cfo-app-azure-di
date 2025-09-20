@@ -3,6 +3,7 @@ import { Mic, MicOff, Send, Save, Trash2, Tag, Clock, MessageCircle, Volume2, Vo
 import { useAuth } from '../../contexts/auth-context';
 import { useCoachingHistory } from '../../hooks/useCoachingHistory';
 import { supabase } from '../../config/supabaseClient';
+import { financialIntelligence } from '../../services/financialIntelligence';
 import '../../styles/sms-coach.css';
 
 interface Message {
@@ -22,8 +23,224 @@ interface Conversation {
   saved: boolean;
 }
 
-// Agentic PERL coaching system with financial data retrieval
-const generatePERLResponse = async (userInput: string, userId: string): Promise<string> => {
+// ENHANCED: PERL coaching system with Financial Intelligence and fallback safety
+const generatePERLResponse = async (userInput: string, userId: string, conversationHistory: Message[] = []): Promise<string> => {
+  try {
+    // TRY: Use new Financial Intelligence System if available
+    const useEnhancedSystem = await checkFinancialIntelligenceAvailable();
+    
+    if (useEnhancedSystem) {
+      return await generateIntelligentResponse(userInput, userId, conversationHistory);
+    } else {
+      // FALLBACK: Use existing canned response system
+      return await generateOriginalPERLResponse(userInput, userId);
+    }
+  } catch (error) {
+    console.error('Error in enhanced PERL response:', error);
+    // SAFE FALLBACK: Always fall back to original system if anything fails
+    return await generateOriginalPERLResponse(userInput, userId);
+  }
+};
+
+// NEW: Check if Financial Intelligence System is available
+const checkFinancialIntelligenceAvailable = async (): Promise<boolean> => {
+  try {
+    // Check if required tables exist by testing a simple query
+    const { data, error } = await supabase
+      .from('revenue_entries')
+      .select('id')
+      .limit(1);
+    
+    // If no error, the basic system is available
+    return !error;
+  } catch (error) {
+    // If any error, fall back to original system
+    return false;
+  }
+};
+
+// NEW: Intelligent response using Financial Intelligence (only if available)
+const generateIntelligentResponse = async (userInput: string, userId: string, conversationHistory: Message[]): Promise<string> => {
+  try {
+    // Get user's financial context (with error handling)
+    const userContext = await getUserFinancialContextSafe(userId);
+    
+    // Build conversation context (last 5 messages for memory)
+    const recentContext = conversationHistory
+      .slice(-5)
+      .map(msg => `${msg.type}: ${msg.content}`)
+      .join('\n');
+    
+    // Create personalized system prompt with user's actual data
+    const systemPrompt = `You are a CFO coach using the PERL framework. 
+
+USER'S FINANCIAL CONTEXT:
+${userContext.summary}
+
+RECENT CONVERSATION:
+${recentContext}
+
+PERL FRAMEWORK:
+- Problem: Identify specific challenges
+- Evaluate: Assess current situation with data
+- Roadmap: Create actionable next steps  
+- Learn: Suggest growth opportunities
+
+Respond as a knowledgeable CFO coach. Use the user's actual financial data when relevant. Be specific, actionable, and personalized.`;
+
+    // Call AI with full context (if API is available)
+    const response = await callAISafe({
+      systemPrompt,
+      userMessage: userInput,
+      model: 'claude-3-5-sonnet'
+    });
+
+    return response || await generateOriginalPERLResponse(userInput, userId);
+    
+  } catch (error) {
+    console.error('Error generating intelligent response:', error);
+    // Always fall back to original system
+    return await generateOriginalPERLResponse(userInput, userId);
+  }
+};
+
+// SAFE: Get user financial context with comprehensive error handling
+const getUserFinancialContextSafe = async (userId: string) => {
+  try {
+    // Use Financial Intelligence Service for comprehensive context
+    const financialContext = await financialIntelligence.buildFinancialContext(userId);
+    
+    // Build rich context for AI coaching
+    let contextSummary = `COMPREHENSIVE FINANCIAL PROFILE:\n\n`;
+    
+    contextSummary += `CURRENT PERIOD: ${financialContext.current_period}\n\n`;
+    
+    contextSummary += `HISTORICAL OVERVIEW:\n${financialContext.historical_summary}\n\n`;
+    
+    if (financialContext.key_trends.length > 0) {
+      contextSummary += `KEY TRENDS:\n`;
+      financialContext.key_trends.forEach(trend => {
+        contextSummary += `- ${trend}\n`;
+      });
+      contextSummary += `\n`;
+    }
+    
+    contextSummary += `COMPARATIVE ANALYSIS:\n${financialContext.comparative_analysis}\n\n`;
+    
+    if (financialContext.active_concerns.length > 0) {
+      contextSummary += `ACTIVE CONCERNS TO ADDRESS:\n`;
+      financialContext.active_concerns.forEach(concern => {
+        contextSummary += `- ${concern}\n`;
+      });
+      contextSummary += `\n`;
+    }
+    
+    if (financialContext.recent_milestones.length > 0) {
+      contextSummary += `RECENT MILESTONES:\n`;
+      financialContext.recent_milestones.forEach(milestone => {
+        contextSummary += `- ${milestone}\n`;
+      });
+      contextSummary += `\n`;
+    }
+    
+    if (financialContext.coaching_focus_areas.length > 0) {
+      contextSummary += `COACHING FOCUS AREAS:\n`;
+      financialContext.coaching_focus_areas.forEach(area => {
+        contextSummary += `- ${area}\n`;
+      });
+      contextSummary += `\n`;
+    }
+    
+    return { 
+      summary: contextSummary,
+      fullContext: financialContext
+    };
+    
+  } catch (error) {
+    console.error('Error fetching comprehensive financial context:', error);
+    // Fallback to basic context
+    return await getUserBasicFinancialContext(userId);
+  }
+};
+
+// FALLBACK: Basic financial context (original method)
+const getUserBasicFinancialContext = async (userId: string) => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    
+    if (!token) return { summary: "No financial data available - new user" };
+
+    // Try to get user's financial data with timeouts and error handling
+    const [revenueData, documentsData] = await Promise.allSettled([
+      fetch('/api/revenue/summary', {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      }).then(r => r.ok ? r.json() : null).catch(() => null),
+      
+      fetch('/api/financial/statements', {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+
+    // Build safe context summary
+    let summary = "User's Financial Profile:\n";
+    
+    const revenue = revenueData.status === 'fulfilled' ? revenueData.value : null;
+    const documents = documentsData.status === 'fulfilled' ? documentsData.value : null;
+    
+    if (revenue?.totalRevenue) {
+      summary += `- Total Revenue: $${revenue.totalRevenue.toLocaleString()}\n`;
+      summary += `- Monthly Average: $${(revenue.totalRevenue / 12).toLocaleString()}\n`;
+    }
+    
+    if (documents?.length > 0) {
+      summary += `- Has uploaded ${documents.length} financial documents\n`;
+    }
+    
+    if (!revenue && !documents?.length) {
+      summary += "- No financial data uploaded yet\n";
+      summary += "- New user, needs guidance on getting started\n";
+    }
+
+    return { summary };
+    
+  } catch (error) {
+    console.error('Error fetching basic user context:', error);
+    return { summary: "Unable to retrieve financial context - using general coaching mode" };
+  }
+};
+
+// SAFE: AI calling function with comprehensive error handling
+const callAISafe = async ({ systemPrompt, userMessage, model = 'claude-3-5-sonnet' }: { systemPrompt: string; userMessage: string; model?: string }) => {
+  try {
+    const response = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        systemPrompt,
+        userMessage
+      }),
+      signal: AbortSignal.timeout(10000) // 10 second timeout
+    });
+    
+    if (!response.ok) {
+      throw new Error(`AI API returned ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.response;
+    
+  } catch (error) {
+    console.error('AI API Error:', error);
+    return null; // Return null to trigger fallback
+  }
+};
+
+// PRESERVED: Original PERL response system (unchanged for fallback)
+const generateOriginalPERLResponse = async (userInput: string, userId: string): Promise<string> => {
   const input = userInput.toLowerCase();
   
   // Detect financial data queries
@@ -356,9 +573,8 @@ export function SMSCoachPage() {
     setIsLoading(true);
 
     try {
-      // Temporary mock response until backend API is fixed
-      // TODO: Replace with actual API call once backend is working
-      const coachResponse = await generatePERLResponse(content, user.id);
+      // Enhanced PERL response with Financial Intelligence and safe fallbacks
+      const coachResponse = await generatePERLResponse(content, user?.id || '', currentConversation.messages);
       
       // Simulate API delay for realistic experience
       await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
