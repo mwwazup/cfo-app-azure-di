@@ -105,9 +105,9 @@ export function MomentumPage() {
       </div>
 
       {/* Key Benefits */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4]">
-          <CardContent className="pt-6 !bg-[#fffaf4]">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pb-8">
+        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4] rounded-xl">
+          <CardContent className="pt-6 !bg-[#fffaf4] rounded-xl">
             <div className="text-center space-y-4">
               <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto shadow-md" style={{ backgroundColor: '#d5b274' }}>
                 <Brain className="h-7 w-7 text-white" />
@@ -123,8 +123,8 @@ export function MomentumPage() {
           </CardContent>
         </Card>
 
-        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4]">
-          <CardContent className="pt-6 !bg-[#fffaf4]">
+        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4] rounded-xl">
+          <CardContent className="pt-6 !bg-[#fffaf4] rounded-xl">
             <div className="text-center space-y-4">
               <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto shadow-md" style={{ backgroundColor: '#d5b274' }}>
                 <Target className="h-7 w-7 text-white" />
@@ -140,8 +140,8 @@ export function MomentumPage() {
           </CardContent>
         </Card>
 
-        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4]">
-          <CardContent className="pt-6 !bg-[#fffaf4]">
+        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4] rounded-xl">
+          <CardContent className="pt-6 !bg-[#fffaf4] rounded-xl">
             <div className="text-center space-y-4">
               <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto shadow-md" style={{ backgroundColor: '#d5b274' }}>
                 <TrendingUp className="h-7 w-7 text-white" />
@@ -157,8 +157,8 @@ export function MomentumPage() {
           </CardContent>
         </Card>
 
-        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4]">
-          <CardContent className="pt-6 !bg-[#fffaf4]">
+        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4] rounded-xl">
+          <CardContent className="pt-6 !bg-[#fffaf4] rounded-xl">
             <div className="text-center space-y-4">
               <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto shadow-md" style={{ backgroundColor: '#d5b274' }}>
                 <Lightbulb className="h-7 w-7 text-white" />

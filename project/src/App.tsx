@@ -12,6 +12,7 @@ import { MasterRevenuePage } from './pages/revenue/master';
 import { FinancialStatementsPage } from './pages/financial-statements';
 import { YourBigFigPage } from './pages/coach/your-big-fig';
 import WaveRiderCoachPage from './pages/coach/wave-rider';
+import SMSCoachPage from './pages/coach/sms-coach';
 import { MomentumPage } from './pages/momentum';
 import { MomentumWizardPage } from './pages/momentum/wizard';
 import { CallbackPage } from './pages/auth/callback';
@@ -48,6 +49,7 @@ function App() {
               <Route path="/coach" element={<DashboardLayout />}>
                 <Route path="your-big-fig" element={<YourBigFigPage />} />
                 <Route path="wave-rider" element={<WaveRiderCoachPage />} />
+                <Route path="sms" element={<SMSCoachPage />} />
               </Route>
               
               <Route path="/momentum" element={<DashboardLayout />}>

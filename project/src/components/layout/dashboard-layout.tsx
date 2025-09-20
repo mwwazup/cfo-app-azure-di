@@ -10,7 +10,8 @@ import {
   LogOut, 
   Menu, 
   X,
-  MessageSquare 
+  MessageSquare,
+  MessageCircle 
 } from 'lucide-react';
 import { useState } from 'react';
 // import VoiceCoach from '../VoiceCoach'; // DISABLED - Archived for future use
@@ -31,6 +32,7 @@ export function DashboardLayout() {
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
     { name: 'Your Big FIG', href: '/coach/your-big-fig', icon: Heart },
     { name: 'WaveRider Coach', href: '/coach/wave-rider', icon: MessageSquare },
+    { name: 'PERL', href: '/coach/sms', icon: MessageCircle },
     { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
   ];
 
