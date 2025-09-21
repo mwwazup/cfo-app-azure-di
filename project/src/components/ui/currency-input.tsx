@@ -11,16 +11,18 @@ export function CurrencyInput({ label, error, className = '', value, onChange, .
   const [displayValue, setDisplayValue] = useState('');
   const [isFocused, setIsFocused] = useState(false);
 
-  // Format number with commas
+  // Format number with commas (rounded to whole dollars)
   const formatNumber = (num: number): string => {
     if (num === 0) return '0';
-    return num.toLocaleString();
+    const rounded = Math.round(num);
+    return rounded.toLocaleString();
   };
 
-  // Remove commas and convert to number
+  // Remove commas and convert to number (rounded to whole dollars)
   const parseNumber = (str: string): number => {
     const cleaned = str.replace(/[,$]/g, '');
-    return parseFloat(cleaned) || 0;
+    const parsed = parseFloat(cleaned) || 0;
+    return Math.round(parsed);
   };
 
   // Only update display value from prop when not focused and value actually changed
@@ -61,11 +63,12 @@ export function CurrencyInput({ label, error, className = '', value, onChange, .
 
   const handleFocus = () => {
     setIsFocused(true);
-    // Show raw numbers for editing, but keep "0" visible
+    // Show rounded numbers for editing, but keep "0" visible
     if (value === 0) {
       setDisplayValue('0');
     } else {
-      setDisplayValue(value.toString());
+      const rounded = Math.round(value);
+      setDisplayValue(rounded.toString());
     }
   };
 

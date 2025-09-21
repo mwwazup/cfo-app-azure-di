@@ -80,7 +80,7 @@ export class FinancialIntelligenceService {
   // Get all financial documents for context
   private async getFinancialDocuments(userId: string) {
     const { data, error } = await supabase
-      .from('financial_statements')
+      .from('financial_documents')
       .select('*')
       .eq('user_id', userId)
       .order('upload_date', { ascending: false });
@@ -161,7 +161,7 @@ export class FinancialIntelligenceService {
 
     const yearlyData = this.groupByYear(revenueHistory);
     const years = Object.keys(yearlyData).sort();
-    const totalRevenue = revenueHistory.reduce((sum, entry) => sum + (entry.amount || 0), 0);
+    const totalRevenue = revenueHistory.reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
     
     let summary = `Financial History Overview:\n`;
     summary += `- Total tracked revenue: $${totalRevenue.toLocaleString()}\n`;
@@ -229,7 +229,7 @@ export class FinancialIntelligenceService {
       if (!acc[year]) {
         acc[year] = { total: 0, months: 0, entries: [] };
       }
-      acc[year].total += entry.amount || 0;
+      acc[year].total += entry.actual_revenue || 0;
       acc[year].months += 1;
       acc[year].entries.push(entry);
       return acc;
@@ -244,8 +244,8 @@ export class FinancialIntelligenceService {
     const firstHalf = recent.slice(0, Math.floor(recent.length / 2));
     const secondHalf = recent.slice(Math.floor(recent.length / 2));
 
-    const firstAvg = firstHalf.reduce((sum, entry) => sum + (entry.amount || 0), 0) / firstHalf.length;
-    const secondAvg = secondHalf.reduce((sum, entry) => sum + (entry.amount || 0), 0) / secondHalf.length;
+    const firstAvg = firstHalf.reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0) / firstHalf.length;
+    const secondAvg = secondHalf.reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0) / secondHalf.length;
 
     const momentum = ((secondAvg - firstAvg) / firstAvg) * 100;
 

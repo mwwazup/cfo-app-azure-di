@@ -114,14 +114,123 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 }
 
-// Helper function to generate AI response using Gemini API - DISABLED
+// Enhanced AI response using Financial Intelligence System
 async function generateAIResponse(
-  _message: string, 
-  _conversation: ChatMessage[]
+  message: string, 
+  conversation: ChatMessage[]
 ): Promise<string> {
-  // DISABLED: Gemini integration removed for stability
-  // Return a placeholder response instead of calling Gemini API
-  return "AI chat functionality is currently disabled. Please check back later.";
+  try {
+    // Import AI libraries
+    const Anthropic = require('@anthropic-ai/sdk');
+    const OpenAI = require('openai');
+
+    // Initialize AI clients
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    // Build conversation context from chat history
+    const recentContext = conversation
+      .slice(-5)
+      .map(msg => `${msg.role}: ${msg.content}`)
+      .join('\n');
+
+    // Create system prompt for financial coaching
+    const systemPrompt = `You are a CFO coach using the PERL framework. 
+
+RECENT CONVERSATION:
+${recentContext}
+
+PERL FRAMEWORK:
+- Problem: Identify specific challenges
+- Evaluate: Assess current situation with data
+- Roadmap: Create actionable next steps  
+- Learn: Suggest growth opportunities
+
+Respond as a knowledgeable CFO coach. Be specific, actionable, and personalized. Keep responses concise but valuable.`;
+
+    let response;
+
+    // Try Claude first (better for financial reasoning)
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        const claudeResponse = await anthropic.messages.create({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: 1000,
+          messages: [
+            {
+              role: "user",
+              content: `${systemPrompt}\n\nUser: ${message}`
+            }
+          ]
+        });
+        response = claudeResponse.content[0].text;
+      } catch (claudeError) {
+        console.error('Claude API error:', claudeError);
+        // Fall back to OpenAI
+        if (process.env.OPENAI_API_KEY) {
+          const openaiResponse = await openai.chat.completions.create({
+            model: 'gpt-4o',
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: message }
+            ],
+            max_tokens: 1000
+          });
+          response = openaiResponse.choices[0].message.content;
+        } else {
+          throw new Error('No AI service available');
+        }
+      }
+    } else if (process.env.OPENAI_API_KEY) {
+      // Use OpenAI if Claude not available
+      const openaiResponse = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message }
+        ],
+        max_tokens: 1000
+      });
+      response = openaiResponse.choices[0].message.content;
+    } else {
+      throw new Error('No AI API keys configured');
+    }
+
+    return response || "I'm having trouble generating a response right now. Please try again.";
+
+  } catch (error) {
+    console.error('AI generation error:', error);
+    // Fallback to basic PERL response
+    return generateFallbackPERLResponse(message);
+  }
+}
+
+// Fallback PERL response for when AI is unavailable
+function generateFallbackPERLResponse(message: string): string {
+  const input = message.toLowerCase();
+  
+  if (input.includes('problem') || input.includes('challenge') || input.includes('issue')) {
+    return "Let's identify the core problem. What specifically is blocking your progress right now? Breaking it down into smaller, specific issues often reveals the path forward.";
+  }
+  
+  if (input.includes('evaluate') || input.includes('assess') || input.includes('current')) {
+    return "Let's take an honest look at where you stand. What metrics are you currently tracking, and what story do they tell about your business performance?";
+  }
+  
+  if (input.includes('plan') || input.includes('roadmap') || input.includes('next')) {
+    return "Great question! Let's create a clear path forward. What's the single most important outcome you need to achieve in the next 30 days?";
+  }
+  
+  if (input.includes('learn') || input.includes('grow') || input.includes('improve')) {
+    return "Growth mindset is key! What's one skill that, if you developed it, would significantly impact your business success?";
+  }
+  
+  return "I'm here to guide you through the PERL framework. Would you like to explore a specific Problem, Evaluate your current situation, create a Roadmap, or focus on Learning and growth?";
 }
 
 // Helper function to log interactions
