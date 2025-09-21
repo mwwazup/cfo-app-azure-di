@@ -139,6 +139,9 @@ const getComprehensiveFinancialData = async () => {
       kpiInsights: any;
       documentSummary: any;
       conversationHistory: any;
+      profitMarginTarget?: number;
+      currentProfitMargin?: number;
+      profitMarginStatus?: string;
     } = {
       hasData: false,
       summary: '',
@@ -153,6 +156,30 @@ const getComprehensiveFinancialData = async () => {
       const totalRevenue = revenueEntries.reduce((sum, entry) => {
         return sum + (entry.actual_revenue || entry.amount || 0);
       }, 0);
+
+      // Profit Margin Analysis
+      const entriesWithMargin = revenueEntries.filter(entry => entry.profit_margin && entry.profit_margin > 0);
+      let profitMarginTarget = null;
+      let currentProfitMargin = null;
+      let profitMarginStatus = 'Unknown';
+
+      if (entriesWithMargin.length > 0) {
+        // Get user's configured profit margin target (most recent entry)
+        const currentYear = new Date().getFullYear();
+        const currentYearEntries = revenueEntries.filter(entry => entry.year === currentYear && entry.profit_margin);
+        profitMarginTarget = currentYearEntries.length > 0 ? currentYearEntries[0].profit_margin : null;
+
+        // Calculate current average profit margin
+        currentProfitMargin = entriesWithMargin.reduce((sum, entry) => sum + entry.profit_margin, 0) / entriesWithMargin.length;
+
+        // Determine status
+        if (profitMarginTarget && currentProfitMargin) {
+          const ratio = currentProfitMargin / profitMarginTarget;
+          if (ratio >= 0.95) profitMarginStatus = 'Meeting Target';
+          else if (ratio >= 0.8) profitMarginStatus = 'Below Target';
+          else profitMarginStatus = 'Significantly Below Target';
+        }
+      }
 
       // Year-over-year analysis
       const revenueByYear = revenueEntries.reduce((acc, entry) => {
@@ -169,7 +196,7 @@ const getComprehensiveFinancialData = async () => {
       const yoyGrowth = previousYearRevenue > 0 ? 
         ((currentYearRevenue - previousYearRevenue) / previousYearRevenue * 100).toFixed(1) : 'N/A';
 
-      // Monthly trends
+      // Monthly trends and seasonal analysis
       const recentEntries = revenueEntries.slice(-6); // Last 6 months
       const trend = recentEntries.length >= 2 ? 
         (recentEntries[recentEntries.length - 1].actual_revenue > recentEntries[0].actual_revenue ? 'up' : 'down') : 'stable';
@@ -182,6 +209,35 @@ const getComprehensiveFinancialData = async () => {
         (entry.actual_revenue || 0) < (worst.actual_revenue || 0) ? entry : worst
       );
 
+      // Detailed monthly breakdown by year
+      const monthlyBreakdown: Record<string, Record<number, number>> = revenueEntries.reduce((acc, entry) => {
+        const year = entry.year.toString();
+        const month = entry.month;
+        if (!acc[year]) acc[year] = {};
+        acc[year][month] = entry.actual_revenue || entry.amount || 0;
+        return acc;
+      }, {} as Record<string, Record<number, number>>);
+
+      // Seasonal analysis (Q4: Oct, Nov, Dec)
+      const seasonalAnalysis: Record<string, any> = {};
+      Object.keys(monthlyBreakdown).forEach(year => {
+        const yearData = monthlyBreakdown[year];
+        seasonalAnalysis[year] = {
+          q4Total: (yearData[10] || 0) + (yearData[11] || 0) + (yearData[12] || 0),
+          oct: yearData[10] || 0,
+          nov: yearData[11] || 0,
+          dec: yearData[12] || 0
+        };
+      });
+
+      // Current year progress
+      const currentMonth = new Date().getMonth() + 1;
+      const currentYearMonthly = monthlyBreakdown[currentYear] || {};
+      const remainingMonths = [];
+      for (let month = currentMonth + 1; month <= 12; month++) {
+        remainingMonths.push(month);
+      }
+
       financialContext.revenueData = {
         totalAllTime: totalRevenue,
         currentYearRevenue,
@@ -192,8 +248,17 @@ const getComprehensiveFinancialData = async () => {
         worstMonth: `${worstEntry.month}/${worstEntry.year} ($${(worstEntry.actual_revenue || 0).toLocaleString()})`,
         revenueByYear,
         totalEntries: revenueEntries.length,
-        yearsOfData: Object.keys(revenueByYear).length
+        yearsOfData: Object.keys(revenueByYear).length,
+        monthlyBreakdown,
+        seasonalAnalysis,
+        currentYearMonthly,
+        remainingMonths
       };
+
+      // Add profit margin data to context
+      financialContext.profitMarginTarget = profitMarginTarget || undefined;
+      financialContext.currentProfitMargin = currentProfitMargin || undefined;
+      financialContext.profitMarginStatus = profitMarginStatus;
     }
 
     // KPI Analysis
@@ -234,6 +299,7 @@ const getComprehensiveFinancialData = async () => {
           date: conv.created_at
         }))
       };
+
     }
 
     // Build summary
@@ -338,6 +404,7 @@ export function SMSCoachPage() {
   // Voice synthesis state
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
   const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
   
   // Text input state
@@ -445,6 +512,34 @@ export function SMSCoachPage() {
     // Initialize speech synthesis
     if ('speechSynthesis' in window) {
       speechSynthesisRef.current = window.speechSynthesis;
+      
+      // Load available voices
+      const loadVoices = () => {
+        const voices = speechSynthesisRef.current?.getVoices() || [];
+        
+        // Auto-select best voice if none selected
+        if (!selectedVoice && voices.length > 0) {
+          // Prioritize Google US English voice specifically
+          const preferredVoice = voices.find(voice => 
+            voice.name.toLowerCase().includes('google') && voice.lang.startsWith('en-us')
+          ) || voices.find(voice => 
+            voice.name.toLowerCase().includes('google') && voice.lang.startsWith('en')
+          ) || voices.find(voice => 
+            voice.name.toLowerCase().includes('microsoft') && voice.lang.startsWith('en-us')
+          ) || voices.find(voice => 
+            voice.name.toLowerCase().includes('samantha') ||
+            voice.name.toLowerCase().includes('alex')
+          ) || voices.find(voice => 
+            voice.lang.startsWith('en') && voice.localService === false
+          ) || voices.find(voice => voice.lang.startsWith('en')) || voices[0];
+          
+          setSelectedVoice(preferredVoice);
+        }
+      };
+      
+      // Load voices immediately and on voiceschanged event
+      loadVoices();
+      speechSynthesisRef.current.onvoiceschanged = loadVoices;
     }
   }, []);
 
@@ -479,26 +574,66 @@ export function SMSCoachPage() {
     }
   };
 
+  // Function to clean text for speech synthesis
+  const cleanTextForSpeech = (text: string): string => {
+    return text
+      // Remove markdown formatting
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove **bold**
+      .replace(/\*([^*]+)\*/g, '$1')     // Remove *italic*
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Remove [link](url)
+      .replace(/`([^`]+)`/g, '$1')       // Remove `code`
+      .replace(/#{1,6}\s*/g, '')         // Remove # headers
+      .replace(/\n\s*[-*+]\s*/g, '. ')   // Convert bullet points to periods
+      .replace(/\n{2,}/g, '. ')          // Convert double line breaks to periods
+      .replace(/\n/g, ' ')               // Convert single line breaks to spaces
+      .replace(/\s{2,}/g, ' ')           // Collapse multiple spaces
+      // Standardize currency formatting for speech
+      .replace(/\$([0-9,]+)K/g, (_, number) => {
+        // Convert $549K to "549 thousand dollars"
+        const cleanNumber = number.replace(/,/g, '');
+        return `${cleanNumber} thousand dollars`;
+      })
+      .replace(/\$([0-9,]+)M/g, (_, number) => {
+        // Convert $1.5M to "1.5 million dollars"
+        const cleanNumber = number.replace(/,/g, '');
+        return `${cleanNumber} million dollars`;
+      })
+      .replace(/\$([0-9,]+\.[0-9]{2})/g, (_, number) => {
+        // Convert $549.00 to "549 dollars"
+        const wholeNumber = number.split('.')[0].replace(/,/g, '');
+        const cents = number.split('.')[1];
+        if (cents === '00') {
+          return `${wholeNumber} dollars`;
+        } else {
+          return `${wholeNumber} dollars and ${cents} cents`;
+        }
+      })
+      .replace(/\$([0-9,]+)/g, (_, number) => {
+        // Convert $549,217 to "549,217 dollars"
+        return `${number} dollars`;
+      })
+      // Convert percentages to speech-friendly format
+      .replace(/([0-9.]+)%/g, '$1 percent')
+      .trim();
+  };
+
   const speakText = (text: string) => {
     if (!voiceEnabled || !speechSynthesisRef.current || isSpeaking) return;
     
     // Cancel any ongoing speech
     speechSynthesisRef.current.cancel();
     
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.9;
+    // Clean the text for better speech synthesis
+    const cleanedText = cleanTextForSpeech(text);
+    
+    const utterance = new SpeechSynthesisUtterance(cleanedText);
+    utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.volume = 0.8;
     
-    // Try to use a professional voice
-    const voices = speechSynthesisRef.current.getVoices();
-    const preferredVoice = voices.find(voice => 
-      voice.name.includes('Google') || 
-      voice.name.includes('Microsoft') ||
-      voice.lang.startsWith('en')
-    );
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
+    // Use selected voice or fallback to preferred voice
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
     }
     
     utterance.onstart = () => setIsSpeaking(true);
@@ -825,17 +960,19 @@ export function SMSCoachPage() {
           
           <div className="flex items-center space-x-2">
             {/* Voice Controls */}
-            <button
-              onClick={toggleVoice}
-              className={`p-2 rounded-lg transition-colors ${
-                voiceEnabled 
-                  ? 'hover:bg-accent/10 text-accent' 
-                  : 'hover:bg-gray-600 text-gray-400'
-              }`}
-              title={voiceEnabled ? 'Voice responses enabled' : 'Voice responses disabled'}
-            >
-              {voiceEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={toggleVoice}
+                className={`p-2 rounded-lg transition-colors ${
+                  voiceEnabled 
+                    ? 'hover:bg-accent/10 text-accent' 
+                    : 'hover:bg-gray-600 text-gray-400'
+                }`}
+                title={voiceEnabled ? 'Voice responses enabled' : 'Voice responses disabled'}
+              >
+                {voiceEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+              </button>
+            </div>
             
             {isSpeaking && (
               <button
@@ -982,19 +1119,36 @@ export function SMSCoachPage() {
             </button>
 
             {/* Text Input */}
-            <div className="flex-1 flex items-center space-x-2">
-              <input
+            <div className="flex-1 flex items-end space-x-2">
+              <textarea
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage(textInput)}
-                placeholder={isListening ? "Listening..." : "Type your message..."}
-                className="flex-1 bg-card border border-accent/20 rounded-full px-4 py-2 focus:outline-none focus:border-accent mobile-chat-input focus-ring text-foreground"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage(textInput);
+                  }
+                }}
+                placeholder={isListening ? "Listening..." : "Type your message... (Shift+Enter for new line)"}
+                className="flex-1 bg-card border border-accent/20 rounded-lg px-4 py-2 focus:outline-none focus:border-accent mobile-chat-input focus-ring text-foreground resize-none min-h-[40px] max-h-[120px]"
                 disabled={isLoading || isListening}
+                rows={1}
+                style={{
+                  height: 'auto',
+                  minHeight: '40px',
+                  maxHeight: '120px',
+                  overflowY: textInput.split('\n').length > 3 ? 'auto' : 'hidden'
+                }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = 'auto';
+                  target.style.height = Math.min(target.scrollHeight, 120) + 'px';
+                }}
               />
               <button
                 onClick={() => handleSendMessage(textInput)}
                 disabled={!textInput.trim() || isLoading}
-                className="p-2 bg-accent hover:bg-accent/90 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-ring border border-accent"
+                className="p-2 bg-accent hover:bg-accent/90 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-ring border border-accent self-end mb-1"
               >
                 <Send size={20} className="text-background" />
               </button>

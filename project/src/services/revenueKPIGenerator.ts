@@ -50,6 +50,7 @@ export class RevenueKPIGenerator {
       await this.generateTargetGapKPI(userId, revenueData.data, periodString);
       await this.generateRevenueGrowthKPI(userId, revenueData.data, periodString);
       await this.generateProfitMarginKPI(userId, revenueData.data, periodString);
+      await this.generateProfitBasedRevenueTargetKPI(userId, revenueData.data, periodString);
       
       // Revenue Velocity KPI is only generated for historical comparisons, not current month
       
@@ -134,6 +135,7 @@ export class RevenueKPIGenerator {
             { name: 'Revenue Growth', fn: () => this.generateRevenueGrowthKPI(userId, revenueData, periodString) },
             { name: 'Target Gap', fn: () => this.generateTargetGapKPI(userId, revenueData, periodString) },
             { name: 'Profit Margin', fn: () => this.generateProfitMarginKPI(userId, revenueData, periodString) },
+            { name: 'Profit Based Revenue Target', fn: () => this.generateProfitBasedRevenueTargetKPI(userId, revenueData, periodString) },
             { name: 'Revenue Velocity', fn: () => this.generateRevenueVelocityKPI(userId, revenueData, periodString) }
           ];
 
@@ -149,7 +151,7 @@ export class RevenueKPIGenerator {
           }
 
           if (periodKpiCount > 0) {
-            console.log(`Successfully generated ${periodKpiCount}/6 KPIs for ${periodString}`);
+            console.log(`Successfully generated ${periodKpiCount}/7 KPIs for ${periodString}`);
             successCount++;
           } else {
             console.error(`Failed to generate any KPIs for ${periodString}`);
@@ -336,6 +338,7 @@ export class RevenueKPIGenerator {
       await this.generateRevenueGrowthKPI(userId, revenueData, currentPeriod);
       await this.generateTargetGapKPI(userId, revenueData, currentPeriod);
       await this.generateProfitMarginKPI(userId, revenueData, currentPeriod);
+      await this.generateProfitBasedRevenueTargetKPI(userId, revenueData, currentPeriod);
       
       console.log('KPI generation completed successfully');
     } catch (error) {
@@ -435,8 +438,8 @@ export class RevenueKPIGenerator {
     // Use preserved goal if exists, otherwise use calculated YTD FIR target
     const goalValue = preservedGoal !== null && preservedGoal !== undefined ? preservedGoal : ytdFIRTarget;
     
-    const explanation = `Year-to-date revenue of $${ytdActual.toLocaleString()} vs FIR target of $${goalValue.toLocaleString()}`;
-    const actionSuggestion = ytdActual < goalValue 
+    const explanation = `Year-to-date revenue of $${ytdActual.toLocaleString()} vs FIR target of $${goalValue?.toLocaleString() || 'N/A'}`;
+    const actionSuggestion = ytdActual < (goalValue || 0) 
       ? 'YTD revenue below FIR target. Focus on accelerating sales activities and closing pending deals.' 
       : 'Excellent! YTD revenue exceeds FIR target. Consider setting stretch targets.';
 
@@ -445,7 +448,7 @@ export class RevenueKPIGenerator {
       kpi_value: ytdActual,
       goal_value: goalValue,
       trend_vs_last_month: undefined,
-      status: KPIRecordsService.calculateKPIStatus(ytdActual, goalValue),
+      status: KPIRecordsService.calculateKPIStatus(ytdActual, goalValue || null),
       period,
       plain_explanation: explanation,
       action_suggestion: actionSuggestion,
@@ -469,7 +472,7 @@ export class RevenueKPIGenerator {
       .select('*')
       .eq('user_id', userId)
       .eq('year', currentYear - 1)
-      .order('month', { ascending: true });
+      .order('month');
 
     if (prevYearData && prevYearData.length > 0) {
       const currentYearTotal = revenueData.reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
@@ -543,7 +546,7 @@ export class RevenueKPIGenerator {
   }
 
   /**
-   * Generate Profit Margin KPI
+   * Generate Profit Margin KPI using user's configured profit margin as goal
    */
   private static async generateProfitMarginKPI(
     userId: string, 
@@ -556,19 +559,77 @@ export class RevenueKPIGenerator {
       ? entriesWithMargin.reduce((sum, entry) => sum + entry.profit_margin, 0) / entriesWithMargin.length / 100
       : 0;
 
+    // Get user's configured profit margin target from the same period
+    const currentYear = new Date(period).getFullYear();
+    const { data: yearData } = await supabase
+      .from('revenue_entries')
+      .select('profit_margin')
+      .eq('user_id', userId)
+      .eq('year', currentYear)
+      .not('profit_margin', 'is', null)
+      .limit(1)
+      .single();
+    
+    // Use user's configured profit margin as goal, fallback to 35% if not set
+    const userProfitMarginGoal = yearData?.profit_margin ? yearData.profit_margin / 100 : 0.35;
+    const goalDescription = yearData?.profit_margin 
+      ? `your target of ${yearData.profit_margin}%`
+      : `the default target of 35%`;
+
     await KPIRecordsService.upsertKPIRecord(userId, {
       kpi_name: 'Profit Margin',
       kpi_value: avgProfitMargin,
-      goal_value: 0.35, // 35% target margin
+      goal_value: userProfitMarginGoal,
       trend_vs_last_month: undefined,
-      status: KPIRecordsService.calculateKPIStatus(avgProfitMargin, 0.35),
+      status: KPIRecordsService.calculateKPIStatus(avgProfitMargin, userProfitMarginGoal),
       period,
-      plain_explanation: `Average profit margin of ${(avgProfitMargin * 100).toFixed(1)}% across revenue entries`,
-      action_suggestion: avgProfitMargin < 0.3 
-        ? 'Profit margin below 30%. Review pricing strategy and cost optimization opportunities.' 
-        : 'Healthy profit margins! Focus on maintaining efficiency while scaling.',
+      plain_explanation: `Average profit margin of ${(avgProfitMargin * 100).toFixed(1)}% vs ${goalDescription}`,
+      action_suggestion: avgProfitMargin < userProfitMarginGoal 
+        ? `Your profit margin is below your ${(userProfitMarginGoal * 100).toFixed(0)}% target. Review pricing strategy, reduce costs, or improve operational efficiency.` 
+        : `Excellent! You're meeting your profit margin target. Focus on maintaining efficiency while scaling revenue.`,
       kpi_category: 'profitability',
       display_format: 'percentage'
+    });
+  }
+
+  /**
+   * Generate Revenue Target Based on Profit Margin KPI
+   */
+  private static async generateProfitBasedRevenueTargetKPI(
+    userId: string, 
+    revenueData: any[], 
+    period: string
+  ) {
+    // Get user's configured profit margin target from the same period
+    const currentYear = new Date(period).getFullYear();
+    const { data: yearData } = await supabase
+      .from('revenue_entries')
+      .select('profit_margin')
+      .eq('user_id', userId)
+      .eq('year', currentYear)
+      .not('profit_margin', 'is', null)
+      .limit(1)
+      .single();
+    
+    // Use user's configured profit margin as goal, fallback to 35% if not set
+    const userProfitMarginGoal = yearData?.profit_margin ? yearData.profit_margin / 100 : 0.35;
+
+    // Calculate revenue target based on profit margin goal
+    const revenueTarget = userProfitMarginGoal > 0 ? (revenueData.reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0) / userProfitMarginGoal) : 0;
+
+    await KPIRecordsService.upsertKPIRecord(userId, {
+      kpi_name: 'Revenue Target Based on Profit Margin',
+      kpi_value: revenueTarget,
+      goal_value: revenueTarget,
+      trend_vs_last_month: undefined,
+      status: KPIRecordsService.calculateKPIStatus(revenueTarget, revenueTarget),
+      period,
+      plain_explanation: `Revenue target based on profit margin goal of ${(userProfitMarginGoal * 100).toFixed(1)}% is $${revenueTarget.toLocaleString()}`,
+      action_suggestion: revenueTarget > 0 
+        ? `To achieve your profit margin goal, you need to reach a revenue target of $${revenueTarget.toLocaleString()}. Focus on increasing sales activities and closing pending deals.` 
+        : `No revenue target available. Please set a profit margin goal to calculate the revenue target.`,
+      kpi_category: 'performance',
+      display_format: 'currency'
     });
   }
 
