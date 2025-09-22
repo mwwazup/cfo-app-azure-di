@@ -7,6 +7,7 @@ import { RIDRScoringSystem } from '../../components/dashboard/RIDRScoringSystem'
 import KPIDashboard from '../../components/dashboard/KPIDashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
+import { TooltipTrigger } from '../../components/ui/tooltip';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -38,25 +39,29 @@ export function DashboardPage() {
   }
 
   const totalRevenue = currentYearKpis?.total_revenue ?? currentYear.data.reduce((sum, item) => sum + item.revenue, 0);
-  const averageMonthly = currentYearKpis?.avg_monthly_revenue ?? Math.round(totalRevenue / 12);
-  const projectedAnnual = Math.round(averageMonthly * 12);
   
-  // Only show gap and completion for non-historical years
-  const gapToTarget = currentYearKpis?.gap_to_target ?? (currentYear.isHistorical ? 0 : Math.round(currentYear.targetRevenue - projectedAnnual));
-  const completionRate = currentYear.isHistorical ? 0 : (projectedAnnual / currentYear.targetRevenue) * 100;
-
+  // Calculate actual months completed (not just current month index)
   const currentMonth = new Date().getMonth();
   const monthsCompleted = currentMonth + 1;
   const actualYTD = currentYear.data.slice(0, monthsCompleted).reduce((sum, item) => sum + item.revenue, 0);
   
+  // Calculate projected annual based on actual YTD performance
+  const averageMonthly = currentYearKpis?.avg_monthly_revenue ?? (monthsCompleted > 0 ? Math.round(actualYTD / monthsCompleted) : 0);
+  const projectedAnnual = Math.round(averageMonthly * 12);
+  
+  // Only show gap and completion for non-historical years
+  const gapToTarget = currentYearKpis?.gap_to_target ?? (currentYear.isHistorical ? 0 : Math.round(currentYear.targetRevenue - actualYTD));
+  const completionRate = currentYear.isHistorical ? 0 : (projectedAnnual / currentYear.targetRevenue) * 100;
+
   // Only calculate YTD performance for non-historical years
   const targetYTD = currentYear.isHistorical ? 0 : (currentYear.targetRevenue / 12) * monthsCompleted;
   const ytdPerformance = currentYear.isHistorical ? 0 : (actualYTD / targetYTD) * 100;
 
-  // Calculate year-over-year growth
+  // Calculate year-over-year growth (same time period comparison)
   const previousYear = getYearData(selectedYear - 1);
-  const previousYearTotal = previousYear.data.reduce((sum, item) => sum + item.revenue, 0);
-  const yoyGrowth = previousYearTotal > 0 ? ((totalRevenue - previousYearTotal) / previousYearTotal) * 100 : 0;
+  // Compare same time period: YTD current year vs YTD previous year
+  const previousYearYTD = previousYear.data.slice(0, monthsCompleted).reduce((sum, item) => sum + item.revenue, 0);
+  const yoyGrowth = previousYearYTD > 0 ? ((actualYTD - previousYearYTD) / previousYearYTD) * 100 : 0;
 
   // Calculate 5-year trend
   const fiveYearData = Array.from({ length: 5 }, (_, i) => {
@@ -205,7 +210,13 @@ export function DashboardPage() {
           </Card>
 
           <Card>
-            <CardContent className="pt-6">
+            <CardContent className="pt-6 relative">
+              <div className="absolute top-2 right-2">
+                <TooltipTrigger 
+                  content={`Calculation: YTD Revenue ($${actualYTD.toLocaleString()}) ÷ ${monthsCompleted} months = $${averageMonthly.toLocaleString()} avg monthly × 12 months = $${projectedAnnual.toLocaleString()} projected annual`}
+                  position="left"
+                />
+              </div>
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-muted">
@@ -216,6 +227,33 @@ export function DashboardPage() {
                   </div>
                   <p className={`text-xs ${completionRate >= 100 ? 'text-green-400' : 'text-orange-400'}`}>
                     {completionRate.toFixed(1)}% of target
+                  </p>
+                </div>
+                <div className="h-12 w-12 bg-accent/20 rounded-lg flex items-center justify-center">
+                  <TrendingUp className="h-6 w-6 text-accent" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6 relative">
+              <div className="absolute top-2 right-2">
+                <TooltipTrigger 
+                  content={`Calculation: ${selectedYear} YTD ($${Math.round(actualYTD).toLocaleString()}) vs ${selectedYear - 1} YTD ($${Math.round(previousYearYTD).toLocaleString()}) for same ${monthsCompleted}-month period`}
+                  position="left"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted">
+                    YoY Growth
+                  </p>
+                  <div className={`text-2xl font-bold ${yoyGrowth >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {yoyGrowth >= 0 ? '+' : ''}{yoyGrowth.toFixed(1)}%
+                  </div>
+                  <p className="text-xs text-muted">
+                    vs {selectedYear - 1}
                   </p>
                 </div>
                 <div className="h-12 w-12 bg-accent/20 rounded-lg flex items-center justify-center">
@@ -241,27 +279,6 @@ export function DashboardPage() {
                 </div>
                 <div className="h-12 w-12 bg-accent/20 rounded-lg flex items-center justify-center">
                   <Target className="h-6 w-6 text-accent" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted">
-                    YoY Growth
-                  </p>
-                  <div className={`text-2xl font-bold ${yoyGrowth >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {yoyGrowth >= 0 ? '+' : ''}{yoyGrowth.toFixed(1)}%
-                  </div>
-                  <p className="text-xs text-muted">
-                    vs {selectedYear - 1}
-                  </p>
-                </div>
-                <div className="h-12 w-12 bg-accent/20 rounded-lg flex items-center justify-center">
-                  <Calendar className="h-6 w-6 text-accent" />
                 </div>
               </div>
             </CardContent>

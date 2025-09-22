@@ -85,12 +85,17 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
         status: filterStatus as any
       });
       
+      // Filter out deprecated KPIs
+      const filteredRecords = records.filter(record => 
+        record.kpi_name !== 'Revenue Target Based on Profit Margin'
+      );
+      
       // For historical periods, load comparison data (same month last year)
-      let recordsWithComparison = records;
-      if (records.length > 0 && filterPeriod !== 'current_month' && filterPeriod !== 'all') {
+      let recordsWithComparison = filteredRecords;
+      if (filteredRecords.length > 0 && filterPeriod !== 'current_month' && filterPeriod !== 'all') {
         try {
           // Extract year and month from current period
-          const currentPeriod = records[0]?.period;
+          const currentPeriod = filteredRecords[0]?.period;
           if (currentPeriod) {
             const currentDate = new Date(currentPeriod);
             const currentYear = currentDate.getFullYear();
@@ -134,7 +139,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
       }
       
       // If no records found for current month, generate current month KPIs only
-      if (records.length === 0 && filterPeriod === 'current_month') {
+      if (filteredRecords.length === 0 && filterPeriod === 'current_month') {
         setGenerating(true);
         await RevenueKPIGenerator.generateKPIsForPeriod(user.id, 'current');
         setGenerating(false);
@@ -145,7 +150,12 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
           kpi_category: filterCategory,
           status: filterStatus as any
         });
-        setKpiRecords(newRecords);
+        
+        // Filter out deprecated KPIs from new records
+        const filteredNewRecords = newRecords.filter(record => 
+          record.kpi_name !== 'Revenue Target Based on Profit Margin'
+        );
+        setKpiRecords(filteredNewRecords);
       } else {
         setKpiRecords(recordsWithComparison);
       }
@@ -187,21 +197,28 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   useEffect(() => {
     const handleFocus = () => {
       setIsWindowFocused(true);
-      // Don't automatically reload on focus - user can manually refresh if needed
     };
     
     const handleBlur = () => {
       setIsWindowFocused(false);
     };
     
+    // Listen for KPI refresh completion events
+    const handleKPIRefreshComplete = () => {
+      console.log('🔄 KPI refresh complete event received - refreshing dashboard');
+      loadKPIRecords(true); // Force reload when KPIs are refreshed
+    };
+    
     window.addEventListener('focus', handleFocus);
     window.addEventListener('blur', handleBlur);
+    window.addEventListener('kpiRefreshComplete', handleKPIRefreshComplete);
     
     return () => {
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('kpiRefreshComplete', handleKPIRefreshComplete);
     };
-  }, []);
+  }, [loadKPIRecords]);
 
   // Load KPIs on filter changes (with throttling)
   useEffect(() => {
@@ -268,13 +285,13 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   const formatValue = (value: number, format: string) => {
     switch (format) {
       case 'currency':
-        return `$${value.toLocaleString()}`;
+        return `$${Math.round(value).toLocaleString()}`;
       case 'percentage':
         return `${(value * 100).toFixed(1)}%`;
       case 'number':
-        return value.toLocaleString();
+        return Math.round(value).toLocaleString();
       default:
-        return value.toString();
+        return Math.round(value).toString();
     }
   };
 

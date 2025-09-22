@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { useAuth } from './auth-context';
 import { RevenueDataService } from '../services/revenueDataService';
+import { RevenueKPIGenerator } from '../services/revenueKPIGenerator';
 import { KPIDataService, RevenueKPI } from '../services/kpiDataService';
 
 export interface MonthlyData {

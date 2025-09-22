@@ -6,6 +6,8 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Line } from 'react-chartjs-2';
 import { useRevenue } from '../../contexts/revenue-context';
+import { useKPIRefreshContext } from '../kpi/KPIRefreshProvider';
+import { getAffectedKPIs } from '../../hooks/useKPIRefresh';
 import { Button } from '../ui/button';
 import { 
   Lock, 
@@ -80,6 +82,8 @@ export function MasterChart() {
     lockHistoricalYear
   } = useRevenue();
   
+  const { promptForKPIRefresh } = useKPIRefreshContext();
+  
   const [timePeriod] = useState<TimePeriod>('yearly');
   const [annualFIRTarget, setAnnualFIRTarget] = useState(currentYear.targetRevenue);
   const [profitMargin, setProfitMargin] = useState(currentYear.profitMargin);
@@ -97,11 +101,23 @@ export function MasterChart() {
   const handleFIRTargetChange = (value: number) => {
     setAnnualFIRTarget(value);
     updateTargets(value, profitMargin);
+    
+    // Prompt user to refresh KPIs after target update
+    promptForKPIRefresh({
+      changeDescription: `Updating annual revenue target to $${value.toLocaleString()}`,
+      affectedKPIs: getAffectedKPIs('target')
+    });
   };
 
   const handleProfitMarginChange = (value: number) => {
     setProfitMargin(value);
     updateTargets(annualFIRTarget, value);
+    
+    // Prompt user to refresh KPIs after profit margin update
+    promptForKPIRefresh({
+      changeDescription: `Updating profit margin goal to ${value}%`,
+      affectedKPIs: getAffectedKPIs('profit_margin')
+    });
   };
 
   // Clear active month highlight after 3 seconds
@@ -255,6 +271,12 @@ export function MasterChart() {
   const handleMonthlyRevenueChange = (index: number, value: number) => {
     const month = currentYear.data[index].month;
     updateMonthlyRevenue(month, value);
+    
+    // Prompt user to refresh KPIs after revenue update
+    promptForKPIRefresh({
+      changeDescription: `Updating ${month} revenue to $${value.toLocaleString()}`,
+      affectedKPIs: getAffectedKPIs('revenue')
+    });
   };
 
   const handleYearChange = (year: string) => {

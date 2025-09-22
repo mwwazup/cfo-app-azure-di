@@ -50,7 +50,6 @@ export class RevenueKPIGenerator {
       await this.generateTargetGapKPI(userId, revenueData.data, periodString);
       await this.generateRevenueGrowthKPI(userId, revenueData.data, periodString);
       await this.generateProfitMarginKPI(userId, revenueData.data, periodString);
-      await this.generateProfitBasedRevenueTargetKPI(userId, revenueData.data, periodString);
       
       // Revenue Velocity KPI is only generated for historical comparisons, not current month
       
@@ -135,7 +134,6 @@ export class RevenueKPIGenerator {
             { name: 'Revenue Growth', fn: () => this.generateRevenueGrowthKPI(userId, revenueData, periodString) },
             { name: 'Target Gap', fn: () => this.generateTargetGapKPI(userId, revenueData, periodString) },
             { name: 'Profit Margin', fn: () => this.generateProfitMarginKPI(userId, revenueData, periodString) },
-            { name: 'Profit Based Revenue Target', fn: () => this.generateProfitBasedRevenueTargetKPI(userId, revenueData, periodString) },
             { name: 'Revenue Velocity', fn: () => this.generateRevenueVelocityKPI(userId, revenueData, periodString) }
           ];
 
@@ -151,7 +149,7 @@ export class RevenueKPIGenerator {
           }
 
           if (periodKpiCount > 0) {
-            console.log(`Successfully generated ${periodKpiCount}/7 KPIs for ${periodString}`);
+            console.log(`Successfully generated ${periodKpiCount}/6 KPIs for ${periodString}`);
             successCount++;
           } else {
             console.error(`Failed to generate any KPIs for ${periodString}`);
@@ -308,6 +306,9 @@ export class RevenueKPIGenerator {
     try {
       console.log('Generating KPIs from actual revenue data for user:', userId);
       
+      // Clean up deprecated KPIs first
+      await this.cleanupDeprecatedKPIs(userId);
+      
       // Get current date info
       const now = new Date();
       const currentYear = now.getFullYear();
@@ -338,11 +339,34 @@ export class RevenueKPIGenerator {
       await this.generateRevenueGrowthKPI(userId, revenueData, currentPeriod);
       await this.generateTargetGapKPI(userId, revenueData, currentPeriod);
       await this.generateProfitMarginKPI(userId, revenueData, currentPeriod);
-      await this.generateProfitBasedRevenueTargetKPI(userId, revenueData, currentPeriod);
       
       console.log('KPI generation completed successfully');
     } catch (error) {
       console.error('Error generating KPIs:', error);
+    }
+  }
+
+  /**
+   * Clean up deprecated KPI records
+   */
+  static async cleanupDeprecatedKPIs(userId: string): Promise<void> {
+    try {
+      console.log('Cleaning up deprecated KPI records...');
+      
+      // Remove "Revenue Target Based on Profit Margin" KPI records
+      const { error } = await supabase
+        .from('kpi_records')
+        .delete()
+        .eq('user_id', userId)
+        .eq('kpi_name', 'Revenue Target Based on Profit Margin');
+
+      if (error) {
+        console.error('Error cleaning up deprecated KPIs:', error);
+      } else {
+        console.log('Successfully removed deprecated "Revenue Target Based on Profit Margin" KPI records');
+      }
+    } catch (error) {
+      console.error('Error in cleanupDeprecatedKPIs:', error);
     }
   }
 
@@ -436,7 +460,7 @@ export class RevenueKPIGenerator {
     const preservedGoal = existingYTDRevenue?.goal_value;
   
     // Use preserved goal if exists, otherwise use calculated YTD FIR target
-    const goalValue = preservedGoal !== null && preservedGoal !== undefined ? preservedGoal : ytdFIRTarget;
+    const goalValue = preservedGoal !== null ? preservedGoal : ytdFIRTarget;
     
     const explanation = `Year-to-date revenue of $${ytdActual.toLocaleString()} vs FIR target of $${goalValue?.toLocaleString() || 'N/A'}`;
     const actionSuggestion = ytdActual < (goalValue || 0) 
@@ -458,7 +482,7 @@ export class RevenueKPIGenerator {
   }
 
   /**
-   * Generate Revenue Growth Rate KPI
+   * Generate Revenue Growth Rate KPI (YTD vs YTD comparison)
    */
   private static async generateRevenueGrowthKPI(
     userId: string, 
@@ -467,6 +491,8 @@ export class RevenueKPIGenerator {
   ) {
     // Get previous year data for comparison
     const currentYear = new Date(period).getFullYear();
+    const currentMonth = new Date(period).getMonth() + 1;
+    
     const { data: prevYearData } = await supabase
       .from('revenue_entries')
       .select('*')
@@ -475,10 +501,16 @@ export class RevenueKPIGenerator {
       .order('month');
 
     if (prevYearData && prevYearData.length > 0) {
-      const currentYearTotal = revenueData.reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
-      const prevYearTotal = prevYearData.reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
+      // Compare same time periods: YTD current year vs YTD previous year
+      const currentYearYTD = revenueData
+        .filter(entry => entry.month <= currentMonth)
+        .reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
       
-      const growthRate = prevYearTotal > 0 ? (currentYearTotal - prevYearTotal) / prevYearTotal : 0;
+      const prevYearYTD = prevYearData
+        .filter(entry => entry.month <= currentMonth)
+        .reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
+      
+      const growthRate = prevYearYTD > 0 ? (currentYearYTD - prevYearYTD) / prevYearYTD : 0;
 
       await KPIRecordsService.upsertKPIRecord(userId, {
         kpi_name: 'Revenue Growth Rate',
@@ -487,10 +519,10 @@ export class RevenueKPIGenerator {
         trend_vs_last_month: undefined,
         status: KPIRecordsService.calculateKPIStatus(growthRate, 0.15),
         period,
-        plain_explanation: `Year-over-year revenue growth of ${(growthRate * 100).toFixed(1)}% ($${currentYearTotal.toLocaleString()} vs $${prevYearTotal.toLocaleString()} last year)`,
+        plain_explanation: `YTD revenue growth of ${(growthRate * 100).toFixed(1)}% ($${currentYearYTD.toLocaleString()} vs $${prevYearYTD.toLocaleString()} same period last year)`,
         action_suggestion: growthRate < 0.1 
-          ? 'Growth below 10%. Consider new customer acquisition strategies and market expansion.' 
-          : 'Solid growth trajectory! Focus on sustainable scaling strategies.',
+          ? 'YTD growth below 10%. Consider new customer acquisition strategies and market expansion.' 
+          : 'Solid YTD growth trajectory! Focus on sustainable scaling strategies.',
         kpi_category: 'growth',
         display_format: 'percentage'
       });
@@ -498,7 +530,7 @@ export class RevenueKPIGenerator {
   }
 
   /**
-   * Generate Revenue Gap to Target KPI using YTD comparison (not annual)
+   * Generate Revenue Gap to Target KPI using simple Goal - YTD Actual calculation
    */
   private static async generateTargetGapKPI(
     userId: string, 
@@ -511,7 +543,7 @@ export class RevenueKPIGenerator {
       .filter(entry => entry.month <= currentMonth)
       .reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
 
-    // Get annual FIR target and calculate YTD target (proportional)
+    // Get annual FIR target
     const currentYear = new Date(period).getFullYear();
     const { data: yearData } = await supabase
       .from('revenue_entries')
@@ -521,25 +553,23 @@ export class RevenueKPIGenerator {
     
     const annualFIRTarget = yearData?.reduce((sum, entry) => sum + (entry.desired_revenue || 0), 0) || 0;
     
-    // CORRECT MATH: YTD Target = Annual Target * (months elapsed / 12)
-    const ytdTarget = annualFIRTarget * (currentMonth / 12);
-    
-    // Gap = YTD Actual - YTD Target (positive means ahead, negative means behind)
-    const gap = ytdActual - ytdTarget;
+    // SIMPLE MATH: Gap = Annual Goal - YTD Actual
+    // Positive means you need more revenue, negative means you're ahead of goal
+    const gap = annualFIRTarget - ytdActual;
 
     await KPIRecordsService.upsertKPIRecord(userId, {
       kpi_name: 'Revenue Gap to Target',
       kpi_value: gap,
-      goal_value: 0, // Goal is zero gap (meaning we're exactly on track)
+      goal_value: 0, // Goal is zero gap (meaning we've reached our annual target)
       trend_vs_last_month: undefined,
-      status: gap >= 0 ? 'good' : gap >= -ytdTarget * 0.1 ? 'warning' : 'alert',
+      status: gap <= 0 ? 'good' : gap <= annualFIRTarget * 0.1 ? 'warning' : 'alert',
       period,
-      plain_explanation: gap >= 0 
-        ? `You're ahead of target by $${gap.toLocaleString()}! YTD actual: $${ytdActual.toLocaleString()} vs YTD target: $${ytdTarget.toLocaleString()}` 
-        : `You're behind YTD target by $${Math.abs(gap).toLocaleString()}. YTD actual: $${ytdActual.toLocaleString()} vs YTD target: $${ytdTarget.toLocaleString()}`,
-      action_suggestion: gap >= 0 
-        ? `Excellent! You're ahead of your YTD target. Keep up the momentum and consider stretch goals.` 
-        : `You need $${Math.abs(gap).toLocaleString()} more revenue to get back on track for your annual FIR goal.`,
+      plain_explanation: gap <= 0 
+        ? `Excellent! You've reached your annual goal. YTD actual: $${ytdActual.toLocaleString()} vs annual goal: $${annualFIRTarget.toLocaleString()}` 
+        : `You need $${gap.toLocaleString()} more revenue to reach your annual goal of $${annualFIRTarget.toLocaleString()}. YTD actual: $${ytdActual.toLocaleString()}`,
+      action_suggestion: gap <= 0 
+        ? `Outstanding! You've reached your annual FIR goal. Consider setting stretch targets for the remainder of the year.` 
+        : `You need $${gap.toLocaleString()} more revenue to reach your annual FIR goal. Focus on accelerating sales activities.`,
       kpi_category: 'performance',
       display_format: 'currency'
     });
@@ -589,47 +619,6 @@ export class RevenueKPIGenerator {
         : `Excellent! You're meeting your profit margin target. Focus on maintaining efficiency while scaling revenue.`,
       kpi_category: 'profitability',
       display_format: 'percentage'
-    });
-  }
-
-  /**
-   * Generate Revenue Target Based on Profit Margin KPI
-   */
-  private static async generateProfitBasedRevenueTargetKPI(
-    userId: string, 
-    revenueData: any[], 
-    period: string
-  ) {
-    // Get user's configured profit margin target from the same period
-    const currentYear = new Date(period).getFullYear();
-    const { data: yearData } = await supabase
-      .from('revenue_entries')
-      .select('profit_margin')
-      .eq('user_id', userId)
-      .eq('year', currentYear)
-      .not('profit_margin', 'is', null)
-      .limit(1)
-      .single();
-    
-    // Use user's configured profit margin as goal, fallback to 35% if not set
-    const userProfitMarginGoal = yearData?.profit_margin ? yearData.profit_margin / 100 : 0.35;
-
-    // Calculate revenue target based on profit margin goal
-    const revenueTarget = userProfitMarginGoal > 0 ? (revenueData.reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0) / userProfitMarginGoal) : 0;
-
-    await KPIRecordsService.upsertKPIRecord(userId, {
-      kpi_name: 'Revenue Target Based on Profit Margin',
-      kpi_value: revenueTarget,
-      goal_value: revenueTarget,
-      trend_vs_last_month: undefined,
-      status: KPIRecordsService.calculateKPIStatus(revenueTarget, revenueTarget),
-      period,
-      plain_explanation: `Revenue target based on profit margin goal of ${(userProfitMarginGoal * 100).toFixed(1)}% is $${revenueTarget.toLocaleString()}`,
-      action_suggestion: revenueTarget > 0 
-        ? `To achieve your profit margin goal, you need to reach a revenue target of $${revenueTarget.toLocaleString()}. Focus on increasing sales activities and closing pending deals.` 
-        : `No revenue target available. Please set a profit margin goal to calculate the revenue target.`,
-      kpi_category: 'performance',
-      display_format: 'currency'
     });
   }
 
@@ -690,27 +679,27 @@ export class RevenueKPIGenerator {
     // So we'll compare actual revenue amounts and calculate a velocity based on revenue growth
     // Note: ytdActual was already calculated above, so we'll use that
     
-    // Calculate revenue velocity as year-over-year growth rate
-    const revenueGrowthRate = lastYearYtdActual > 0 ? ((ytdActual - lastYearYtdActual) / lastYearYtdActual) * 100 : 0;
-    console.log(`DEBUG: Revenue growth rate: ${revenueGrowthRate.toFixed(1)}%`);
+    // Calculate revenue velocity as year-over-year growth rate (as decimal for percentage formatting)
+    const revenueGrowthRate = lastYearYtdActual > 0 ? ((ytdActual - lastYearYtdActual) / lastYearYtdActual) : 0;
+    console.log(`DEBUG: Revenue growth rate: ${(revenueGrowthRate * 100).toFixed(1)}%`);
     
     // Calculate time to revenue milestones (e.g., $250K)
     const milestone = 250000; // $250K milestone
     const thisYearTimeToMilestone = this.calculateTimeToMilestone(revenueData, milestone, currentMonth);
     const lastYearTimeToMilestone = this.calculateTimeToMilestone(lastYearData, milestone, currentMonth);
     
-    // Use revenue growth rate as the velocity difference
-    const velocityDifference = revenueGrowthRate;
+    // Use revenue growth rate as the velocity difference (convert to percentage for comparison)
+    const velocityDifferencePercent = revenueGrowthRate * 100;
     
     // Generate dynamic insights based on performance
     let actionSuggestion = '';
     let status: 'good' | 'warning' | 'alert' = 'warning';
     
-    if (velocityDifference > 5) {
+    if (velocityDifferencePercent > 5) {
       // Faster than last year
       status = 'good';
       actionSuggestion = `Outstanding velocity! You're outpacing last year. Consider scaling the strategies that are driving this acceleration.`;
-    } else if (velocityDifference >= -5) {
+    } else if (velocityDifferencePercent >= -5) {
       // On pace with last year
       status = 'warning';
       actionSuggestion = `You're maintaining pace with last year. Look for opportunities to accelerate growth and break through to the next level.`;
@@ -736,13 +725,13 @@ export class RevenueKPIGenerator {
         trend_vs_last_month: undefined,
         status,
         period,
-        plain_explanation: `Revenue Velocity: You've generated $${ytdActual.toLocaleString()} so far this year vs $${lastYearYtdActual.toLocaleString()} last year (${revenueGrowthRate > 0 ? '+' : ''}${revenueGrowthRate.toFixed(1)}% growth).${thisYearTimeToMilestone && lastYearTimeToMilestone ? ` Time to $${(milestone/1000).toFixed(0)}K: ${thisYearTimeToMilestone.toFixed(1)} months this year vs ${lastYearTimeToMilestone.toFixed(1)} months last year.` : ''}`,
+        plain_explanation: `Revenue Velocity: You've generated $${ytdActual.toLocaleString()} so far this year vs $${lastYearYtdActual.toLocaleString()} last year (${revenueGrowthRate > 0 ? '+' : ''}${(revenueGrowthRate * 100).toFixed(1)}% growth).${thisYearTimeToMilestone && lastYearTimeToMilestone ? ` Time to $${(milestone/1000).toFixed(0)}K: ${thisYearTimeToMilestone.toFixed(1)} months this year vs ${lastYearTimeToMilestone.toFixed(1)} months last year.` : ''}`,
         action_suggestion: actionSuggestion,
         kpi_category: 'performance',
         display_format: 'percentage'
       });
       
-      console.log(`DEBUG: Revenue Velocity KPI saved successfully: $${ytdActual.toLocaleString()} vs $${lastYearYtdActual.toLocaleString()} (${revenueGrowthRate > 0 ? '+' : ''}${revenueGrowthRate.toFixed(1)}% growth)`);      
+      console.log(`DEBUG: Revenue Velocity KPI saved successfully: $${ytdActual.toLocaleString()} vs $${lastYearYtdActual.toLocaleString()} (${revenueGrowthRate > 0 ? '+' : ''}${(revenueGrowthRate * 100).toFixed(1)}% growth)`);      
     } catch (saveError) {
       console.error(`DEBUG: Failed to save Revenue Velocity KPI:`, saveError);
       throw saveError;

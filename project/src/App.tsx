@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/auth-context';
 import { RevenueProvider } from './contexts/revenue-context';
+import { KPIRefreshProvider } from './components/kpi/KPIRefreshProvider';
 import { DashboardLayout } from './components/layout/dashboard-layout';
 import HeroSection from './components/landing/hero-section';
 import SignupForm from './components/auth/signup-form';
@@ -22,7 +23,8 @@ function App() {
   return (
     <AuthProvider>
       <RevenueProvider>
-        <Router>
+        <KPIRefreshProvider>
+          <Router>
           <div className="min-h-screen bg-gray-900">
             <Routes>
               {/* Public routes */}
@@ -61,7 +63,8 @@ function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
-        </Router>
+          </Router>
+        </KPIRefreshProvider>
       </RevenueProvider>
     </AuthProvider>
   );

@@ -21,7 +21,7 @@ export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
   const hideTooltip = () => setIsVisible(false);
 
   const getTooltipClasses = () => {
-    const baseClasses = "absolute z-50 px-3 py-2 text-sm text-white bg-gray-900 dark:bg-gray-700 rounded-lg shadow-lg max-w-xs transition-opacity duration-200";
+    const baseClasses = "absolute z-50 px-4 py-3 text-sm text-background bg-gray-300 dark:bg-gray-700 rounded-lg shadow-lg max-w-lg min-w-[300px] transition-opacity duration-200";
     
     switch (position) {
       case 'top':
@@ -38,7 +38,7 @@ export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
   };
 
   const getArrowClasses = () => {
-    const baseClasses = "absolute w-2 h-2 bg-gray-900 dark:bg-gray-700 transform rotate-45";
+    const baseClasses = "absolute w-2 h-2 bg-gray-300 dark:bg-gray-300 transform rotate-45";
     
     switch (position) {
       case 'top':
