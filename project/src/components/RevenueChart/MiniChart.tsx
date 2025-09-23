@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import { useRevenue } from '../../contexts/revenue-context';
-import { WaveRiderStatus } from '../dashboard/WaveRiderStatus';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -112,17 +111,8 @@ export function MiniChart() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="h-32 w-full">
-        <Line data={chartData} options={chartOptions} />
-      </div>
-      
-      {/* Wave Rider Status with fixed FIR target */}
-      <WaveRiderStatus 
-        actualRevenue={currentMonthRevenue}
-        firTarget={currentMonthFIRTarget}
-        profitMargin={currentYearData.profitMargin}
-      />
+    <div className="h-32 w-full">
+      <Line data={chartData} options={chartOptions} />
     </div>
   );
 }

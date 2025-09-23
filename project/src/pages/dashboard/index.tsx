@@ -3,7 +3,7 @@ import { useProfile } from '../../hooks/useProfile';
 import { useRevenue } from '../../contexts/revenue-context';
 import { useFinancialData } from '../../hooks/useFinancialData';
 import { MiniChart } from '../../components/RevenueChart/MiniChart';
-import { RIDRScoringSystem } from '../../components/dashboard/RIDRScoringSystem';
+import { CashflowInputs, CashflowVisualization } from '../../components/dashboard/CashflowCalculator';
 import KPIDashboard from '../../components/dashboard/KPIDashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -22,12 +22,61 @@ import {
   Info
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
+
+interface COGSData {
+  materials: number;
+  directLabor: number;
+  shipping: number;
+  otherCogs: number;
+}
+
+interface ExpensesData {
+  rent: number;
+  utilities: number;
+  insurance: number;
+  marketing: number;
+  adminSalaries: number;
+  professionalFees: number;
+  equipment: number;
+  otherExpenses: number;
+}
+
+interface CashflowData {
+  revenue: number;
+  cogs: COGSData;
+  operatingExpenses: ExpensesData;
+  ownerDistributions: number;
+  taxes: number;
+}
 
 export function DashboardPage() {
   const { user } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
   const { currentYear, historicalYears, selectedYear, selectYear, getYearData, isLoading, currentYearKpis } = useRevenue();
   const { statements } = useFinancialData();
+
+  const [cashflowData, setCashflowData] = useState<CashflowData>({
+    revenue: 0,
+    cogs: {
+      materials: 0,
+      directLabor: 0,
+      shipping: 0,
+      otherCogs: 0,
+    },
+    operatingExpenses: {
+      rent: 0,
+      utilities: 0,
+      insurance: 0,
+      marketing: 0,
+      adminSalaries: 0,
+      professionalFees: 0,
+      equipment: 0,
+      otherExpenses: 0,
+    },
+    ownerDistributions: 0,
+    taxes: 0,
+  });
 
   if (isLoading || profileLoading) {
     return (
@@ -307,7 +356,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Revenue Curve Preview and RIDR Scoring System */}
+      {/* Revenue Curve Preview and Cashflow Calculator */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -332,8 +381,13 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <RIDRScoringSystem />
+        <CashflowInputs data={cashflowData} setData={setCashflowData} />
       </div>
+
+      {/* Full-Width Cashflow Visualization */}
+      <CashflowVisualization data={cashflowData} />
+
+      <KPIDashboard className="w-full" />
 
       {/* Financial Statements Overview */}
       <Card>
@@ -415,9 +469,6 @@ export function DashboardPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* KPI Dashboard */}
-      <KPIDashboard className="w-full" />
 
       {/* 5-Year Performance Overview */}
       <Card>
