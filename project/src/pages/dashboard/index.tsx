@@ -24,28 +24,10 @@ import {
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 
-interface COGSData {
-  materials: number;
-  directLabor: number;
-  shipping: number;
-  otherCogs: number;
-}
-
-interface ExpensesData {
-  rent: number;
-  utilities: number;
-  insurance: number;
-  marketing: number;
-  adminSalaries: number;
-  professionalFees: number;
-  equipment: number;
-  otherExpenses: number;
-}
-
 interface CashflowData {
   revenue: number;
-  cogs: COGSData;
-  operatingExpenses: ExpensesData;
+  cogs: number;
+  operatingExpenses: number;
   ownerDistributions: number;
   taxes: number;
 }
@@ -57,25 +39,11 @@ export function DashboardPage() {
   const { statements } = useFinancialData();
 
   const [cashflowData, setCashflowData] = useState<CashflowData>({
-    revenue: 0,
-    cogs: {
-      materials: 0,
-      directLabor: 0,
-      shipping: 0,
-      otherCogs: 0,
-    },
-    operatingExpenses: {
-      rent: 0,
-      utilities: 0,
-      insurance: 0,
-      marketing: 0,
-      adminSalaries: 0,
-      professionalFees: 0,
-      equipment: 0,
-      otherExpenses: 0,
-    },
-    ownerDistributions: 0,
-    taxes: 0,
+    revenue: 100000,
+    cogs: 40000,
+    operatingExpenses: 25000,
+    ownerDistributions: 24000,
+    taxes: 4800,
   });
 
   if (isLoading || profileLoading) {

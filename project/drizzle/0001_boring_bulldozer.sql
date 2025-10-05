@@ -1,0 +1,1 @@
+DROP TABLE "_drizzle_smoke_test" CASCADE;

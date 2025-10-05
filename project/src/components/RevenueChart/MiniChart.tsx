@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import { useRevenue } from '../../contexts/revenue-context';
 import {
@@ -40,12 +40,6 @@ export function MiniChart() {
   const currentYear = new Date().getFullYear();
   const currentYearData = getYearData(currentYear);
   const monthlyRevenue = currentYearData.data.map(item => item.revenue);
-  const totalRevenue = monthlyRevenue.reduce((a, b) => a + b, 0);
-
-  // Calculate current month's actual revenue and FIR target for Wave Rider Status
-  const currentMonth = new Date().getMonth();
-  const currentMonthRevenue = monthlyRevenue[currentMonth] || 0;
-  const currentMonthFIRTarget = currentYearData.monthlyFIRTargets?.[currentMonth] || 0;
 
   const chartData = {
     labels: currentYearData.data.map(item => item.month),
