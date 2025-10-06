@@ -1,5 +1,39 @@
 import { createClient } from '@supabase/supabase-js';
 
+declare global {
+  interface Window {
+    Clerk?: {
+      session?: {
+        getToken: (
+          options?: { template?: string }
+        ) => Promise<string | null | undefined>;
+      } | null;
+    };
+  }
+}
+
+const fetchWithClerkAuth: typeof fetch = async (input, init) => {
+  const headers = new Headers(init?.headers ?? {});
+
+  try {
+    if (typeof window !== 'undefined') {
+      const token =
+        (await window.Clerk?.session?.getToken({ template: 'supabase' })) ??
+        (await window.Clerk?.session?.getToken());
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
+    }
+  } catch (error) {
+    console.warn('Unable to fetch Clerk session token for Supabase request:', error);
+  }
+
+  return fetch(input, {
+    ...init,
+    headers,
+  });
+};
+
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL!,
   import.meta.env.VITE_SUPABASE_ANON_KEY!,
@@ -14,7 +48,8 @@ export const supabase = createClient(
     global: {
       headers: {
         'x-application-name': 'BigFigCFO'
-      }
+      },
+      fetch: fetchWithClerkAuth,
     }
   }
 );

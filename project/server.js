@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { exec } from 'child_process';
+import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { promisify } from 'util';
@@ -35,6 +36,130 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Backend server is running' });
+});
+
+// Link Clerk user to Supabase (ensures a UUID-backed account exists)
+app.post('/api/auth/supabase-link', async (req, res) => {
+  try {
+    const { clerkUserId, email, firstName, lastName } = req.body ?? {};
+
+    if (!clerkUserId) {
+      return res.status(400).json({ error: 'clerkUserId is required' });
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'email is required to provision Supabase user' });
+    }
+
+    const normalizedEmail = String(email).toLowerCase();
+
+    // Check if a profile already exists for this email
+    const { data: existingProfile, error: profileLookupError } = await supabase
+      .from('profiles')
+      .select('id')
+      .ilike('email', normalizedEmail)
+      .maybeSingle();
+
+    if (profileLookupError) {
+      throw profileLookupError;
+    }
+
+    let supabaseUserId = existingProfile?.id ?? null;
+
+    if (!supabaseUserId) {
+      // Attempt to create a Supabase auth user using the service role key
+      const provisionalPassword = `${randomUUID()}Aa!1`;
+      const adminResult = await supabase.auth.admin.createUser({
+        email: normalizedEmail,
+        email_confirm: true,
+        password: provisionalPassword,
+        user_metadata: {
+          first_name: firstName,
+          last_name: lastName,
+          clerk_user_id: clerkUserId,
+        },
+      });
+
+      if (adminResult.error) {
+        if (adminResult.error.code === 'email_exists') {
+          // Email already tied to a Supabase auth user. Fetch the existing record.
+          const listResult = await supabase.auth.admin.listUsers();
+          if (listResult.error) {
+            throw listResult.error;
+          }
+
+          const existingUser = listResult.data?.users?.find(
+            (user) => user.email?.toLowerCase() === normalizedEmail
+          );
+
+          supabaseUserId = existingUser?.id ?? null;
+        } else {
+          throw adminResult.error;
+        }
+      } else {
+        supabaseUserId = adminResult.data.user?.id ?? null;
+      }
+
+      if (!supabaseUserId) {
+        return res.status(500).json({ error: 'Unable to resolve Supabase user ID for Clerk account' });
+      }
+
+      // Ensure a profile row exists for downstream services (id references auth.users)
+      const { error: upsertProfileError } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            id: supabaseUserId,
+            email: normalizedEmail,
+            first_name: firstName ?? null,
+            last_name: lastName ?? null,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        );
+
+      if (upsertProfileError) {
+        throw upsertProfileError;
+      }
+    }
+
+    const responsePayload = { supabaseUserId };
+
+    // Attempt to store the Supabase UUID in Clerk metadata for future lookups
+    try {
+      const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+      if (clerkSecretKey) {
+        const clerkResponse = await fetch(`https://api.clerk.com/v1/users/${clerkUserId}/metadata`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${clerkSecretKey}`,
+          },
+          body: JSON.stringify({
+            public_metadata: {
+              supabaseId: supabaseUserId,
+            },
+          }),
+        });
+
+        if (!clerkResponse.ok) {
+          const clerkErrorText = await clerkResponse.text();
+          console.warn('Failed to update Clerk metadata with Supabase UUID:', clerkErrorText);
+          responsePayload.metadataWarning = 'Clerk metadata update failed';
+        }
+      } else {
+        responsePayload.metadataWarning = 'CLERK_SECRET_KEY missing; Supabase UUID not stored in Clerk metadata';
+      }
+    } catch (metadataError) {
+      console.warn('Error while attempting to sync Supabase UUID to Clerk metadata:', metadataError);
+      responsePayload.metadataWarning = 'Clerk metadata update error';
+    }
+
+    return res.json(responsePayload);
+  } catch (error) {
+    console.error('Error linking Clerk user to Supabase:', error);
+    return res.status(500).json({ error: error?.message ?? 'Failed to link Supabase user' });
+  }
 });
 
 // Document analysis endpoint

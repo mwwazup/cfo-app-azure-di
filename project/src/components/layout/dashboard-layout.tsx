@@ -17,12 +17,16 @@ import { useState } from 'react';
 // import VoiceCoach from '../VoiceCoach'; // DISABLED - Archived for future use
 
 export function DashboardLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading } = useAuth();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  if (isLoading) {
+    return null;
+  }
+
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/sign-in" replace />;
   }
 
   const navigation = [
@@ -36,8 +40,8 @@ export function DashboardLayout() {
     { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
   ];
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
   };
 
   return (
@@ -127,7 +131,7 @@ export function DashboardLayout() {
             <div className="flex items-center w-full">
               <div className="flex-1">
                 <p className="text-sm font-medium text-foreground">
-                  {user.first_name} {user.last_name}
+                  {user.first_name ?? ''} {user.last_name ?? ''}
                 </p>
                 <p className="text-xs text-muted">
                   {user.email}
@@ -161,7 +165,7 @@ export function DashboardLayout() {
                 <div className="flex items-center space-x-4">
                   <div className="hidden md:block">
                     <span className="text-sm text-muted">
-                      Welcome, {user.first_name}
+                      Welcome, {user.first_name ?? user.email}
                     </span>
                   </div>
                 </div>

@@ -1,3 +1,4 @@
+import { mapClerkIdToLegacyUserId } from '../utils/userIdMapping.ts';
 import { supabase } from '../config/supabaseClient';
 
 export interface RevenueData {
@@ -31,11 +32,15 @@ export class RevenueDataService {
    * Get revenue data for a specific year
    */
   static async getRevenueDataForYear(userId: string, year: number): Promise<RevenueData[]> {
+    const normalizedId = mapClerkIdToLegacyUserId(userId);
+    if (!normalizedId) {
+      return [];
+    }
     try {
       const { data, error } = await supabase
         .from('revenue_entries')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', normalizedId)
         .eq('year', year)
         .order('month');
 
@@ -60,12 +65,17 @@ export class RevenueDataService {
     month: number,
     revenue: number
   ): Promise<{ success: boolean; error?: string }> {
+    const normalizedId = mapClerkIdToLegacyUserId(userId);
+    if (!normalizedId) {
+      console.warn('Skipped Supabase monthly revenue update: user ID not mapped to UUID', userId);
+      return { success: true };
+    }
     try {
       // First, check if the record exists
       const { data: existingRecord } = await supabase
         .from('revenue_entries')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', normalizedId)
         .eq('year', year)
         .eq('month', month)
         .maybeSingle();
@@ -78,7 +88,7 @@ export class RevenueDataService {
             actual_revenue: revenue,
             updated_at: new Date().toISOString()
           })
-          .eq('user_id', userId)
+          .eq('user_id', normalizedId)
           .eq('year', year)
           .eq('month', month);
 
@@ -94,7 +104,7 @@ export class RevenueDataService {
         const { error } = await supabase
           .from('revenue_entries')
           .insert({
-            user_id: userId,
+            user_id: normalizedId,
             year,
             month,
             actual_revenue: revenue,
@@ -129,6 +139,11 @@ export class RevenueDataService {
     targetRevenue: number,
     profitMargin: number
   ): Promise<{ success: boolean; error?: string }> {
+    const normalizedId = mapClerkIdToLegacyUserId(userId);
+    if (!normalizedId) {
+      console.warn('Skipped Supabase target update: user ID not mapped to UUID', userId);
+      return { success: true };
+    }
     try {
       // Update all months for the year with new targets
       const months = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -147,7 +162,7 @@ export class RevenueDataService {
         }
         
         return {
-          user_id: userId,
+          user_id: normalizedId,
           year,
           month,
           desired_revenue: monthlyAmount,
@@ -190,11 +205,15 @@ export class RevenueDataService {
    * Get all available years for a user
    */
   static async getAvailableYears(userId: string): Promise<number[]> {
+    const normalizedId = mapClerkIdToLegacyUserId(userId);
+    if (!normalizedId) {
+      return [];
+    }
     try {
       const { data, error } = await supabase
         .from('revenue_entries')
         .select('year')
-        .eq('user_id', userId)
+        .eq('user_id', normalizedId)
         .order('year', { ascending: false });
 
       if (error) {
@@ -214,6 +233,11 @@ export class RevenueDataService {
    * Migrate localStorage revenue data to database
    */
   static async migrateRevenueData(userId: string): Promise<boolean> {
+    const normalizedId = mapClerkIdToLegacyUserId(userId);
+    if (!normalizedId) {
+      console.warn('Skipping revenue migration; user lacks Supabase UUID', userId);
+      return true;
+    }
     try {
       const migratedEntries: any[] = [];
 
@@ -227,7 +251,7 @@ export class RevenueDataService {
             yearData.data.forEach((monthData: any, index: number) => {
               if (monthData.revenue > 0) {
                 migratedEntries.push({
-                  user_id: userId,
+                  user_id: normalizedId,
                   year: parseInt(year),
                   month: index + 1,
                   actual_revenue: monthData.revenue,

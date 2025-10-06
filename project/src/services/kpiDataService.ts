@@ -1,3 +1,4 @@
+import { mapClerkIdToLegacyUserId } from '../utils/userIdMapping.ts';
 import { supabase } from '../config/supabaseClient';
 
 export interface RevenueKPI {
@@ -15,11 +16,15 @@ export class KPIDataService {
    * Fetch KPI metrics for a specific user & year from the `revenue_kpis` view.
    */
   static async getKpis(userId: string, year: number): Promise<RevenueKPI | undefined> {
+    const normalizedId = mapClerkIdToLegacyUserId(userId);
+    if (!normalizedId) {
+      return undefined;
+    }
     try {
       const { data, error } = await supabase
         .from('revenue_kpis')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', normalizedId)
         .eq('year', year)
         .maybeSingle(); // Use maybeSingle() instead of single() to handle empty results
 
