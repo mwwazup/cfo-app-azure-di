@@ -1,5 +1,5 @@
-import { mapClerkIdToLegacyUserId } from '../utils/userIdMapping.ts';
-import { supabase } from '../config/supabaseClient';
+// User ID mapping removed - backend handles user ID conversion
+import { upsertMonthlyRevenue, getRevenueEntries, getAvailableYears } from '../config/supabaseClient';
 
 export interface RevenueData {
   id: string;
@@ -32,26 +32,11 @@ export class RevenueDataService {
    * Get revenue data for a specific year
    */
   static async getRevenueDataForYear(userId: string, year: number): Promise<RevenueData[]> {
-    const normalizedId = mapClerkIdToLegacyUserId(userId);
-    if (!normalizedId) {
-      return [];
-    }
     try {
-      const { data, error } = await supabase
-        .from('revenue_entries')
-        .select('*')
-        .eq('user_id', normalizedId)
-        .eq('year', year)
-        .order('month');
-
-      if (error) {
-        console.error('Error fetching revenue data:', error);
-        return [];
-      }
-
-      return data || [];
+      const result = await getRevenueEntries(userId, year); // Let backend handle user ID conversion
+      return result.rows || [];
     } catch (error) {
-      console.error('Unexpected error fetching revenue data:', error);
+      console.error('Error fetching revenue data:', error);
       return [];
     }
   }
@@ -65,67 +50,29 @@ export class RevenueDataService {
     month: number,
     revenue: number
   ): Promise<{ success: boolean; error?: string }> {
-    const normalizedId = mapClerkIdToLegacyUserId(userId);
-    if (!normalizedId) {
-      console.warn('Skipped Supabase monthly revenue update: user ID not mapped to UUID', userId);
-      return { success: true };
-    }
     try {
-      // First, check if the record exists
-      const { data: existingRecord } = await supabase
-        .from('revenue_entries')
-        .select('*')
-        .eq('user_id', normalizedId)
-        .eq('year', year)
-        .eq('month', month)
-        .maybeSingle();
-
-      if (existingRecord) {
-        // Update existing record, preserving other fields
-        const { error } = await supabase
-          .from('revenue_entries')
-          .update({
-            actual_revenue: revenue,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', normalizedId)
-          .eq('year', year)
-          .eq('month', month);
-
-        if (error) {
-          console.error('Error updating monthly revenue:', error);
-          return {
-            success: false,
-            error: `Failed to update revenue: ${error.message}`
-          };
-        }
-      } else {
-        // Create new record
-        const { error } = await supabase
-          .from('revenue_entries')
-          .insert({
-            user_id: normalizedId,
-            year,
-            month,
-            actual_revenue: revenue,
-            updated_at: new Date().toISOString()
-          });
-
-        if (error) {
-          console.error('Error creating monthly revenue:', error);
-          return {
-            success: false,
-            error: `Failed to create revenue: ${error.message}`
-          };
-        }
-      }
-
+      await upsertMonthlyRevenue({
+        userId: userId, // Let backend handle user ID conversion
+        year,
+        month,
+        actualRevenue: revenue
+      });
       return { success: true };
     } catch (error) {
-      console.error('Unexpected error updating monthly revenue:', error);
+      console.error('Error updating monthly revenue:', error);
+      
+      // Check if this is an RLS policy violation
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('row-level security policy') || errorMessage.includes('42501')) {
+        return {
+          success: false,
+          error: 'Authentication issue: Please refresh the page and try logging in again. If the problem persists, contact support.'
+        };
+      }
+      
       return {
         success: false,
-        error: `Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`
+        error: `Failed to update revenue: ${errorMessage}`
       };
     }
   }
@@ -139,56 +86,32 @@ export class RevenueDataService {
     targetRevenue: number,
     profitMargin: number
   ): Promise<{ success: boolean; error?: string }> {
-    const normalizedId = mapClerkIdToLegacyUserId(userId);
-    if (!normalizedId) {
-      console.warn('Skipped Supabase target update: user ID not mapped to UUID', userId);
-      return { success: true };
-    }
     try {
       // Update all months for the year with new targets
       const months = Array.from({ length: 12 }, (_, i) => i + 1);
       
       // Smart distribution to avoid rounding errors
-      const baseAmount = Math.floor(targetRevenue / 12 * 100) / 100; // Round down to 2 decimal places
+      const baseAmount = Math.floor(targetRevenue / 12 * 100) / 100;
       const totalBase = baseAmount * 12;
-      const remainder = Math.round((targetRevenue - totalBase) * 100) / 100; // Calculate remainder in cents
+      const remainder = Math.round((targetRevenue - totalBase) * 100) / 100;
       
-      const updates = months.map((month, index) => {
+      // Update each month using the backend API
+      for (let i = 0; i < months.length; i++) {
+        const month = months[i];
         let monthlyAmount = baseAmount;
         
         // Distribute the remainder across the first few months (in cents)
-        if (index < Math.round(remainder * 100)) {
+        if (i < Math.round(remainder * 100)) {
           monthlyAmount += 0.01;
         }
         
-        return {
-          user_id: normalizedId,
+        await upsertMonthlyRevenue({
+          userId: userId, // Let backend handle user ID conversion
           year,
           month,
-          desired_revenue: monthlyAmount,
-          profit_margin: profitMargin,
-          updated_at: new Date().toISOString()
-        };
-      });
-
-      // Verify the total equals the target (for debugging)
-      const calculatedTotal = updates.reduce((sum, update) => sum + update.desired_revenue, 0);
-      if (Math.abs(calculatedTotal - targetRevenue) > 0.01) {
-        console.warn(`FIR distribution mismatch: ${calculatedTotal} vs ${targetRevenue}`);
-      }
-
-      const { error } = await supabase
-        .from('revenue_entries')
-        .upsert(updates, {
-          onConflict: 'user_id,year,month'
+          desiredRevenue: monthlyAmount,
+          profitMargin: profitMargin
         });
-
-      if (error) {
-        console.error('Error updating year targets:', error);
-        return {
-          success: false,
-          error: `Failed to update targets: ${error.message}`
-        };
       }
 
       return { success: true };
@@ -205,26 +128,11 @@ export class RevenueDataService {
    * Get all available years for a user
    */
   static async getAvailableYears(userId: string): Promise<number[]> {
-    const normalizedId = mapClerkIdToLegacyUserId(userId);
-    if (!normalizedId) {
-      return [];
-    }
     try {
-      const { data, error } = await supabase
-        .from('revenue_entries')
-        .select('year')
-        .eq('user_id', normalizedId)
-        .order('year', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching available years:', error);
-        return [];
-      }
-
-      const uniqueYears = [...new Set(data.map(item => item.year))];
-      return uniqueYears;
+      const result = await getAvailableYears(userId); // Let backend handle user ID conversion
+      return result.years || [];
     } catch (error) {
-      console.error('Unexpected error fetching available years:', error);
+      console.error('Error fetching available years:', error);
       return [];
     }
   }
@@ -233,53 +141,32 @@ export class RevenueDataService {
    * Migrate localStorage revenue data to database
    */
   static async migrateRevenueData(userId: string): Promise<boolean> {
-    const normalizedId = mapClerkIdToLegacyUserId(userId);
-    if (!normalizedId) {
-      console.warn('Skipping revenue migration; user lacks Supabase UUID', userId);
-      return true;
-    }
     try {
-      const migratedEntries: any[] = [];
-
       // Check localStorage for revenue data
       const storedData = localStorage.getItem('bigfigcfo-all-years-data');
       if (storedData) {
         const parsedData = JSON.parse(storedData);
         
-        Object.entries(parsedData).forEach(([year, yearData]: [string, any]) => {
+        // Migrate each entry using the backend API
+        for (const [year, yearData] of Object.entries(parsedData) as [string, any][]) {
           if (yearData && yearData.data) {
-            yearData.data.forEach((monthData: any, index: number) => {
+            for (let index = 0; index < yearData.data.length; index++) {
+              const monthData = yearData.data[index];
               if (monthData.revenue > 0) {
-                migratedEntries.push({
-                  user_id: normalizedId,
+                await upsertMonthlyRevenue({
+                  userId: userId, // Let backend handle user ID conversion
                   year: parseInt(year),
                   month: index + 1,
-                  actual_revenue: monthData.revenue,
-                  desired_revenue: yearData.targetRevenue ? yearData.targetRevenue / 12 : null,
-                  notes: `Migrated from localStorage`,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString()
+                  actualRevenue: monthData.revenue,
+                  desiredRevenue: yearData.targetRevenue ? yearData.targetRevenue / 12 : undefined,
+                  notes: 'Migrated from localStorage'
                 });
               }
-            });
+            }
           }
-        });
-      }
-
-      // Batch insert migrated entries
-      if (migratedEntries.length > 0) {
-        const { error } = await supabase
-          .from('revenue_entries')
-          .upsert(migratedEntries, {
-            onConflict: 'user_id,year,month'
-          });
-
-        if (error) {
-          console.error('Error migrating revenue data:', error);
-          return false;
         }
-
-        console.log(`Migrated ${migratedEntries.length} revenue entries to database`);
+        
+        console.log('Successfully migrated revenue data from localStorage');
       }
 
       return true;

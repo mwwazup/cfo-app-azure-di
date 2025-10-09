@@ -17,7 +17,7 @@ export default function ClerkSignInPage() {
             routing="path"
             path="/sign-in"
             signUpUrl="/sign-in"
-            afterSignInUrl="/dashboard"
+            fallbackRedirectUrl="/dashboard"
             afterSignUpUrl="/onboarding"
           />
         </div>

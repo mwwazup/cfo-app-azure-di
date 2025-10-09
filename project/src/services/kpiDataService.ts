@@ -1,5 +1,4 @@
-import { mapClerkIdToLegacyUserId } from '../utils/userIdMapping.ts';
-import { supabase } from '../config/supabaseClient';
+import { getRevenueKpis } from '../config/supabaseClient';
 
 export interface RevenueKPI {
   user_id: string;
@@ -13,29 +12,15 @@ export interface RevenueKPI {
 
 export class KPIDataService {
   /**
-   * Fetch KPI metrics for a specific user & year from the `revenue_kpis` view.
+   * Fetch KPI metrics for a specific user & year from the backend API.
    */
   static async getKpis(userId: string, year: number): Promise<RevenueKPI | undefined> {
-    const normalizedId = mapClerkIdToLegacyUserId(userId);
-    if (!normalizedId) {
-      return undefined;
-    }
     try {
-      const { data, error } = await supabase
-        .from('revenue_kpis')
-        .select('*')
-        .eq('user_id', normalizedId)
-        .eq('year', year)
-        .maybeSingle(); // Use maybeSingle() instead of single() to handle empty results
-
-      if (error) {
-        console.error('Error fetching KPIs:', error.message);
-        return undefined;
-      }
-
-      return data ?? undefined;
-    } catch (e) {
-      console.error('Unexpected error fetching KPIs:', e);
+      const result = await getRevenueKpis(userId, year);
+      const rows = result.rows || [];
+      return rows.length > 0 ? rows[0] : undefined;
+    } catch (error) {
+      console.error('Error fetching KPIs:', error);
       return undefined;
     }
   }

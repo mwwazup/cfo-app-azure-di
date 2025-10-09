@@ -3,6 +3,7 @@ import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-reac
 import { AuthProvider } from './contexts/auth-context';
 import { RevenueProvider } from './contexts/revenue-context';
 import { KPIRefreshProvider } from './components/kpi/KPIRefreshProvider';
+import { SupabaseSessionBridge } from './components/auth/SupabaseSessionBridge';
 import { DashboardLayout } from './components/layout/dashboard-layout';
 import HeroSection from './components/landing/hero-section';
 import SignupForm from './components/auth/signup-form';
@@ -31,6 +32,7 @@ function App() {
     <AuthProvider>
       <RevenueProvider>
         <KPIRefreshProvider>
+          <SupabaseSessionBridge />
           <Router>
           <header className="border-b border-gray-800 bg-gray-950/80 backdrop-blur">
             <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">

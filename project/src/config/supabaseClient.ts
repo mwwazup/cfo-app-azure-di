@@ -155,6 +155,11 @@ export async function getKpiRecords(userId: string, period?: string) {
   return getJSON<{ rows: any[] }>(`/api/kpi-records?${q.toString()}`);
 }
 
+export async function upsertKpiRecord(userId: string, kpiData: any) {
+  const payload = { userId, kpiData };
+  return sendJSON<{ ok: true; record: any }>(`/api/kpi-records`, 'POST', payload);
+}
+
 export async function deleteKpiByName(userId: string, kpiName: string) {
   const q = new URLSearchParams({ userId, kpi_name: kpiName });
   return sendJSON<{ ok: true }>(`/api/kpi-records?${q.toString()}`, 'DELETE');
@@ -174,6 +179,7 @@ const exported = {
   upsertMonthlyRevenue,
   getRevenueKpis,
   getKpiRecords,
+  upsertKpiRecord,
   deleteKpiByName,
 };
 export default exported;

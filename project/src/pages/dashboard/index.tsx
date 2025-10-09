@@ -7,6 +7,7 @@ import { CashflowInputs, CashflowVisualization } from '../../components/dashboar
 import KPIDashboard from '../../components/dashboard/KPIDashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
+import AuthDebugButton from '../../components/debug/AuthDebugButton';
 import { TooltipTrigger } from '../../components/ui/tooltip';
 import { 
   TrendingUp, 
@@ -113,9 +114,36 @@ export function DashboardPage() {
     <div className="space-y-8">
       {/* Welcome Header */}
       <div className="bg-gradient-to-r from-accent/20 to-accent/10 rounded-lg p-8 border border-accent/20">
-        <h1 className="text-3xl font-bold mb-2 text-foreground">
-          Welcome back, {profile?.first_name || email || 'there'}!
-        </h1>
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-3xl font-bold text-foreground">
+            Welcome back, {profile?.first_name || email || 'there'}!
+          </h1>
+          <div className="flex gap-2">
+            <AuthDebugButton />
+            <Button 
+              onClick={async () => {
+                console.log('=== SIMPLE AUTH DEBUG ===');
+                console.log('Clerk user ID:', dbUserId);
+                console.log('Is signed in:', isSignedIn);
+                console.log('Email:', email);
+                
+                // Test a simple API call to see if user ID is working
+                try {
+                  const response = await fetch('http://localhost:5180/api/kpi-records?userId=' + dbUserId);
+                  const data = await response.json();
+                  console.log('API test result:', { status: response.status, data });
+                } catch (err) {
+                  console.error('API test failed:', err);
+                }
+              }}
+              variant="outline"
+              size="sm"
+              className="bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20"
+            >
+              🔍 Simple Debug
+            </Button>
+          </div>
+        </div>
         <p className="text-muted text-lg">
           {currentYear.isHistorical 
             ? `Viewing historical data for ${currentYear.year}` 

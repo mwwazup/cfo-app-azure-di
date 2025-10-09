@@ -33,7 +33,7 @@ createRoot(document.getElementById('root')!).render(
       publishableKey={PUBLISHABLE_KEY}
       signInUrl={SIGN_IN_URL}
       signUpUrl={SIGN_UP_URL}
-      afterSignInUrl={AFTER_SIGN_IN_URL}
+      signInFallbackRedirectUrl={AFTER_SIGN_IN_URL}
       afterSignUpUrl={AFTER_SIGN_UP_URL}
     >
       <QueryClientProvider client={queryClient}>

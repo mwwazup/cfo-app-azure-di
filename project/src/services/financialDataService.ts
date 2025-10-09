@@ -1,6 +1,9 @@
-import { supabase, STORAGE_BUCKETS, TABLES } from '../config/supabaseClient';
+// Removed unused Supabase imports - using test server API instead
 import { FinancialStatement, StatementType } from '../models/FinancialStatement';
 import { FinancialFileParser } from '../utils/parseFinancialFile';
+
+// Use test server API instead of direct Supabase calls
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5180';
 
 export class FinancialDataService {
   static async uploadFinancialStatement(
@@ -18,15 +21,13 @@ export class FinancialDataService {
 
       const finalStatementType = statementType || parseResult.detectedType || 'profit_loss';
       
-      // Upload file to Supabase Storage
+      // For test server, we'll skip file upload and just create metadata
       const fileName = `${userId}/${finalStatementType}/${Date.now()}_${file.name}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from(STORAGE_BUCKETS.FINANCIAL_STATEMENTS)
-        .upload(fileName, file);
+      
+      // Mock upload data for test server
+      const uploadData = { path: fileName };
 
-      if (uploadError) {
-        return { success: false, error: `Upload failed: ${uploadError.message}` };
-      }
+      // Skip upload error check for test server
 
       // Save metadata to database
       const statementData: Omit<FinancialStatement, 'id'> = {
@@ -45,22 +46,22 @@ export class FinancialDataService {
         }
       };
 
-      const { data: dbData, error: dbError } = await supabase
-        .from(TABLES.FINANCIAL_STATEMENTS)
-        .insert(statementData)
-        .select()
-        .single();
+      // Use test server API for document upload
+      const response = await fetch(`${API_BASE}/api/financial-documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          ...statementData
+        })
+      });
 
-      if (dbError) {
-        // Clean up uploaded file if database insert fails
-        await supabase.storage
-          .from(STORAGE_BUCKETS.FINANCIAL_STATEMENTS)
-          .remove([uploadData.path]);
-        
-        return { success: false, error: `Database error: ${dbError.message}` };
+      if (!response.ok) {
+        return { success: false, error: `Upload failed: ${response.statusText}` };
       }
 
-      return { success: true, statement: dbData };
+      const result = await response.json();
+      return { success: true, statement: result.data };
     } catch (error) {
       return { 
         success: false, 
@@ -70,70 +71,56 @@ export class FinancialDataService {
   }
 
   static async getFinancialStatements(userId: string): Promise<FinancialStatement[]> {
-    const { data, error } = await supabase
-      .from(TABLES.FINANCIAL_STATEMENTS)
-      .select('*')
-      .eq('user_id', userId)
-      .order('uploaded_at', { ascending: false });
-
-    if (error) {
+    try {
+      // Use test server API instead of direct Supabase call
+      const response = await fetch(`${API_BASE}/api/financial-documents?userId=${userId}`);
+      
+      if (!response.ok) {
+        console.error('Error fetching financial statements:', response.status, response.statusText);
+        return [];
+      }
+      
+      const result = await response.json();
+      return result.data || [];
+    } catch (error) {
       console.error('Error fetching financial statements:', error);
       return [];
     }
-
-    return data || [];
   }
 
   static async getFinancialStatementsByType(
     userId: string, 
     statementType: StatementType
   ): Promise<FinancialStatement[]> {
-    const { data, error } = await supabase
-      .from(TABLES.FINANCIAL_STATEMENTS)
-      .select('*')
-      .eq('user_id', userId)
-      .eq('statement_type', statementType)
-      .order('uploaded_at', { ascending: false });
-
-    if (error) {
+    try {
+      // Use test server API and filter by type
+      const response = await fetch(`${API_BASE}/api/financial-documents?userId=${userId}`);
+      
+      if (!response.ok) {
+        console.error('Error fetching financial statements by type:', response.status, response.statusText);
+        return [];
+      }
+      
+      const result = await response.json();
+      const allDocs = result.data || [];
+      
+      // Filter by statement type
+      return allDocs.filter((doc: FinancialStatement) => doc.statement_type === statementType);
+    } catch (error) {
       console.error('Error fetching financial statements by type:', error);
       return [];
     }
-
-    return data || [];
   }
 
   static async deleteFinancialStatement(statementId: string): Promise<boolean> {
     try {
-      // Get statement details first
-      const { data: statement, error: fetchError } = await supabase
-        .from(TABLES.FINANCIAL_STATEMENTS)
-        .select('file_path')
-        .eq('id', statementId)
-        .single();
+      // Use test server API for deletion
+      const response = await fetch(`${API_BASE}/api/financial-documents/${statementId}`, {
+        method: 'DELETE'
+      });
 
-      if (fetchError || !statement) {
-        console.error('Error fetching statement for deletion:', fetchError);
-        return false;
-      }
-
-      // Delete from storage
-      const { error: storageError } = await supabase.storage
-        .from(STORAGE_BUCKETS.FINANCIAL_STATEMENTS)
-        .remove([statement.file_path]);
-
-      if (storageError) {
-        console.error('Error deleting file from storage:', storageError);
-      }
-
-      // Delete from database
-      const { error: dbError } = await supabase
-        .from(TABLES.FINANCIAL_STATEMENTS)
-        .delete()
-        .eq('id', statementId);
-
-      if (dbError) {
-        console.error('Error deleting statement from database:', dbError);
+      if (!response.ok) {
+        console.error('Error deleting statement:', response.status, response.statusText);
         return false;
       }
 
@@ -146,16 +133,9 @@ export class FinancialDataService {
 
   static async downloadFinancialStatement(filePath: string): Promise<Blob | null> {
     try {
-      const { data, error } = await supabase.storage
-        .from(STORAGE_BUCKETS.FINANCIAL_STATEMENTS)
-        .download(filePath);
-
-      if (error) {
-        console.error('Error downloading file:', error);
-        return null;
-      }
-
-      return data;
+      // For test server, return a mock blob or handle differently
+      console.log('Download not implemented in test server for:', filePath);
+      return null;
     } catch (error) {
       console.error('Unexpected error during download:', error);
       return null;

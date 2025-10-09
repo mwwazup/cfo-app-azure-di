@@ -14,36 +14,42 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Create SQLAlchemy engine using Supabase Postgres credentials
-print("\nInitializing PostgreSQL connection...")
-db_password = os.getenv('SUPABASE_DB_PASSWORD')
-print(f"DB Password set: {'yes' if db_password else 'no'} (length: {len(db_password) if db_password else 0})")
-
-# URL encode the @ symbol in the password
-if db_password:
-    db_password = db_password.replace('@', '%40')
-    print("URL encoded @ symbol in password")
-
-# Construct database URL with pooler hostname and project-qualified username
-DATABASE_URL = f"postgresql://postgres.rpilyciarvacbmaaszvc:{db_password}@aws-0-us-west-1.pooler.supabase.com:5432/postgres"
-print(f"Database URL: {DATABASE_URL}")
-
-# Create engine with debug output
-print("Creating SQLAlchemy engine...")
-try:
-    engine = create_engine(DATABASE_URL, echo=True)  # Enable SQL query logging
-    print("Successfully created SQLAlchemy engine")
-except Exception as e:
-    print(f"\nFailed to create SQLAlchemy engine:")
-    print(f"Error type: {type(e).__name__}")
-    print(f"Error message: {str(e)}")
-    if hasattr(e, '__cause__') and e.__cause__:
-        print(f"Caused by: {str(e.__cause__)}")
-    raise
-
-# Run simple auto-migration to ensure newer columns exist (primarily for tests / CI)
+# Check if database should be skipped
 SKIP_DB = os.getenv("SKIP_DB", "0") in {"1", "true", "True"}
+
 if not SKIP_DB:
+    # Create SQLAlchemy engine using Supabase Postgres credentials
+    print("\nInitializing PostgreSQL connection...")
+    db_password = os.getenv('SUPABASE_DB_PASSWORD')
+    print(f"DB Password set: {'yes' if db_password else 'no'} (length: {len(db_password) if db_password else 0})")
+else:
+    print("\nSkipping PostgreSQL connection (SKIP_DB=1)")
+    db_password = None
+
+if not SKIP_DB:
+    # URL encode the @ symbol in the password
+    if db_password:
+        db_password = db_password.replace('@', '%40')
+        print("URL encoded @ symbol in password")
+
+    # Construct database URL with pooler hostname and project-qualified username
+    DATABASE_URL = f"postgresql://postgres.rpilyciarvacbmaaszvc:{db_password}@aws-0-us-west-1.pooler.supabase.com:5432/postgres"
+    print(f"Database URL: {DATABASE_URL}")
+
+    # Create engine with debug output
+    print("Creating SQLAlchemy engine...")
+    try:
+        engine = create_engine(DATABASE_URL, echo=True)  # Enable SQL query logging
+        print("Successfully created SQLAlchemy engine")
+    except Exception as e:
+        print(f"\nFailed to create SQLAlchemy engine:")
+        print(f"Error type: {type(e).__name__}")
+        print(f"Error message: {str(e)}")
+        if hasattr(e, '__cause__') and e.__cause__:
+            print(f"Caused by: {str(e.__cause__)}")
+        raise
+
+    # Run simple auto-migration to ensure newer columns exist (primarily for tests / CI)
     with engine.connect() as conn:
         try:
             # Ensure extra_metadata column exists
@@ -105,11 +111,47 @@ class FinancialCategory(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+# Create stub objects when SKIP_DB is enabled
+if SKIP_DB:
+    # Create stub engine and session
+    engine = None
+    SessionLocal = None
+    Base = declarative_base()
+    
+    # Create stub User model
+    class User:
+        def __init__(self, **kwargs):
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+    
+    # Create stub FinancialStatement model
+    class FinancialStatement:
+        def __init__(self, **kwargs):
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+else:
+    # Create session factory
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 # Dependency to get database session
 def get_db():
     """Get database session"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    if SKIP_DB:
+        # Return a stub session for testing
+        class StubSession:
+            def query(self, *args): return self
+            def filter(self, *args): return self
+            def first(self): return None
+            def all(self): return []
+            def add(self, obj): pass
+            def commit(self): pass
+            def refresh(self, obj): pass
+            def rollback(self): pass
+            def close(self): pass
+        yield StubSession()
+    else:
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()

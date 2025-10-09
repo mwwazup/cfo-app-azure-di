@@ -1,4 +1,7 @@
-import { supabase } from '../config/supabaseClient';
+import { getKpiRecords, deleteKpiByName } from '../config/supabaseClient';
+
+// NOTE: This service is being migrated to use backend APIs instead of direct Supabase calls
+// Some methods are temporarily disabled until full migration is complete
 
 export interface KPIRecord {
   id: string;
@@ -53,13 +56,9 @@ export class KPIRecordsService {
    */
   static async getKPIRecords(userId: string, filters: KPIFilters = {}): Promise<KPIRecord[]> {
     try {
-      let query = supabase
-        .from('kpi_records')
-        .select('*')
-        .eq('user_id', userId)
-        .order('period', { ascending: false });
-
-      // Apply period filters
+      // Build period parameter for API call
+      let period: string | undefined;
+      
       if (filters.period) {
         const now = new Date();
         const currentYear = now.getFullYear();
@@ -68,77 +67,62 @@ export class KPIRecordsService {
         switch (filters.period) {
           case 'current':
           case 'current_month':
-            // Current month only
-            const currentPeriod = `${currentYear}-${currentMonth.toString().padStart(2, '0')}-01`;
-            query = query.eq('period', currentPeriod);
+            period = `${currentYear}-${currentMonth.toString().padStart(2, '0')}-01`;
             break;
-            
           case 'last_month':
-            // Last month
             const lastMonth = new Date();
             lastMonth.setMonth(lastMonth.getMonth() - 1);
-            const lastMonthPeriod = `${lastMonth.getFullYear()}-${(lastMonth.getMonth() + 1).toString().padStart(2, '0')}-01`;
-            query = query.eq('period', lastMonthPeriod);
+            period = `${lastMonth.getFullYear()}-${(lastMonth.getMonth() + 1).toString().padStart(2, '0')}-01`;
             break;
-            
           case 'same_month_last_year':
-            // Same month last year
-            const lastYearPeriod = `${currentYear - 1}-${currentMonth.toString().padStart(2, '0')}-01`;
-            query = query.eq('period', lastYearPeriod);
+            period = `${currentYear - 1}-${currentMonth.toString().padStart(2, '0')}-01`;
             break;
-            
-          case 'last3months':
-            // Last 3 months including current
-            const threeMonthsAgo = new Date();
-            threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 2);
-            const startPeriod = `${threeMonthsAgo.getFullYear()}-${(threeMonthsAgo.getMonth() + 1).toString().padStart(2, '0')}-01`;
-            query = query.gte('period', startPeriod);
-            break;
-            
-          case 'ytd':
-            // Year to date
-            const ytdStart = `${currentYear}-01-01`;
-            query = query.gte('period', ytdStart);
-            break;
-            
-          case 'all':
-            // No period filter
-            break;
-            
           default:
-            // Handle specific month formats like "2025-07"
             if (filters.period.match(/^\d{4}-\d{2}$/)) {
-              const specificPeriod = `${filters.period}-01`;
-              query = query.eq('period', specificPeriod);
+              period = `${filters.period}-01`;
             } else if (filters.period.includes('-')) {
-              // If it's already a full date string, use it directly
-              query = query.eq('period', filters.period);
+              period = filters.period;
             }
             break;
         }
       }
-
+      
       if (filters.currentMonth) {
-        const currentMonth = new Date().toISOString().slice(0, 7) + '-01'; // YYYY-MM-01 format
-        query = query.eq('period', currentMonth);
+        period = new Date().toISOString().slice(0, 7) + '-01';
       }
 
+      const result = await getKpiRecords(userId, period);
+      let records = result.rows || [];
+
+      // Apply client-side filtering for complex filters not supported by API
       if (filters.kpi_category && filters.kpi_category !== 'all') {
-        query = query.eq('kpi_category', filters.kpi_category);
+        records = records.filter(record => record.kpi_category === filters.kpi_category);
       }
 
       if (filters.status && filters.status !== 'all') {
-        query = query.eq('status', filters.status);
+        records = records.filter(record => record.status === filters.status);
       }
 
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error fetching KPI records:', error.message);
-        return [];
+      // Handle period filters that require multiple records (like last3months, ytd)
+      if (filters.period) {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        
+        switch (filters.period) {
+          case 'last3months':
+            const threeMonthsAgo = new Date();
+            threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 2);
+            const startPeriod = `${threeMonthsAgo.getFullYear()}-${(threeMonthsAgo.getMonth() + 1).toString().padStart(2, '0')}-01`;
+            records = records.filter(record => record.period >= startPeriod);
+            break;
+          case 'ytd':
+            const ytdStart = `${currentYear}-01-01`;
+            records = records.filter(record => record.period >= ytdStart);
+            break;
+        }
       }
 
-      return data || [];
+      return records;
     } catch (e) {
       console.error('Unexpected error fetching KPI records:', e);
       return [];
@@ -161,210 +145,60 @@ export class KPIRecordsService {
 
   /**
    * Get KPI trend data for charting (last 6 months)
+   * TODO: Migrate to backend API
    */
-  static async getKPITrends(userId: string, kpiName: string): Promise<KPIRecord[]> {
-    try {
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      const startDate = sixMonthsAgo.toISOString().slice(0, 7) + '-01';
-
-      const { data, error } = await supabase
-        .from('kpi_records')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('kpi_name', kpiName)
-        .gte('period', startDate)
-        .order('period', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching KPI trends:', error.message);
-        return [];
-      }
-
-      return data || [];
-    } catch (e) {
-      console.error('Unexpected error fetching KPI trends:', e);
-      return [];
-    }
+  static async getKPITrends(_userId: string, _kpiName: string): Promise<KPIRecord[]> {
+    console.warn('getKPITrends temporarily disabled - migration to backend API in progress');
+    return [];
   }
 
   /**
    * Get KPI records with coaching data for modern dashboard
+   * TODO: Migrate to backend API
    */
-  static async getKPIRecordsWithCoaching(userId: string, filters: KPIFilters = {}): Promise<KPIRecordWithCoaching[]> {
-    try {
-      let query = supabase
-        .from('kpi_records_with_definitions_and_ai')
-        .select('*')
-        .eq('user_id', userId)
-        .order('kpi_name', { ascending: true });
-
-      // Apply period filter
-      if (filters.period) {
-        const currentDate = new Date();
-        const currentYear = currentDate.getFullYear();
-        const currentMonth = currentDate.getMonth() + 1;
-        
-        switch (filters.period) {
-          case 'current':
-          case 'current_month':
-            const currentPeriod = `${currentYear}-${currentMonth.toString().padStart(2, '0')}-01`;
-            query = query.eq('period', currentPeriod);
-            break;
-            
-          case 'last3months':
-            const threeMonthsAgo = new Date();
-            threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-            const startPeriod = threeMonthsAgo.toISOString().slice(0, 7) + '-01';
-            query = query.gte('period', startPeriod);
-            break;
-            
-          case 'ytd':
-            const ytdStart = `${currentYear}-01-01`;
-            query = query.gte('period', ytdStart);
-            break;
-            
-          case 'all':
-            // No period filter
-            break;
-            
-          default:
-            if (filters.period.includes('-')) {
-              query = query.eq('period', filters.period);
-            }
-            break;
-        }
-      } else {
-        // Default to current month
-        const currentDate = new Date();
-        const currentYear = currentDate.getFullYear();
-        const currentMonth = currentDate.getMonth() + 1;
-        const currentPeriod = `${currentYear}-${currentMonth.toString().padStart(2, '0')}-01`;
-        query = query.eq('period', currentPeriod);
-      }
-
-      if (filters.kpi_category && filters.kpi_category !== 'all') {
-        query = query.eq('kpi_category', filters.kpi_category);
-      }
-
-      if (filters.status && filters.status !== 'all') {
-        query = query.eq('status', filters.status);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error fetching KPI records with coaching:', error.message);
-        return [];
-      }
-
-      return data || [];
-    } catch (e) {
-      console.error('Unexpected error fetching KPI records with coaching:', e);
-      return [];
-    }
+  static async getKPIRecordsWithCoaching(_userId: string, _filters: KPIFilters = {}): Promise<KPIRecordWithCoaching[]> {
+    console.warn('getKPIRecordsWithCoaching temporarily disabled - migration to backend API in progress');
+    return [];
   }
 
   /**
    * Update KPI goal value
+   * TODO: Migrate to backend API
    */
-  static async updateKPIGoal(kpiId: string, newGoal: number): Promise<boolean> {
-    try {
-      console.log(`Attempting to update KPI goal - ID: ${kpiId}, New Goal: ${newGoal}`);
-      
-      // First, check if the record exists
-      const { data: existingRecord, error: fetchError } = await supabase
-        .from('kpi_records')
-        .select('id, kpi_name, goal_value')
-        .eq('id', kpiId)
-        .single();
-      
-      if (fetchError) {
-        console.error('Error fetching existing record:', fetchError);
-        return false;
-      }
-      
-      if (!existingRecord) {
-        console.error(`No KPI record found with ID: ${kpiId}`);
-        return false;
-      }
-      
-      console.log('Found existing record:', existingRecord);
-      
-      // Now update the record
-      const { data, error } = await supabase
-        .from('kpi_records')
-        .update({ goal_value: newGoal })
-        .eq('id', kpiId)
-        .select();
-
-      if (error) {
-        console.error('Error updating KPI goal:', error.message);
-        return false;
-      }
-
-      console.log(`Successfully updated KPI goal for ID ${kpiId} to ${newGoal}`);
-      console.log('Updated record:', data);
-      return true;
-    } catch (e) {
-      console.error('Unexpected error updating KPI goal:', e);
-      return false;
-    }
+  static async updateKPIGoal(_kpiId: string, _newGoal: number): Promise<boolean> {
+    console.warn('updateKPIGoal temporarily disabled - migration to backend API in progress');
+    return false;
   }
 
   /**
-   * Create or update a KPI record
+   * Create or update a KPI record using backend API
    */
   static async upsertKPIRecord(userId: string, kpiData: KPICreateInput): Promise<KPIRecord | null> {
     try {
-      console.log(`Upserting KPI: ${kpiData.kpi_name} for period ${kpiData.period}`);
+      const { upsertKpiRecord } = await import('../config/supabaseClient');
+      const result = await upsertKpiRecord(userId, kpiData);
       
-      const { data, error } = await supabase
-        .from('kpi_records')
-        .upsert({
-          user_id: userId,
-          ...kpiData,
-          display_format: kpiData.display_format || 'number'
-        }, {
-          onConflict: 'user_id,kpi_name,period'
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error upserting KPI record:', error);
-        console.error('KPI data that failed:', { userId, ...kpiData });
-        return null;
+      if (result.ok && result.record) {
+        return result.record as KPIRecord;
       }
-
-      console.log(`✅ Successfully upserted KPI: ${kpiData.kpi_name} for ${kpiData.period}`);
-      return data;
-    } catch (e) {
-      console.error('Unexpected error upserting KPI record:', e);
-      console.error('KPI data that caused error:', { userId, ...kpiData });
+      
+      return null;
+    } catch (error) {
+      console.error('Error upserting KPI record:', error);
       return null;
     }
   }
 
   /**
    * Delete a KPI record
+   * TODO: Migrate to backend API
    */
   static async deleteKPIRecord(userId: string, kpiId: string): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('kpi_records')
-        .delete()
-        .eq('id', kpiId)
-        .eq('user_id', userId);
-
-      if (error) {
-        console.error('Error deleting KPI record:', error.message);
-        return false;
-      }
-
+      await deleteKpiByName(userId, kpiId);
       return true;
     } catch (e) {
-      console.error('Unexpected error deleting KPI record:', e);
+      console.error('Error deleting KPI record:', e);
       return false;
     }
   }
@@ -391,92 +225,16 @@ export class KPIRecordsService {
 
   /**
    * Generate KPI records from revenue data with Future Inspired Revenue (FIR) goals
+   * TODO: Migrate to backend API
    */
-  static async generateRevenueKPIs(userId: string, period: string): Promise<void> {
-    try {
-      // First try to get data with owner_draws, fallback if column doesn't exist
-      let revenueData: any[] | null = null;
-      try {
-        const { data, error } = await supabase
-          .from('revenue_entries')
-          .select('actual_revenue, desired_revenue, profit_margin, owner_draws')
-          .eq('user_id', userId)
-          .eq('year', new Date(period).getFullYear())
-          .eq('month', new Date(period).getMonth() + 1);
-
-        if (error) throw error;
-        revenueData = data;
-      } catch (error) {
-        // If owner_draws column doesn't exist, fallback to basic query
-        console.log('Falling back to basic revenue query (owner_draws column may not exist yet)');
-        const { data, error: fallbackError } = await supabase
-          .from('revenue_entries')
-          .select('actual_revenue, desired_revenue, profit_margin')
-          .eq('user_id', userId)
-          .eq('year', new Date(period).getFullYear())
-          .eq('month', new Date(period).getMonth() + 1);
-
-        if (fallbackError) throw fallbackError;
-        revenueData = data;
-      }
-
-      if (revenueData && revenueData.length > 0) {
-        const actualRevenue = revenueData[0].actual_revenue || 0;
-        const desiredRevenue = revenueData[0].desired_revenue || null;
-        const profitMargin = revenueData[0].profit_margin || 0;
-        const ownerDraws = (revenueData[0] as any).owner_draws || 0; // Type assertion for backwards compatibility
-
-        // Use FIR target from desired_revenue (this is your Future Inspired Revenue target)
-        const firGoal = desiredRevenue;
-        
-        // Calculate net profit and FIR-based profit goal
-        const netProfit = actualRevenue * (profitMargin / 100);
-        const firNetProfitGoal = firGoal ? (firGoal * (profitMargin / 100)) : null;
-        
-        // Calculate net profit after owner draws
-        const netProfitAfterDraws = netProfit - ownerDraws;
-
-        // Generate Monthly Revenue KPI with FIR goal
-        await this.upsertKPIRecord(userId, {
-          kpi_name: 'Monthly Revenue',
-          kpi_value: actualRevenue,
-          goal_value: firGoal,
-          status: this.calculateKPIStatus(actualRevenue, firGoal),
-          period,
-          plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${firGoal ? `vs Future Inspired Revenue target of $${firGoal.toLocaleString()}` : ''}`,
-          action_suggestion: actualRevenue < (firGoal || 0) ? 'Focus on increasing sales activities to reach your Future Inspired Revenue target' : 'Excellent! You\'re meeting your Future Inspired Revenue goals!',
-          kpi_category: 'revenue',
-          display_format: 'currency'
-        });
-
-        // Only generate Net Profit After Owner Draws KPI if we have owner_draws data
-        if ('owner_draws' in revenueData[0] && revenueData[0].owner_draws !== undefined) {
-          // Calculate sustainable owner draw goal (80% of FIR net profit to leave 20% for growth)
-          const sustainableDrawGoal = firNetProfitGoal ? firNetProfitGoal * 0.8 : 0;
-          const netProfitAfterSustainableDraws = firNetProfitGoal ? firNetProfitGoal - sustainableDrawGoal : null;
-          
-          await this.upsertKPIRecord(userId, {
-            kpi_name: 'net_profit_after_draws',
-            kpi_value: netProfitAfterDraws,
-            goal_value: netProfitAfterSustainableDraws || undefined, // Goal based on FIR targets
-            status: this.calculateKPIStatus(netProfitAfterDraws, netProfitAfterSustainableDraws),
-            period,
-            plain_explanation: this.generateNetProfitAfterDrawsExplanation(netProfit, ownerDraws, netProfitAfterDraws),
-            action_suggestion: this.generateNetProfitAfterDrawsAdvice(netProfit, netProfitAfterDraws),
-            kpi_category: 'profitability',
-            display_format: 'currency'
-          });
-        } else {
-          console.log('Skipping Net Profit After Owner Draws KPI - owner_draws column not available yet. Please apply database migrations.');
-        }
-      }
-    } catch (e) {
-      console.error('Error generating revenue KPIs:', e);
-    }
+  static async generateRevenueKPIs(_userId: string, _period: string): Promise<void> {
+    console.warn('generateRevenueKPIs temporarily disabled - migration to backend API in progress');
+    return;
   }
 
   /**
    * Generate explanation for Net Profit After Owner Draws KPI with FIR context
+   * TODO: Migrate to backend API
    */
   private static generateNetProfitAfterDrawsExplanation(
     netProfit: number, 

@@ -1,13 +1,15 @@
 """
 Financial API endpoints for the CFO App.
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Path
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Path, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import select
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 import uuid
 import os
+from pydantic import BaseModel
+from supabase import create_client, Client
 from db.postgres import get_db, FinancialStatement
 
 # Flag to determine if Postgres should be bypassed (e.g. during CI / local tests)
@@ -17,9 +19,22 @@ SKIP_DB = os.getenv("SKIP_DB", "0") in {"1", "true", "True"}
 # still behave consistently for the test suite without touching Postgres.
 if SKIP_DB:
     _MEM_STATEMENTS: dict[str, dict] = {}
-from api.auth import get_current_user, User
+from api.auth import get_current_user, User, get_supabase_db
 
 router = APIRouter(prefix="/financial", tags=["financial"])
+
+# Pydantic models for revenue operations
+class UpsertRevenueRequest(BaseModel):
+    userId: str
+    year: int
+    month: int
+    actualRevenue: Optional[float] = None
+    desiredRevenue: Optional[float] = None
+    targetRevenue: Optional[float] = None
+    profitMargin: Optional[float] = None
+    ownerDraws: Optional[float] = None
+    isLocked: Optional[bool] = None
+    notes: Optional[str] = None
 
 @router.get("/statements")
 async def get_financial_statements(
@@ -212,5 +227,150 @@ async def parse_financial_statement(
         }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Create a separate router for revenue API endpoints without the /financial prefix
+revenue_router = APIRouter(tags=["revenue"])
+
+@revenue_router.get("/api/revenue-entries/years")
+async def get_available_years(userId: str = Query(...)):
+    """Get all available years for a user's revenue data"""
+    try:
+        supabase = get_supabase_db()
+        result = supabase.table('revenue_entries').select('year').eq('user_id', userId).execute()
+        
+        years = list(set(row['year'] for row in result.data))
+        years.sort(reverse=True)
+        
+        return {"years": years}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.get("/api/revenue-entries")
+async def get_revenue_entries(
+    userId: str = Query(...),
+    year: int = Query(...),
+    month: Optional[int] = Query(None)
+):
+    """Get revenue entries for a user, year, and optionally month"""
+    try:
+        supabase = get_supabase_db()
+        query = supabase.table('revenue_entries').select('*').eq('user_id', userId).eq('year', year)
+        
+        if month is not None:
+            query = query.eq('month', month)
+        
+        result = query.order('month').execute()
+        return {"rows": result.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.post("/api/revenue-entries")
+async def upsert_monthly_revenue(request: UpsertRevenueRequest):
+    """Create or update a monthly revenue entry"""
+    try:
+        supabase = get_supabase_db()
+        
+        # Prepare the data for upsert
+        data = {
+            'user_id': request.userId,
+            'year': request.year,
+            'month': request.month,
+            'updated_at': datetime.utcnow().isoformat()
+        }
+        
+        # Only include non-None values
+        if request.actualRevenue is not None:
+            data['actual_revenue'] = request.actualRevenue
+        if request.desiredRevenue is not None:
+            data['desired_revenue'] = request.desiredRevenue
+        if request.targetRevenue is not None:
+            data['target_revenue'] = request.targetRevenue
+        if request.profitMargin is not None:
+            data['profit_margin'] = request.profitMargin
+        if request.ownerDraws is not None:
+            data['owner_draws'] = request.ownerDraws
+        if request.isLocked is not None:
+            data['is_locked'] = request.isLocked
+        if request.notes is not None:
+            data['notes'] = request.notes
+        
+        result = supabase.table('revenue_entries').upsert(data, on_conflict='user_id,year,month').execute()
+        
+        return {"ok": True, "row": result.data[0] if result.data else None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.get("/api/revenue-kpis")
+async def get_revenue_kpis(
+    userId: str = Query(...),
+    year: int = Query(...)
+):
+    """Get revenue KPIs for a user and year"""
+    try:
+        supabase = get_supabase_db()
+        result = supabase.table('revenue_kpis').select('*').eq('user_id', userId).eq('year', year).execute()
+        return {"rows": result.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.get("/api/kpi-records")
+async def get_kpi_records(
+    userId: str = Query(...),
+    period: Optional[str] = Query(None)
+):
+    """Get KPI records for a user"""
+    try:
+        supabase = get_supabase_db()
+        query = supabase.table('kpi_records').select('*').eq('user_id', userId)
+        
+        if period:
+            query = query.eq('period', period)
+        
+        result = query.execute()
+        return {"rows": result.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.post("/api/kpi-records")
+async def upsert_kpi_record(
+    request: dict
+):
+    """Create or update a KPI record"""
+    try:
+        supabase = get_supabase_db()
+        
+        # Extract data from request
+        user_id = request.get('userId')
+        kpi_data = request.get('kpiData')
+        
+        if not user_id or not kpi_data:
+            raise HTTPException(status_code=400, detail="Missing userId or kpiData")
+        
+        # Add user_id to kpi_data
+        kpi_data['user_id'] = user_id
+        
+        # Use upsert to create or update
+        result = supabase.table('kpi_records').upsert(kpi_data).execute()
+        
+        if result.data:
+            return {"ok": True, "record": result.data[0]}
+        else:
+            return {"ok": True, "record": None}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.delete("/api/kpi-records")
+async def delete_kpi_by_name(
+    userId: str = Query(...),
+    kpi_name: str = Query(...)
+):
+    """Delete a KPI record by name"""
+    try:
+        supabase = get_supabase_db()
+        result = supabase.table('kpi_records').delete().eq('user_id', userId).eq('kpi_name', kpi_name).execute()
+        return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

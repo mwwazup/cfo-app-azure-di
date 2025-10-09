@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { CurrencyInput } from '../ui/currency-input';
@@ -88,6 +88,29 @@ export function MasterChart() {
   const [annualFIRTarget, setAnnualFIRTarget] = useState(currentYear.targetRevenue);
   const [profitMargin, setProfitMargin] = useState(currentYear.profitMargin);
 
+  // All hooks must be called before any early returns
+  const monthlyRevenue = currentYear.data.map(item => item.revenue);
+  const totalRevenue = monthlyRevenue.reduce((a, b) => a + b, 0);
+  const isHistoricalYear = currentYear.isHistorical;
+
+  // Get FIR data from the fixed monthly targets - MEMOIZED to prevent infinite renders
+  const getFIRData = useMemo(() => {
+    if (isHistoricalYear || !currentYear.monthlyFIRTargets) {
+      return [];
+    }
+    return currentYear.monthlyFIRTargets;
+  }, [isHistoricalYear, currentYear.monthlyFIRTargets]);
+
+  // Calculate Gap data using fixed FIR targets - MEMOIZED
+  const calculateGapData = useMemo(() => {
+    if (getFIRData.length === 0) return [];
+    
+    // Gap = FIR - Actual Revenue
+    return monthlyRevenue.map((actualRevenue, index) => {
+      return getFIRData[index] - actualRevenue;
+    });
+  }, [getFIRData, monthlyRevenue]);
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -96,6 +119,17 @@ export function MasterChart() {
     setAnnualFIRTarget(currentYear.targetRevenue);
     setProfitMargin(currentYear.profitMargin);
   }, [currentYear]);
+
+  // Clear active month highlight after 3 seconds
+  useEffect(() => {
+    if (activeMonthIndex !== null && editingMonthIndex === null) {
+      const timeout = setTimeout(() => {
+        setActiveMonthIndex(null);
+      }, 3000);
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [activeMonthIndex, editingMonthIndex]);
 
   // Update targets when inputs change
   const handleFIRTargetChange = (value: number) => {
@@ -120,52 +154,12 @@ export function MasterChart() {
     });
   };
 
-  // Clear active month highlight after 3 seconds
-  useEffect(() => {
-    if (activeMonthIndex !== null && editingMonthIndex === null) {
-      const timeout = setTimeout(() => {
-        setActiveMonthIndex(null);
-      }, 3000);
-      
-      return () => clearTimeout(timeout);
-    }
-  }, [activeMonthIndex, editingMonthIndex]);
-
   if (!mounted) {
     return null;
   }
 
   const textColor = '#fff';
   const gridColor = 'rgba(255, 255, 255, 0.1)';
-
-  const monthlyRevenue = currentYear.data.map(item => item.revenue);
-  const totalRevenue = monthlyRevenue.reduce((a, b) => a + b, 0);
-  const isHistoricalYear = currentYear.isHistorical;
-
-  // Get FIR data from the fixed monthly targets
-  const getFIRData = () => {
-    if (isHistoricalYear || !currentYear.monthlyFIRTargets) {
-      console.log('FIR Data Debug:', {
-        isHistoricalYear,
-        hasMonthlyFIRTargets: !!currentYear.monthlyFIRTargets,
-        monthlyFIRTargets: currentYear.monthlyFIRTargets
-      });
-      return [];
-    }
-    console.log('FIR Data Available:', currentYear.monthlyFIRTargets);
-    return currentYear.monthlyFIRTargets;
-  };
-
-  // Calculate Gap data using fixed FIR targets
-  const calculateGapData = () => {
-    const firData = getFIRData();
-    if (firData.length === 0) return [];
-    
-    // Gap = FIR - Actual Revenue
-    return monthlyRevenue.map((actualRevenue, index) => {
-      return firData[index] - actualRevenue;
-    });
-  };
 
   // Calculate coaching insights
   const calculateCoachingInsights = () => {
@@ -357,8 +351,8 @@ export function MasterChart() {
 
   // Calculate all line data
   const actualData = filteredData.revenue;
-  const firData = getFIRData();
-  const gapData = calculateGapData();
+  const firData = getFIRData;
+  const gapData = calculateGapData;
 
   // Create chart data based on view mode and whether it's historical or current year
   const createChartDatasets = () => {
@@ -526,14 +520,14 @@ export function MasterChart() {
   const onPaceAnnual = ytdActual > 0 ? Math.round((ytdActual / (currentMonth + 1)) * 12) : 0;
   
   // FIR Annual: Sum of all monthly FIR values
-  const firAnnual = firData.length > 0 ? Math.round(firData.reduce((sum, value) => sum + value, 0)) : 0;
+  const firAnnual = firData.length > 0 ? Math.round(firData.reduce((sum: number, value: number) => sum + value, 0)) : 0;
   
   // Current Monthly Gap: Average gap between FIR and Actual for each month
-  const monthlyGaps = calculateGapData();
-  const currentMonthlyGap = monthlyGaps.length > 0 ? Math.round(monthlyGaps.reduce((sum, gap) => sum + Math.abs(gap), 0) / 12) : 0;
+  const monthlyGaps = calculateGapData;
+  const currentMonthlyGap = monthlyGaps.length > 0 ? Math.round(monthlyGaps.reduce((sum: number, gap: number) => sum + Math.abs(gap), 0) / 12) : 0;
   
   // Year-End Projected Gap: Sum of all monthly gaps
-  const yearEndProjectedGap = monthlyGaps.length > 0 ? Math.round(monthlyGaps.reduce((sum, gap) => sum + gap, 0)) : 0;
+  const yearEndProjectedGap = monthlyGaps.length > 0 ? Math.round(monthlyGaps.reduce((sum: number, gap: number) => sum + gap, 0)) : 0;
 
   // View mode options
   const viewModeOptions = [

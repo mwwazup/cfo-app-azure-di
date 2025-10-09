@@ -1,27 +1,19 @@
-// server.js (ESM)
+// Minimal server.js to isolate the path-to-regexp issue
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-// Removed unused imports: exec, randomUUID
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createClient } from '@supabase/supabase-js';
-
-// Removed unused TypeScript import that was causing ESM issues
 
 // Convert this file's URL to a path
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// ===== Load server-only environment vars from backend.env =====
-// This uses: <repo>/backend/.env  (relative to this server.js in <repo>/project/)
+// Load environment vars
 dotenv.config({ path: join(__dirname, '../backend/.env') });
 
-// ===== Env validation (server-only) =====
-// Must exist in backend/.env:
-//   SUPABASE_URL
-//   SUPABASE_SERVICE_ROLE_KEY
-// Optional (for Azure DI): DI_ENDPOINT, DI_KEY, DI_MODEL_ID, DI_API_VERSION
+// Environment validation
 function requireVar(name, value) {
   if (!value || String(value).trim() === '') {
     console.error(`❌ Missing required env: ${name}`);
@@ -31,73 +23,77 @@ function requireVar(name, value) {
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ORIGIN = process.env.ORIGIN || 'http://localhost:5173'; // Frontend URL
+const ORIGIN = process.env.ORIGIN || 'http://localhost:5173';
+
 requireVar('SUPABASE_URL', SUPABASE_URL);
 requireVar('SUPABASE_SERVICE_ROLE_KEY', SUPABASE_SERVICE_ROLE_KEY);
 
-// ===== Initialize Supabase (service role; bypasses RLS; never expose this key to the browser) =====
+// Initialize Supabase
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
-// ===== Express app =====
+// Express app
 const app = express();
 const PORT = Number(process.env.PORT || 5180);
 
-// Middleware
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Basic middleware
+app.use(express.json());
 app.use(cors({
-  origin: ORIGIN,          // must be explicit, not '*'
-  credentials: true,       // allow cookies/credentials
-  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  origin: ORIGIN,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Handle preflight requests for all routes
-app.use((req, res, next) => {
-  if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Origin', ORIGIN);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-    return res.sendStatus(200);
-  }
-  next();
-});
-
 // Health check
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'OK', message: 'Backend server is running' });
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', message: 'Minimal server running' });
 });
 
-// ===== Helper: resolve Supabase UUID (profiles.id) from a Clerk user id (e.g., user_abc...) =====
+// Helper function
 async function getSupabaseUuidForClerkId(clerkUserId) {
   if (!clerkUserId) return null;
+  
+  console.log(`🔍 Looking up Supabase UUID for Clerk ID: ${clerkUserId}`);
+  
   const { data, error } = await supabase
     .from('profiles')
-    .select('id')
+    .select('id, clerk_user_id, email')
     .eq('clerk_user_id', clerkUserId)
     .single();
+  
   if (error) {
-    console.error('profiles lookup error', error);
+    console.error('❌ Profiles lookup error:', error);
+    console.log('💡 This user may not have a profile record yet');
     return null;
   }
+  
+  console.log(`✅ Found profile:`, data);
   return data?.id ?? null;
 }
 
-/**
- * =========================
- *   DATA API (service role)
- *   Frontend calls these instead of hitting supabase.co directly.
- *   Each route:
- *     1) accepts Clerk userId from the UI
- *     2) looks up the Supabase UUID in profiles
- *     3) performs the query with service role (no RLS headaches)
- * =========================
- */
+// Debug endpoint to check user mapping
+app.get('/api/debug/user-mapping', async (req, res) => {
+  try {
+    const clerkUserId = String(req.query.userId || '');
+    if (!clerkUserId) return res.status(400).json({ error: 'userId required' });
+    
+    const uid = await getSupabaseUuidForClerkId(clerkUserId);
+    
+    res.json({
+      clerkUserId,
+      supabaseUuid: uid,
+      hasMapping: !!uid,
+      message: uid ? 'User mapping found' : 'No profile found for this Clerk user'
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
-// GET /api/revenue-entries/years?userId=<clerk_user_id>
+// Revenue entries endpoints
 app.get('/api/revenue-entries/years', async (req, res) => {
   try {
     const clerkUserId = String(req.query.userId || '');
@@ -120,7 +116,6 @@ app.get('/api/revenue-entries/years', async (req, res) => {
   }
 });
 
-// GET /api/revenue-entries?userId=<clerk>&year=2025&month=1 (month optional)
 app.get('/api/revenue-entries', async (req, res) => {
   try {
     const clerkUserId = String(req.query.userId || '');
@@ -150,7 +145,6 @@ app.get('/api/revenue-entries', async (req, res) => {
   }
 });
 
-// POST /api/revenue-entries  (body has clerkUserId + fields)
 app.post('/api/revenue-entries', async (req, res) => {
   try {
     const {
@@ -164,22 +158,26 @@ app.post('/api/revenue-entries', async (req, res) => {
     if (!uid) return res.status(400).json({ error: 'Unknown user' });
     if (!year || !month) return res.status(400).json({ error: 'year and month required' });
 
-    // Upsert by (user_id, year, month)
+    // Build the upsert object dynamically to avoid column issues
+    const upsertData = {
+      user_id: uid,
+      year,
+      month,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Only add fields that have values
+    if (actualRevenue !== undefined && actualRevenue !== null) upsertData.actual_revenue = actualRevenue;
+    if (desiredRevenue !== undefined && desiredRevenue !== null) upsertData.desired_revenue = desiredRevenue;
+    if (targetRevenue !== undefined && targetRevenue !== null) upsertData.target_revenue = targetRevenue;
+    if (profitMargin !== undefined && profitMargin !== null) upsertData.profit_margin = profitMargin;
+    if (ownerDraws !== undefined && ownerDraws !== null) upsertData.owner_draws = ownerDraws;
+    if (isLocked !== undefined && isLocked !== null) upsertData.is_locked = isLocked;
+    if (notes !== undefined && notes !== null) upsertData.notes = notes;
+
     const { data, error } = await supabase
       .from('revenue_entries')
-      .upsert({
-        user_id: uid,
-        year,
-        month,
-        actual_revenue: actualRevenue ?? null,
-        desired_revenue: desiredRevenue ?? null,
-        target_revenue: targetRevenue ?? null,
-        profit_margin: profitMargin ?? null,
-        owner_draws: ownerDraws ?? null,
-        is_locked: isLocked ?? null,
-        notes: notes ?? null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,year,month' })
+      .upsert(upsertData, { onConflict: 'user_id,year,month' })
       .select()
       .single();
 
@@ -187,12 +185,12 @@ app.post('/api/revenue-entries', async (req, res) => {
 
     res.json({ ok: true, row: data });
   } catch (e) {
-    console.error(e);
+    console.error('Revenue upsert error:', e);
     res.status(500).json({ error: e.message || 'failed' });
   }
 });
 
-// GET /api/revenue-kpis?userId=<clerk>&year=2025
+// Revenue KPIs endpoint (legacy - redirects to kpi-records)
 app.get('/api/revenue-kpis', async (req, res) => {
   try {
     const clerkUserId = String(req.query.userId || '');
@@ -201,21 +199,35 @@ app.get('/api/revenue-kpis', async (req, res) => {
     if (!uid) return res.status(400).json({ error: 'Unknown user' });
     if (!year) return res.status(400).json({ error: 'year is required' });
 
+    // Get all KPI records for this user and filter by year in JavaScript
     const { data, error } = await supabase
-      .from('revenue_kpis')
+      .from('kpi_records')
       .select('*')
-      .eq('user_id', uid)
-      .eq('year', year);
+      .eq('user_id', uid);
 
-    if (error) throw error;
-    res.json({ rows: data ?? [] });
+    if (error) {
+      console.error('Revenue KPIs error:', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    // Filter by year in JavaScript to avoid PostgreSQL type issues
+    const yearData = (data ?? []).filter(record => {
+      const period = record.period;
+      if (!period) return false;
+      
+      // Handle different period formats
+      const periodStr = String(period);
+      return periodStr.includes(String(year)) || periodStr.startsWith(String(year));
+    });
+
+    res.json({ rows: yearData });
   } catch (e) {
-    console.error(e);
+    console.error('Revenue KPIs error:', e);
     res.status(500).json({ error: e.message || 'failed' });
   }
 });
 
-// GET /api/kpi-records?userId=<clerk>&period=YYYY-MM-DD (period optional)
+// KPI endpoints
 app.get('/api/kpi-records', async (req, res) => {
   try {
     const clerkUserId = String(req.query.userId || '');
@@ -241,7 +253,6 @@ app.get('/api/kpi-records', async (req, res) => {
   }
 });
 
-// POST /api/kpi-records (body has userId + kpiData)
 app.post('/api/kpi-records', async (req, res) => {
   try {
     const { userId: clerkUserId, kpiData } = req.body || {};
@@ -249,7 +260,6 @@ app.post('/api/kpi-records', async (req, res) => {
     if (!uid) return res.status(400).json({ error: 'Unknown user' });
     if (!kpiData) return res.status(400).json({ error: 'kpiData required' });
 
-    // Upsert KPI record
     const { data, error } = await supabase
       .from('kpi_records')
       .upsert({
@@ -269,7 +279,6 @@ app.post('/api/kpi-records', async (req, res) => {
   }
 });
 
-// DELETE /api/kpi-records?userId=<clerk>&kpi_name=...
 app.delete('/api/kpi-records', async (req, res) => {
   try {
     const clerkUserId = String(req.query.userId || '');
@@ -293,7 +302,24 @@ app.delete('/api/kpi-records', async (req, res) => {
   }
 });
 
-// ===== Start server =====
+// Financial documents endpoints
+app.get('/api/financial-documents', async (req, res) => {
+  try {
+    const clerkUserId = String(req.query.userId || '');
+    const uid = await getSupabaseUuidForClerkId(clerkUserId);
+    if (!uid) return res.status(400).json({ error: 'Unknown user' });
+
+    // For now, return empty array since table might not exist
+    res.json({ data: [] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || 'failed' });
+  }
+});
+
+// Start server
 app.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
+  console.log(`✅ Minimal server running on port ${PORT}`);
+  console.log(`✅ CORS origin: ${ORIGIN}`);
+  console.log(`✅ Supabase URL: ${SUPABASE_URL}`);
 });

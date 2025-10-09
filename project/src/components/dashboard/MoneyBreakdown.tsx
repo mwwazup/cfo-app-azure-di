@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { DollarSign, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
-import { supabase } from '../../config/supabaseClient';
+import { getRevenueEntries } from '../../config/supabaseClient';
 import { useAuthContext } from '../../contexts/auth-context';
 import { KPIRecord } from '../../services/kpiRecordsService';
 
@@ -29,50 +29,23 @@ export function MoneyBreakdown({ kpi }: MoneyBreakdownProps) {
         const year = periodDate.getFullYear();
         const month = periodDate.getMonth() + 1;
 
-        // First try to get data with owner_draws, fallback if column doesn't exist
-        let data: RevenueData | null = null;
-        let error: any = null;
+        // Fetch revenue data using backend API
+        const result = await getRevenueEntries(dbUserId, year);
+        const rows = result.rows || [];
         
-        try {
-          const result = await supabase
-            .from('revenue_entries')
-            .select('actual_revenue, profit_margin, owner_draws')
-            .eq('user_id', dbUserId)
-            .eq('year', year)
-            .eq('month', month)
-            .single();
-          
-          data = result.data;
-          error = result.error;
-        } catch (fallbackError) {
-          // If owner_draws column doesn't exist, fallback to basic query
-          console.log('Falling back to basic revenue query for MoneyBreakdown');
-          const result = await supabase
-            .from('revenue_entries')
-            .select('actual_revenue, profit_margin')
-            .eq('user_id', dbUserId)
-            .eq('year', year)
-            .eq('month', month)
-            .single();
-          
-          const basicData = result.data as { actual_revenue: number; profit_margin: number };
-          error = result.error;
-          
-          // Add owner_draws as 0 for backwards compatibility
-          if (basicData) {
-            data = {
-              ...basicData,
-              owner_draws: 0
-            };
-          }
+        // Find the specific month's data
+        const monthData = rows.find(row => row.month === month);
+        
+        if (monthData) {
+          const data: RevenueData = {
+            actual_revenue: monthData.actual_revenue || 0,
+            profit_margin: monthData.profit_margin || 0,
+            owner_draws: monthData.owner_draws || undefined
+          };
+          setRevenueData(data);
+        } else {
+          setRevenueData(null);
         }
-
-        if (error) {
-          console.error('Error fetching revenue data:', error);
-          return;
-        }
-
-        setRevenueData(data);
       } catch (error) {
         console.error('Error fetching revenue data:', error);
       } finally {
