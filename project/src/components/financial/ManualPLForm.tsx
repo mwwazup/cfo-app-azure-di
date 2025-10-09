@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { DollarSign, Save, X } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
-import { AzureDocumentService } from '../../services/azureDocumentService';
+// Using direct API calls to backend server
 import type { FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
 
 interface ManualPLFormProps {
@@ -140,22 +140,57 @@ export const ManualPLForm: React.FC<ManualPLFormProps> = ({ onClose, onSave }) =
       });
 
       const extractedData = {
-        document: { ...documentData, user_id: dbUserId },
+        documentType: 'pnl' as const,
         extractedFields,
-        summary: documentData.summary_metrics,
+        summary: {
+          totalRevenue: formData.revenue + formData.otherIncome,
+          totalExpenses: formData.cogs + formData.rent + formData.salaries + formData.marketing + formData.utilities + formData.insurance + formData.professionalFees + formData.travel + formData.mealsEntertainment,
+          netProfit: calculateNetIncome()
+        },
+        document: {
+          start_date: formData.startDate,
+          end_date: formData.endDate,
+          document_type: 'pnl' as const
+        },
         metadata: { 
           processingTime: 0,
           confidence: 1.0, 
           documentId: `manual_${Date.now()}`,
-          extractedAt: new Date().toISOString(),
-          pageCount: 1
-        },
-        documentType: 'pnl' as const,
-        azureData: {},
-        tables: []
+          extractedAt: new Date().toISOString()
+        }
       };
 
-      await AzureDocumentService.saveDocument(extractedData, metrics as FinancialMetric[]);
+      // Save to backend API directly
+      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5180';
+      const response = await fetch(`${API_BASE_URL}/api/financial-documents`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: dbUserId,
+          document_type: 'pnl',
+          start_date: formData.startDate,
+          end_date: formData.endDate,
+          raw_json: extractedFields,
+          summary_metrics: {
+            totalRevenue: formData.revenue + formData.otherIncome,
+            totalExpenses: formData.cogs + formData.rent + formData.salaries + formData.marketing + formData.utilities + formData.insurance + formData.professionalFees + formData.travel + formData.mealsEntertainment,
+            netProfit: calculateNetIncome()
+          },
+          confidence_score: 1.0,
+          status: 'approved',
+          source: 'manual_entry',
+          filename: `manual_pnl_${Date.now()}.json`
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ P&L document saved successfully:', result.data.id);
       
       onSave();
       onClose();

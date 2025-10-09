@@ -119,7 +119,7 @@ export class RevenueKPIGenerator {
   }
 
   /**
-   * Generate Monthly Revenue KPI
+   * Generate Monthly Revenue KPI with Previous Year + Growth calculation
    */
   private static async generateMonthlyRevenueKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
     const monthData = revenueData.find(entry => entry.month === month);
@@ -127,7 +127,9 @@ export class RevenueKPIGenerator {
 
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
     const actualRevenue = monthData.actual_revenue || 0;
-    const targetRevenue = monthData.desired_revenue || monthData.target_revenue || 0;
+    
+    // Calculate smart target: Previous Year Same Month + Desired Growth
+    const targetRevenue = await this.calculateSmartMonthlyTarget(userId, year, month, monthData);
     
     let status: 'good' | 'warning' | 'alert' = 'good';
     if (targetRevenue > 0) {
@@ -143,23 +145,68 @@ export class RevenueKPIGenerator {
       kpi_category: 'Revenue',
       goal_value: targetRevenue,
       status: status,
-      plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${targetRevenue > 0 ? `vs target of $${targetRevenue.toLocaleString()}` : ''}`
+      plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${targetRevenue > 0 ? `vs smart target of $${targetRevenue.toLocaleString()}` : ''}`
     };
 
     await KPIRecordsService.upsertKPIRecord(userId, kpiData);
   }
 
   /**
-   * Generate Year-to-Date KPI
+   * Calculate smart monthly target: Previous Year Same Month + Growth
+   * Formula: Previous Year's Month Revenue + (Previous Year's Month Revenue * Profit Margin Goal)
+   */
+  private static async calculateSmartMonthlyTarget(userId: string, year: number, month: number, currentMonthData: any): Promise<number> {
+    try {
+      // Get previous year's data for the same month
+      const previousYear = year - 1;
+      const previousYearResult = await getRevenueEntries(userId, previousYear);
+      const previousYearData = previousYearResult.rows || [];
+      const previousMonthData = previousYearData.find(entry => entry.month === month);
+      
+      // If no previous year data, fall back to simple target
+      if (!previousMonthData || !previousMonthData.actual_revenue) {
+        console.log(`No previous year data for ${previousYear}-${month}, using fallback target`);
+        return currentMonthData.desired_revenue || currentMonthData.target_revenue || 0;
+      }
+      
+      const previousMonthRevenue = previousMonthData.actual_revenue;
+      const desiredGrowthRate = 0.15; // 15% default growth rate
+      
+      // Smart target = Previous Year Same Month + Growth
+      const smartTarget = previousMonthRevenue * (1 + desiredGrowthRate);
+      
+      console.log(`📊 Smart target calculation for ${year}-${month}:`, {
+        previousYearRevenue: previousMonthRevenue,
+        growthRate: `${(desiredGrowthRate * 100)}%`,
+        smartTarget: Math.round(smartTarget),
+        oldTarget: currentMonthData.desired_revenue || currentMonthData.target_revenue || 0
+      });
+      
+      return Math.round(smartTarget);
+    } catch (error) {
+      console.error('Error calculating smart target:', error);
+      // Fall back to existing target if calculation fails
+      return currentMonthData.desired_revenue || currentMonthData.target_revenue || 0;
+    }
+  }
+
+  /**
+   * Generate Year-to-Date KPI with smart targets
    */
   private static async generateYTDKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
     const ytdRevenue = revenueData
       .filter(entry => entry.month <= month)
       .reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
 
-    const ytdTarget = revenueData
-      .filter(entry => entry.month <= month)
-      .reduce((sum, entry) => sum + (entry.desired_revenue || entry.target_revenue || 0), 0);
+    // Calculate YTD target using smart targets for each month
+    let ytdTarget = 0;
+    for (let m = 1; m <= month; m++) {
+      const monthData = revenueData.find(entry => entry.month === m);
+      if (monthData) {
+        const smartTarget = await this.calculateSmartMonthlyTarget(userId, year, m, monthData);
+        ytdTarget += smartTarget;
+      }
+    }
 
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
     
@@ -177,7 +224,7 @@ export class RevenueKPIGenerator {
       kpi_category: 'Revenue',
       goal_value: ytdTarget,
       status: status,
-      plain_explanation: `Year-to-date revenue of $${ytdRevenue.toLocaleString()} ${ytdTarget > 0 ? `vs target of $${ytdTarget.toLocaleString()}` : ''}`
+      plain_explanation: `Year-to-date revenue of $${ytdRevenue.toLocaleString()} ${ytdTarget > 0 ? `vs smart target of $${ytdTarget.toLocaleString()}` : ''}`
     };
 
     await KPIRecordsService.upsertKPIRecord(userId, kpiData);

@@ -290,6 +290,58 @@ def delete_financial_document(document_id: str):
         print(f"❌ Financial document delete error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Document processing endpoints (replacing Azure functionality)
+@app.get("/api/docs/meta")
+def get_document_metadata(user_id: str = Query(...)):
+    """Get document metadata for a user (replaces Azure endpoint)"""
+    try:
+        user_docs = mock_financial_documents.get(user_id, [])
+        # Return metadata only (no full document content)
+        metadata = []
+        for doc in user_docs:
+            metadata.append({
+                'id': doc.get('id'),
+                'document_type': doc.get('document_type'),
+                'filename': doc.get('filename'),
+                'uploaded_at': doc.get('uploaded_at'),
+                'status': doc.get('status', 'pending'),
+                'confidence_score': doc.get('confidence_score', 0.85)
+            })
+        return {"data": metadata}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/docs/kpis")
+def get_document_kpis(document_id: str = Query(...)):
+    """Get precomputed KPIs for a document (replaces Azure endpoint)"""
+    try:
+        # Mock KPI data for document
+        mock_kpis = [
+            {"name": "Total Revenue", "value": 150000, "category": "Revenue"},
+            {"name": "Total Expenses", "value": 120000, "category": "Expenses"},
+            {"name": "Net Profit", "value": 30000, "category": "Profit"},
+            {"name": "Profit Margin", "value": 20.0, "category": "Ratio"}
+        ]
+        return {"data": mock_kpis}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/docs/metrics")
+def get_document_metrics(document_id: str = Query(...)):
+    """Get detailed metrics for a document (replaces Azure endpoint)"""
+    try:
+        # Mock detailed metrics
+        mock_metrics = [
+            {"label": "Total Revenue", "value": 150000, "category": "pnl", "is_verified": True},
+            {"label": "Cost of Goods Sold", "value": 90000, "category": "pnl", "is_verified": True},
+            {"label": "Gross Profit", "value": 60000, "category": "pnl", "is_verified": True},
+            {"label": "Operating Expenses", "value": 30000, "category": "pnl", "is_verified": True},
+            {"label": "Net Income", "value": 30000, "category": "pnl", "is_verified": True}
+        ]
+        return {"data": mock_metrics}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     print("Starting test revenue API server on port 5180...")
@@ -298,4 +350,10 @@ if __name__ == "__main__":
     print("- GET /api/revenue-entries")
     print("- POST /api/revenue-entries")
     print("- POST /api/auth/supabase-link")
+    print("- GET /api/financial-documents")
+    print("- POST /api/financial-documents")
+    print("- DELETE /api/financial-documents/{document_id}")
+    print("- GET /api/docs/meta")
+    print("- GET /api/docs/kpis")
+    print("- GET /api/docs/metrics")
     uvicorn.run(app, host="0.0.0.0", port=5180)

@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthContext } from '../contexts/auth-context';
 
+// API base URL for test server
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5180';
+
 
 // Types for API responses
 interface DocumentMeta {
@@ -47,7 +50,7 @@ interface IngestDocumentResponse {
 // API functions
 const api = {
   ingestDocument: async (data: IngestDocumentRequest): Promise<IngestDocumentResponse> => {
-    const response = await fetch('/api/di/ingest', {
+    const response = await fetch(`${API_BASE_URL}/api/di/ingest`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -65,7 +68,7 @@ const api = {
   },
 
   getDocumentsMeta: async (userId: string): Promise<DocumentMeta[]> => {
-    const response = await fetch(`/api/docs/meta?user_id=${userId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/docs/meta?user_id=${userId}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
       }
@@ -76,11 +79,12 @@ const api = {
       throw new Error(error.detail || 'Failed to fetch documents');
     }
     
-    return response.json();
+    const result = await response.json();
+    return result.data || [];
   },
 
   getDocumentKPIs: async (docId: string): Promise<DocumentKPIs> => {
-    const response = await fetch(`/api/docs/kpis?doc_id=${docId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/docs/kpis?document_id=${docId}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
       }
@@ -91,11 +95,12 @@ const api = {
       throw new Error(error.detail || 'Failed to fetch KPIs');
     }
     
-    return response.json();
+    const result = await response.json();
+    return result.data || {};
   },
 
   getDocumentMetrics: async (docId: string): Promise<DocumentMetrics[]> => {
-    const response = await fetch(`/api/docs/metrics?doc_id=${docId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/docs/metrics?document_id=${docId}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
       }
@@ -106,7 +111,8 @@ const api = {
       throw new Error(error.detail || 'Failed to fetch metrics');
     }
     
-    return response.json();
+    const result = await response.json();
+    return result.data || [];
   }
 };
 
