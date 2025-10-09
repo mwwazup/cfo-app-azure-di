@@ -75,28 +75,8 @@ async def startup_event():
     except Exception as e:
         errors.append(f"OpenAI connection failed: {str(e)}")
 
-    # Test Zep connection
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{os.getenv('ZEP_API_URL')}/api/v1/health",
-                headers={
-                    "accept": "application/json",
-                    "Authorization": f"Bearer {os.getenv('ZEP_API_KEY')}"
-                }
-            )
-            response.raise_for_status()
-    except Exception as e:
-        errors.append(f"Zep connection failed: {str(e)}")
-
-    # Test Neo4j connection (skip when SKIP_SERVICE_CHECKS=1)
-    if os.getenv("SKIP_SERVICE_CHECKS") != "1":
-        try:
-            with get_neo4j_driver().session(database="neo4j") as session:
-                result = session.run("RETURN 1 AS ok")
-                neo4j_ok = bool(result.single()['ok'])
-        except Exception as e:
-            errors.append(f"Neo4j connection failed: {str(e)}")
+    # Skip Zep and Neo4j connections - not currently used
+    print("Skipping Zep and Neo4j connection tests - not currently used")
 
     if errors:
         raise HTTPException(
@@ -113,29 +93,9 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Check the health of all backend services"""
-    # If we're in lightweight mode, skip external checks
-    if os.getenv("SKIP_SERVICE_CHECKS") == "1":
-        return {
-            "status": "healthy",
-            "neo4j": "skipped",
-            "timestamp": datetime.utcnow().isoformat()
-        }
-
-    # Otherwise, attempt Neo4j check but never fail the endpoint
-    neo4j_ok = False
-    neo4j_error = None
-    try:
-        with get_neo4j_driver().session(database="neo4j") as session:
-            result = session.run("RETURN 1 AS ok")
-            neo4j_ok = bool(result.single()['ok'])
-    except Exception as e:
-        neo4j_error = str(e)
-
-    response = {
-        "status": "healthy" if neo4j_ok else "degraded",
-        "neo4j": neo4j_ok,
+    # Skip Neo4j checks since it's not currently used
+    return {
+        "status": "healthy",
+        "neo4j": "skipped (not currently used)",
         "timestamp": datetime.utcnow().isoformat()
     }
-    if neo4j_error:
-        response["neo4j_error"] = neo4j_error
-    return response

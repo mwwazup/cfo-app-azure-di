@@ -20,7 +20,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.65.0",
     "@clerk/clerk-react": "^5.50.0",
-    "@supabase/supabase-js": "^2.58.0",
+    "@supabase/supabase-js": "^2.74.0",
     "@tanstack/react-query": "^5.85.5",
     "@tanstack/react-table": "^8.11.0",
     "chart.js": "^4.4.0",

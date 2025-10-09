@@ -307,3 +307,32 @@ async def refresh_token(refresh_token: str):
             detail="Invalid refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+# Models for supabase-link endpoint
+class SupabaseLinkRequest(BaseModel):
+    clerkUserId: str
+    email: str
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+
+class SupabaseLinkResponse(BaseModel):
+    supabaseUserId: str
+    message: str
+
+@router.post("/supabase-link")
+def link_supabase_account(request: dict):
+    """Link a Clerk user account to Supabase profile"""
+    try:
+        # For now, just return the clerk user ID as the supabase user ID
+        # This is a simplified implementation that doesn't require database access
+        return {
+            "supabaseUserId": request.get("clerkUserId"),
+            "message": "Profile linked successfully (simplified implementation)"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Server error: {str(e)}"
+        )

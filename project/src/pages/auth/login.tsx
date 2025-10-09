@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Mail, Home } from 'lucide-react';
-import { useAuth } from '../../contexts/auth-context';
+import { useSignIn, useUser } from '@clerk/clerk-react';
 import { Button } from '../../components/ui/button';
-import { supabase } from '../../config/supabaseClient';
 
 export function LoginPage() {
-  const { user, login, isLoading } = useAuth();
+  const { signIn } = useSignIn();
+  const { user, isSignedIn } = useUser();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -14,11 +14,10 @@ export function LoginPage() {
     password: ''
   });
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   // Redirect if already logged in
-  console.log('Login page - user:', !!user, 'isLoading:', isLoading);
-  if (user && !isLoading) {
-    console.log('Redirecting to dashboard');
+  if (isSignedIn) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -34,17 +33,25 @@ export function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+    setIsLoading(true);
+
     try {
-      const success = await login(formData.email, formData.password);
-      if (success) {
-        navigate('/dashboard');
-      } else {
-        setError('Invalid email or password');
+      if (signIn) {
+        const result = await signIn.create({
+          identifier: formData.email,
+          password: formData.password
+        });
+
+        if (result.status === 'complete') {
+          navigate('/dashboard');
+        } else {
+          setError('Invalid email or password');
+        }
       }
-    } catch (err) {
-      console.error('Login error:', err);
-      setError('Failed to connect to the server. Please try again.');
+    } catch (err: any) {
+      setError(err.message || 'Login failed. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -54,9 +61,10 @@ export function LoginPage() {
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      if (user) {
+        await user.signOut();
+      }
       setError('');
-      console.log('Logged out successfully');
     } catch (error) {
       console.error('Logout error:', error);
     }

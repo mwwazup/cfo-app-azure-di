@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import { RevenueScenarioService } from '../../services/revenueScenarioService';
 import { calculationResultToDeltaPayload } from '../../models/RevenueScenario';
 import { ScenarioClassifier, ScenarioClassification, UserProvidedInputs } from './scenario-classifier';
@@ -28,7 +28,7 @@ export const DynamicScenarioFlow: React.FC<DynamicScenarioFlowProps> = ({
   onScenarioComplete,
   currentMonthlyRevenue = 50000
 }) => {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: '1',
@@ -37,7 +37,6 @@ export const DynamicScenarioFlow: React.FC<DynamicScenarioFlowProps> = ({
       timestamp: new Date()
     }
   ]);
-  
   const [userInput, setUserInput] = useState('');
   const [currentClassification, setCurrentClassification] = useState<ScenarioClassification | null>(null);
   const [userProvidedInputs, setUserProvidedInputs] = useState<UserProvidedInputs>({});
@@ -50,11 +49,11 @@ export const DynamicScenarioFlow: React.FC<DynamicScenarioFlowProps> = ({
     calculation: CalculationResult,
     userQuestion: string
   ) => {
-    if (!user?.id) return;
+    if (!dbUserId) return;
 
     try {
       // Get current revenue report as base
-      const currentReport = await RevenueScenarioService.getCurrentRevenueReport(user.id);
+      const currentReport = await RevenueScenarioService.getCurrentRevenueReport(dbUserId);
       
       if (!currentReport) {
         console.warn('No current revenue report found for user');
@@ -69,7 +68,7 @@ export const DynamicScenarioFlow: React.FC<DynamicScenarioFlowProps> = ({
       );
 
       // Save to revenue_scenarios table
-      await RevenueScenarioService.createRevenueScenario(user.id, {
+      await RevenueScenarioService.createRevenueScenario(dbUserId, {
         base_report_id: currentReport.id,
         question_text: userQuestion,
         delta_payload: deltaPayload,

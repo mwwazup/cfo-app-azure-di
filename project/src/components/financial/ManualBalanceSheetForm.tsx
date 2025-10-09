@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DollarSign, X } from 'lucide-react';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import { AzureDocumentService } from '../../services/azureDocumentService';
 
 interface ManualBalanceSheetFormProps {
@@ -40,7 +40,7 @@ interface BalanceSheetFormData {
 }
 
 export const ManualBalanceSheetForm: React.FC<ManualBalanceSheetFormProps> = ({ onClose, onSave }) => {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [formData, setFormData] = useState<BalanceSheetFormData>({
     startDate: '',
     endDate: '',
@@ -85,25 +85,10 @@ export const ManualBalanceSheetForm: React.FC<ManualBalanceSheetFormProps> = ({ 
     return formData.shareholderEquity;
   };
 
-  const isBalanced = () => {
-    const totalAssets = calculateTotalAssets();
-    const totalLiabilitiesAndEquity = calculateTotalLiabilities() + calculateTotalEquity();
-    return Math.abs(totalAssets - totalLiabilitiesAndEquity) < 0.01;
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!user?.id) {
+    if (!dbUserId) {
       console.error('User not authenticated');
       return;
     }
@@ -116,15 +101,16 @@ export const ManualBalanceSheetForm: React.FC<ManualBalanceSheetFormProps> = ({ 
     setIsSaving(true);
 
     try {
-      const documentService = new AzureDocumentService();
-      
       const extractedData = {
-        document: {
-          user_id: user.id,
-          document_type: 'balance_sheet' as const,
-          start_date: formData.startDate,
-          end_date: formData.endDate,
-          bs_current_assets: formData.currentAssets,
+        documentType: 'balance_sheet' as const,
+        extractedFields: {},
+        azureData: {
+          reportingPeriod: 'Manual Entry',
+          documentType: 'balance_sheet' as const,
+          bs_totalAssets: calculateTotalAssets(),
+          bs_totalLiabilities: calculateTotalLiabilities(),
+          bs_totalEquity: calculateTotalEquity(),
+          bs_currentAssets: formData.currentAssets,
           bs_cash: formData.cash,
           bs_accounts_receivable: formData.accountsReceivable,
           bs_inventory: formData.inventory,
@@ -139,14 +125,42 @@ export const ManualBalanceSheetForm: React.FC<ManualBalanceSheetFormProps> = ({ 
           bs_shareholder_equity: formData.shareholderEquity,
           bs_retained_earnings: formData.retainedEarnings,
           bs_common_stock: formData.commonStock,
+          bs_assetBreakdown: [],
+          cf_cashFromOperations: 0,
+          cf_cashFromInvesting: 0,
+          cf_cashFromFinancing: 0,
+          cf_netCashFlow: 0,
+          cf_cashAtBeginning: 0,
+          cf_cashAtEnd: 0,
+          cf_cashMovements: [],
+          pnl_totalRevenue: 0,
+          pnl_costOfGoodsSold: 0,
+          pnl_grossProfit: 0,
+          pnl_operatingExpenses: 0,
+          pnl_netIncome: 0,
+          pnl_expenseBreakdown: []
         },
-        metrics: [],
-        kpis: [],
-        summary: {},
-        tables: []
+        summary: {
+          totalAssets: calculateTotalAssets(),
+          totalLiabilities: calculateTotalLiabilities(),
+          equity: calculateTotalEquity()
+        },
+        tables: [],
+        document: {
+          start_date: formData.startDate,
+          end_date: formData.endDate,
+          document_type: 'balance_sheet' as const
+        },
+        metadata: {
+          processingTime: 0,
+          confidence: 1.0,
+          documentId: `manual_${Date.now()}`,
+          extractedAt: new Date().toISOString(),
+          pageCount: 1
+        }
       };
 
-      await documentService.saveExtractedData(extractedData);
+      await AzureDocumentService.saveDocument(extractedData, []);
       
       // Show success notification
       const notification = document.createElement('div');

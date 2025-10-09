@@ -1,169 +1,86 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { useClerk, useUser } from '@clerk/clerk-react';
+// src/contexts/auth-context.tsx
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useUser } from '@clerk/clerk-react';
 
-interface User {
-  id: string;
-  supabaseId?: string | null;
-  clerkId: string;
-  email: string;
-  first_name?: string;
-  last_name?: string;
-  user_metadata?: {
-    first_name?: string;
-    last_name?: string;
-  };
-}
+type AuthCtx = {
+  isLoaded: boolean;
+  isSignedIn: boolean;
+  clerkUserId: string | null;
+  email: string | null;
+  dbUserId: string | null; // UUID from public.profiles.id
+};
 
-interface AuthContextType {
-  user: User | null;
-  login: (email?: string, password?: string) => Promise<boolean>;
-  signup: (userData?: SignupData) => Promise<boolean>;
-  logout: () => Promise<void>;
-  isLoading: boolean;
-}
+const AuthContext = createContext<AuthCtx>({
+  isLoaded: false,
+  isSignedIn: false,
+  clerkUserId: null,
+  email: null,
+  dbUserId: null,
+});
 
-interface SignupData {
-  first_name: string;
-  last_name: string;
-  email: string;
-  password: string;
-}
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isLoaded, isSignedIn, user } = useUser();
+  const [dbUserId, setDbUserId] = useState<string | null>(null);
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+  const clerkUserId = user?.id ?? null;
+  const email =
+    user?.primaryEmailAddress?.emailAddress ??
+    user?.emailAddresses?.[0]?.emailAddress ??
+    null;
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const { isLoaded, isSignedIn, user: clerkUser } = useUser();
-  const { signOut } = useClerk();
-  const [isLoading, setIsLoading] = useState(true);
-  const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
-  const [hasSyncedSupabaseId, setHasSyncedSupabaseId] = useState(false);
-
-  const user = useMemo<User | null>(() => {
-    if (!isSignedIn || !clerkUser || !hasSyncedSupabaseId) {
-      return null;
-    }
-
-    const resolvedSupabaseId = supabaseUserId ?? null;
-    const resolvedId = resolvedSupabaseId ?? clerkUser.id;
-
-    return {
-      id: resolvedId,
-      supabaseId: resolvedSupabaseId,
-      clerkId: clerkUser.id,
-      email: clerkUser.primaryEmailAddress?.emailAddress || '',
-      first_name: clerkUser.firstName || undefined,
-      last_name: clerkUser.lastName || undefined,
-    };
-  }, [isSignedIn, clerkUser, supabaseUserId, hasSyncedSupabaseId]);
-
+  // On sign-in, call your server to link Clerk -> Supabase (ensures profile exists) and get the UUID
   useEffect(() => {
-    if (!isLoaded || !hasSyncedSupabaseId) {
-      setIsLoading(true);
-      return;
-    }
-    setIsLoading(false);
-  }, [isLoaded, hasSyncedSupabaseId]);
-
-  useEffect(() => {
-    if (!isSignedIn || !clerkUser) {
-      setSupabaseUserId(null);
-      setHasSyncedSupabaseId(true);
-      return;
-    }
-
-    let isActive = true;
-    setHasSyncedSupabaseId(false);
-
-    const syncSupabaseUser = async () => {
+    const link = async () => {
       try {
-        const response = await fetch('/api/auth/supabase-link', {
+        if (!isLoaded || !isSignedIn || !clerkUserId || !email) {
+          setDbUserId(null);
+          return;
+        }
+
+        const firstName = user?.firstName ?? null;
+        const lastName = user?.lastName ?? null;
+
+        const resp = await fetch('http://localhost:5180/api/auth/supabase-link', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            clerkUserId: clerkUser.id,
-            email: clerkUser.primaryEmailAddress?.emailAddress,
-            firstName: clerkUser.firstName,
-            lastName: clerkUser.lastName,
+            clerkUserId,
+            email,
+            firstName,
+            lastName,
           }),
         });
 
-        if (!response.ok) {
-          throw new Error(`Failed to link Supabase user (status ${response.status})`);
+        if (!resp.ok) {
+          const txt = await resp.text();
+          console.error('supabase-link failed:', resp.status, txt);
+          setDbUserId(null);
+          return;
         }
 
-        const data: { supabaseUserId?: string } = await response.json();
-        if (isActive) {
-          setSupabaseUserId(data.supabaseUserId ?? null);
-        }
-      } catch (error) {
-        console.error('Failed to sync Supabase user ID with Clerk account:', error);
-        if (isActive) {
-          setSupabaseUserId(null);
-        }
-      } finally {
-        if (isActive) {
-          setHasSyncedSupabaseId(true);
-        }
+        const json = await resp.json();
+        setDbUserId(json.supabaseUserId ?? null);
+      } catch (e) {
+        console.error('supabase-link error', e);
+        setDbUserId(null);
       }
     };
 
-    syncSupabaseUser();
+    link();
+  }, [isLoaded, isSignedIn, clerkUserId, email, user?.firstName, user?.lastName]);
 
-    return () => {
-      isActive = false;
-    };
-  }, [isSignedIn, clerkUser]);
-
-  const login = async () => {
-    setIsLoading(true);
-    try {
-      window.location.assign('/sign-in');
-      return true;
-    } catch (error) {
-      console.error('Clerk login error:', error);
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const signup = async () => {
-    setIsLoading(true);
-    try {
-      window.location.assign('/sign-in');
-      return true;
-    } catch (error) {
-      console.error('Clerk signup error:', error);
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const logout = async () => {
-    setIsLoading(true);
-    try {
-      await signOut();
-    } catch (error) {
-      console.error('Clerk logout error:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <AuthContext.Provider value={{ user, login, signup, logout, isLoading }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      isLoaded,
+      isSignedIn: Boolean(isLoaded && isSignedIn),
+      clerkUserId,
+      email,
+      dbUserId,
+    }),
+    [isLoaded, isSignedIn, clerkUserId, email, dbUserId]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}
+export const useAuthContext = () => useContext(AuthContext);

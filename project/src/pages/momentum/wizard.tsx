@@ -1,12 +1,12 @@
 import React from 'react';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import MomentumWizard from '../../components/momentum/MomentumWizard';
 import { Button } from '../../components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export function MomentumWizardPage() {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const navigate = useNavigate();
   const today = new Date();
   
@@ -33,7 +33,7 @@ export function MomentumWizardPage() {
       </div>
       
       <MomentumWizard
-        ownerId={user?.id}
+        ownerId={dbUserId}
         month={currentMonth}
         celebration="wave"
       />

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import { KPIRecordsService, KPIRecord } from '../../services/kpiRecordsService';
 import { RevenueKPIGenerator } from '../../services/revenueKPIGenerator';
 import { 
@@ -49,7 +49,7 @@ const getKPIIcon = (kpiName: string) => {
 
 
 export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [kpiRecords, setKpiRecords] = useState<KPIRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -63,7 +63,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
 
   // Load KPI records with proper comparison data and throttling
   const loadKPIRecords = React.useCallback(async (forceLoad = false) => {
-    if (!user?.id) return;
+    if (!dbUserId) return;
     
     // Throttle loading to prevent excessive calls on window focus
     const now = Date.now();
@@ -79,7 +79,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     setLoading(true);
     try {
       // Load the KPI records for the selected period
-      const records = await KPIRecordsService.getKPIRecords(user.id, {
+      const records = await KPIRecordsService.getKPIRecords(dbUserId, {
         period: filterPeriod === 'current_month' ? 'current' : filterPeriod,
         kpi_category: filterCategory,
         status: filterStatus as any
@@ -107,7 +107,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
             console.log(`Loading comparison data for ${lastYearPeriod}`);
             
             // Load last year's data for the same month
-            const comparisonRecords = await KPIRecordsService.getKPIRecords(user.id, {
+            const comparisonRecords = await KPIRecordsService.getKPIRecords(dbUserId, {
               period: lastYearPeriod,
               kpi_category: filterCategory,
               status: 'all'
@@ -141,11 +141,11 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
       // If no records found for current month, generate current month KPIs only
       if (filteredRecords.length === 0 && filterPeriod === 'current_month') {
         setGenerating(true);
-        await RevenueKPIGenerator.generateKPIsForPeriod(user.id, 'current');
+        await RevenueKPIGenerator.generateKPIsForPeriod(dbUserId, 'current');
         setGenerating(false);
         
         // Reload records after generation
-        const newRecords = await KPIRecordsService.getKPIRecords(user.id, {
+        const newRecords = await KPIRecordsService.getKPIRecords(dbUserId, {
           period: 'current',
           kpi_category: filterCategory,
           status: filterStatus as any
@@ -168,14 +168,14 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     } finally {
       setLoading(false);
     }
-  }, [user?.id, filterPeriod, filterCategory, filterStatus]);
+  }, [dbUserId, filterPeriod, filterCategory, filterStatus]);
 
   const handleRefreshKPIs = async () => {
-    if (!user?.id) return;
+    if (!dbUserId) return;
     
     setGenerating(true);
     try {
-      await RevenueKPIGenerator.generateKPIsForPeriod(user.id, 'current');
+      await RevenueKPIGenerator.generateKPIsForPeriod(dbUserId, 'current');
       await loadKPIRecords(true); // Force reload after generation
     } catch (error) {
       console.error('Error refreshing KPIs:', error);
@@ -226,11 +226,11 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   }, [loadKPIRecords, filterPeriod, filterCategory, filterStatus]);
 
   const generateHistoricalKPIs = async () => {
-    if (!user?.id) return;
+    if (!dbUserId) return;
     
     setGenerating(true);
     try {
-      await RevenueKPIGenerator.generateHistoricalKPIs(user.id);
+      await RevenueKPIGenerator.generateHistoricalKPIs(dbUserId);
       // Reload records after generation
       await loadKPIRecords(true); // Force reload after generation
     } catch (error) {

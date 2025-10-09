@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Papa from 'papaparse';
 import { months } from '../../contexts/revenue-context';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import { useRevenue } from '../../contexts/revenue-context';
 import { X, Upload, FileText } from 'lucide-react';
 
@@ -16,7 +16,7 @@ interface TableRow {
 }
 
 export const RevenueImportWizard: React.FC<Props> = ({ open, onClose }) => {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const { selectedYear, updateMonthlyRevenue } = useRevenue();
 
   const [step, setStep] = useState<1 | 2>(1);
@@ -57,7 +57,7 @@ export const RevenueImportWizard: React.FC<Props> = ({ open, onClose }) => {
   };
 
   const submit = async () => {
-    if (!user) return;
+    if (!dbUserId) return;
     try {
       // Only update months the user provided values for
       await Promise.all(

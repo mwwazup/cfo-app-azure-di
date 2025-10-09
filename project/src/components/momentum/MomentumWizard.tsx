@@ -1,6 +1,6 @@
 import React, { useState, cloneElement } from "react";
 import { supabase } from "../../config/supabaseClient";
-import { useAuth } from "../../contexts/auth-context";
+import { useAuthContext } from "../../contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { 
@@ -165,8 +165,8 @@ export default function MomentumWizard({
   month = new Date(),
   celebration = "confetti"
 }: MomentumWizardProps) {
-  const { user } = useAuth();
-  const actualOwnerId = ownerId || user?.id;
+  const { dbUserId } = useAuthContext();
+  const actualOwnerId = ownerId || dbUserId;
 
   const steps: StepMeta[] = [
     { 

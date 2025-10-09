@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { DollarSign, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../../config/supabaseClient';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import { KPIRecord } from '../../services/kpiRecordsService';
 
 interface MoneyBreakdownProps {
@@ -16,13 +16,13 @@ interface RevenueData {
 }
 
 export function MoneyBreakdown({ kpi }: MoneyBreakdownProps) {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [revenueData, setRevenueData] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchRevenueData = async () => {
-      if (!user?.id) return;
+      if (!dbUserId) return;
       
       try {
         const periodDate = new Date(kpi.period);
@@ -37,7 +37,7 @@ export function MoneyBreakdown({ kpi }: MoneyBreakdownProps) {
           const result = await supabase
             .from('revenue_entries')
             .select('actual_revenue, profit_margin, owner_draws')
-            .eq('user_id', user.id)
+            .eq('user_id', dbUserId)
             .eq('year', year)
             .eq('month', month)
             .single();
@@ -50,7 +50,7 @@ export function MoneyBreakdown({ kpi }: MoneyBreakdownProps) {
           const result = await supabase
             .from('revenue_entries')
             .select('actual_revenue, profit_margin')
-            .eq('user_id', user.id)
+            .eq('user_id', dbUserId)
             .eq('year', year)
             .eq('month', month)
             .single();
@@ -81,7 +81,7 @@ export function MoneyBreakdown({ kpi }: MoneyBreakdownProps) {
     };
 
     fetchRevenueData();
-  }, [user?.id, kpi.period]);
+  }, [dbUserId, kpi.period]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Mail, User, Home } from 'lucide-react';
-import { useAuth } from '../../contexts/auth-context';
+import { useSignUp } from '@clerk/clerk-react';
 import { Button } from '../ui/button';
 
 const SignupForm = () => {
   const navigate = useNavigate();
-  const { signup, isLoading } = useAuth();
+  const { signUp } = useSignUp();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -17,6 +17,7 @@ const SignupForm = () => {
     confirmPassword: ''
   });
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -30,24 +31,30 @@ const SignupForm = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
     
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match!');
+      setIsLoading(false);
       return;
     }
     
-    const success = await signup({
-      first_name: formData.first_name,
-      last_name: formData.last_name,
-      email: formData.email,
-      password: formData.password
-    });
-    
-    if (success) {
-      // Redirect to onboarding instead of dashboard
-      navigate('/onboarding');
-    } else {
-      setError('Signup failed. Please try again.');
+    try {
+      if (signUp) {
+        await signUp.create({
+          firstName: formData.first_name,
+          lastName: formData.last_name,
+          emailAddress: formData.email,
+          password: formData.password
+        });
+        
+        // Redirect to onboarding after successful signup
+        navigate('/onboarding');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Signup failed. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 

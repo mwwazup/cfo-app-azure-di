@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
 import { MomentumEntry, CreateMomentumEntryData, MomentumService } from '../services/momentumService';
-import { useAuth } from '../contexts/auth-context';
+import { useAuthContext } from '../contexts/auth-context';
 
 export function useMomentum() {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [entries, setEntries] = useState<MomentumEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [migrated, setMigrated] = useState(false);
 
   const fetchEntries = async () => {
-    if (!user?.id) {
+    if (!dbUserId) {
       setEntries([]);
       setLoading(false);
       return;
@@ -22,11 +22,11 @@ export function useMomentum() {
     try {
       // Migrate localStorage data on first load
       if (!migrated) {
-        await MomentumService.migrateLocalStorageData(user.id);
+        await MomentumService.migrateLocalStorageData(dbUserId);
         setMigrated(true);
       }
 
-      const momentumEntries = await MomentumService.getMomentumEntries(user.id);
+      const momentumEntries = await MomentumService.getMomentumEntries(dbUserId);
       setEntries(momentumEntries);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch momentum entries');
@@ -37,14 +37,14 @@ export function useMomentum() {
 
   useEffect(() => {
     fetchEntries();
-  }, [user?.id]);
+  }, [dbUserId]);
 
   const getEntriesForMonth = (month: string): MomentumEntry[] => {
     return entries.filter(entry => entry.month === month);
   };
 
   const saveEntry = async (entryData: CreateMomentumEntryData) => {
-    if (!user?.id) {
+    if (!dbUserId) {
       setError('User not authenticated');
       return { success: false, error: 'User not authenticated' };
     }
@@ -52,7 +52,7 @@ export function useMomentum() {
     setError(null);
 
     try {
-      const result = await MomentumService.upsertMomentumEntry(user.id, entryData);
+      const result = await MomentumService.upsertMomentumEntry(dbUserId, entryData);
       
       if (result.success && result.entry) {
         setEntries(prev => {

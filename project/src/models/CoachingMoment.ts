@@ -10,6 +10,7 @@ export interface CoachingMoment {
   title: string;
   scenario_type?: string;
   response_type: 'quick_ridr' | 'detailed_calculation';
+  tags?: string[];
   ridr_response?: {
     results: string;
     insight: string;

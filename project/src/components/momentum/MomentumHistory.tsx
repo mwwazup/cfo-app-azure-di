@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
+import { MomentumEntry } from '../../services/momentumService';
 import { useMomentum } from '../../hooks/useMomentum';
 import { 
   Calendar, 
@@ -33,7 +34,7 @@ interface MomentumHistoryProps {
 }
 
 export function MomentumHistory({ onEditMonth }: MomentumHistoryProps) {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const { entriesByMonth, loading, refreshEntries } = useMomentum();
   const [journals, setJournals] = useState<MonthlyJournal[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -77,7 +78,7 @@ export function MomentumHistory({ onEditMonth }: MomentumHistoryProps) {
   });
 
   const deleteJournal = async (month: string) => {
-    if (!user?.id) return;
+    if (!dbUserId) return;
     
     if (window.confirm(`Are you sure you want to delete the journal for ${formatMonth(month)}?`)) {
       // Delete all entries for this month

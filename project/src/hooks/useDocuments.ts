@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '../contexts/auth-context';
+import { useAuthContext } from '../contexts/auth-context';
 
 
 // Types for API responses
@@ -112,12 +112,12 @@ const api = {
 
 // React Query hooks
 export const useDocumentsMeta = () => {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   
   return useQuery({
-    queryKey: ['docs-meta', user?.id],
-    queryFn: () => api.getDocumentsMeta(user!.id),
-    enabled: !!user?.id,
+    queryKey: ['docs-meta', dbUserId],
+    queryFn: () => api.getDocumentsMeta(dbUserId!),
+    enabled: !!dbUserId,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
   });
@@ -145,7 +145,7 @@ export const useDocumentMetrics = (docId: string | null, showDetails: boolean = 
 
 export const useIngestDocument = () => {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   
   return useMutation({
     mutationFn: ({ fileData, filename, documentType }: { 
@@ -159,7 +159,7 @@ export const useIngestDocument = () => {
     }),
     onSuccess: (data) => {
       // Invalidate documents meta to refetch the list
-      queryClient.invalidateQueries({ queryKey: ['docs-meta', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['docs-meta', dbUserId] });
       return data;
     },
     onError: (error) => {

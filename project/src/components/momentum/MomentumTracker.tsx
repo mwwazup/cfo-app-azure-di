@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Label } from '../ui/label';
 import { VoiceInput } from '../ui/voice-input';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import { useRevenue } from '../../contexts/revenue-context';
 import { useMomentum } from '../../hooks/useMomentum';
 import { 
@@ -892,7 +892,7 @@ interface MomentumTrackerProps {
 }
 
 export function MomentumTracker({ selectedMonth, onSave }: MomentumTrackerProps) {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const revenueContext = useRevenue();
   const { getYearData, isLoading } = revenueContext;
   const { saveEntry, getEntriesForMonth } = useMomentum();
@@ -938,11 +938,11 @@ export function MomentumTracker({ selectedMonth, onSave }: MomentumTrackerProps)
   // Simple debug logging without circular dependencies
   useEffect(() => {
     console.log('🔍 MomentumTracker - Component Mounted');
-    console.log('🔍 MomentumTracker - User ID:', user?.id);
+    console.log('🔍 MomentumTracker - User ID:', dbUserId);
     console.log('🔍 MomentumTracker - Revenue Loading:', isLoading);
     
     // Direct test of revenue_entries table
-    if (user?.id) {
+    if (dbUserId) {
       import('../../services/revenueDataService').then(({ RevenueDataService }) => {
         const currentYear = new Date().getFullYear();
         const lastYear = currentYear - 1;

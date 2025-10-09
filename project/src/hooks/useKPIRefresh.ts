@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useAuth } from '../contexts/auth-context';
+import { useAuthContext } from '../contexts/auth-context';
 import { RevenueKPIGenerator } from '../services/revenueKPIGenerator';
 
 interface KPIRefreshOptions {
@@ -17,7 +17,7 @@ interface KPIRefreshState {
 }
 
 export function useKPIRefresh() {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [state, setState] = useState<KPIRefreshState>({
     isDialogOpen: false,
     isRefreshing: false,
@@ -33,12 +33,12 @@ export function useKPIRefresh() {
   } | null>(null);
 
   const refreshKPIs = useCallback(async () => {
-    if (!user?.id) return;
+    if (!dbUserId) return;
 
     setState(prev => ({ ...prev, isRefreshing: true }));
 
     try {
-      await RevenueKPIGenerator.generateAllKPIs(user.id);
+      await RevenueKPIGenerator.generateAllKPIs(dbUserId);
       
       // Close dialog after successful refresh
       setState(prev => ({ 
@@ -60,7 +60,7 @@ export function useKPIRefresh() {
       setState(prev => ({ ...prev, isRefreshing: false }));
       // Optional: Show error notification
     }
-  }, [user?.id]);
+  }, [dbUserId]);
 
   const promptForKPIRefresh = useCallback((options: KPIRefreshOptions = {}) => {
     const {
@@ -69,7 +69,7 @@ export function useKPIRefresh() {
       autoRefresh = false
     } = options;
 
-    if (autoRefresh && user?.id) {
+    if (autoRefresh && dbUserId) {
       // Auto-refresh without prompting
       refreshKPIs();
       return;
@@ -96,7 +96,7 @@ export function useKPIRefresh() {
         }));
       }
     }, 3000); // 3 second delay
-  }, [user?.id, refreshKPIs]);
+  }, [dbUserId, refreshKPIs]);
 
   const closeDialog = useCallback(() => {
     setState(prev => ({ 

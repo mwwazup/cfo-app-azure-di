@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DollarSign, Save, X } from 'lucide-react';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import { AzureDocumentService } from '../../services/azureDocumentService';
 import type { FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
 
@@ -33,7 +33,7 @@ interface PLFormData {
 }
 
 export const ManualPLForm: React.FC<ManualPLFormProps> = ({ onClose, onSave }) => {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [formData, setFormData] = useState<PLFormData>({
     startDate: '',
     endDate: '',
@@ -75,16 +75,18 @@ export const ManualPLForm: React.FC<ManualPLFormProps> = ({ onClose, onSave }) =
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!dbUserId) return;
 
     setIsSaving(true);
     
     try {
       // Create document data
+      const startDate: string = formData.startDate || '2024-01-01';
+      const endDate: string = formData.endDate || '2024-12-31';
       const documentData: Partial<FinancialDocument> = {
         document_type: 'pnl',
-        start_date: formData.startDate || '2024-01-01',
-        end_date: formData.endDate || '2024-12-31',
+        start_date: startDate,
+        end_date: endDate,
         status: 'approved',
         source: 'manual_entry',
         confidence_score: 1.0,
@@ -138,7 +140,7 @@ export const ManualPLForm: React.FC<ManualPLFormProps> = ({ onClose, onSave }) =
       });
 
       const extractedData = {
-        document: { ...documentData, user_id: user.id },
+        document: { ...documentData, user_id: dbUserId },
         extractedFields,
         summary: documentData.summary_metrics,
         metadata: { 

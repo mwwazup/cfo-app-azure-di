@@ -1,4 +1,4 @@
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import { useProfile } from '../../hooks/useProfile';
 import { useRevenue } from '../../contexts/revenue-context';
 import { useFinancialData } from '../../hooks/useFinancialData';
@@ -33,7 +33,7 @@ interface CashflowData {
 }
 
 export function DashboardPage() {
-  const { user } = useAuth();
+  const { email } = useAuthContext();
   const { profile, loading: profileLoading } = useProfile();
   const { currentYear, historicalYears, selectedYear, selectYear, getYearData, isLoading, currentYearKpis } = useRevenue();
   const { statements } = useFinancialData();
@@ -114,7 +114,7 @@ export function DashboardPage() {
       {/* Welcome Header */}
       <div className="bg-gradient-to-r from-accent/20 to-accent/10 rounded-lg p-8 border border-accent/20">
         <h1 className="text-3xl font-bold mb-2 text-foreground">
-          Welcome back, {profile?.first_name || user?.email || 'there'}!
+          Welcome back, {profile?.first_name || email || 'there'}!
         </h1>
         <p className="text-muted text-lg">
           {currentYear.isHistorical 

@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { useAuth } from '../../contexts/auth-context';
 import { 
   ArrowLeft, 
   ArrowRight, 
@@ -17,7 +16,6 @@ import {
   TrendingUp,
   Users,
   DollarSign,
-  Calendar,
   Lightbulb
 } from 'lucide-react';
 
@@ -78,10 +76,9 @@ const initialFormData: OnboardingData = {
 
 export function OnboardingFlow() {
   const navigate = useNavigate();
-  const { signup } = useAuth();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<number>(1);
   const [formData, setFormData] = useState<OnboardingData>(initialFormData);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const totalSteps = 10;
 

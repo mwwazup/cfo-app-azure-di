@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react';
 import { RevenueScenario, CreateRevenueScenarioData, RevenueCurveReport } from '../models/RevenueScenario';
 import { RevenueScenarioService } from '../services/revenueScenarioService';
-import { useAuth } from '../contexts/auth-context';
+import { useAuthContext } from '../contexts/auth-context';
 
 export function useRevenueScenarios() {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [scenarios, setScenarios] = useState<RevenueScenario[]>([]);
   const [currentReport, setCurrentReport] = useState<RevenueCurveReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = async () => {
-    if (!user?.id) {
+    if (!dbUserId) {
       setScenarios([]);
       setCurrentReport(null);
       setLoading(false);
@@ -22,16 +22,15 @@ export function useRevenueScenarios() {
     setError(null);
 
     try {
-      // Fetch current revenue report and scenarios in parallel
-      const [report, scenarioList] = await Promise.all([
-        RevenueScenarioService.getCurrentRevenueReport(user.id),
-        RevenueScenarioService.getRevenueScenarios(user.id)
+      const [scenariosData, report] = await Promise.all([
+        RevenueScenarioService.getRevenueScenarios(dbUserId),
+        RevenueScenarioService.getCurrentRevenueReport(dbUserId)
       ]);
 
+      setScenarios(scenariosData);
       setCurrentReport(report);
-      setScenarios(scenarioList);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch scenario data');
+      setError(err instanceof Error ? err.message : 'Failed to fetch data');
     } finally {
       setLoading(false);
     }
@@ -39,10 +38,10 @@ export function useRevenueScenarios() {
 
   useEffect(() => {
     fetchData();
-  }, [user?.id]);
+  }, [dbUserId]);
 
   const createScenario = async (scenarioData: CreateRevenueScenarioData) => {
-    if (!user?.id) {
+    if (!dbUserId) {
       setError('User not authenticated');
       return { success: false, error: 'User not authenticated' };
     }
@@ -50,17 +49,18 @@ export function useRevenueScenarios() {
     setError(null);
 
     try {
-      const result = await RevenueScenarioService.createRevenueScenario(user.id, scenarioData);
-      
-      if (result.success && result.scenario) {
-        setScenarios(prev => [result.scenario!, ...prev]);
+      const result = await RevenueScenarioService.createRevenueScenario(dbUserId, scenarioData);
+
+      if (result.success) {
+        // Refresh data after successful creation
+        await fetchData();
       } else {
-        setError(result.error || 'Failed to save scenario');
+        setError(result.error || 'Failed to create scenario');
       }
 
       return result;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to save scenario';
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create scenario';
       setError(errorMessage);
       return { success: false, error: errorMessage };
     }

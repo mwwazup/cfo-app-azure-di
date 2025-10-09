@@ -1,22 +1,22 @@
 import { useState, useEffect } from 'react';
 import { FinancialStatement, StatementType } from '../models/FinancialStatement';
 import { FinancialDataService } from '../services/financialDataService';
-import { useAuth } from '../contexts/auth-context';
+import { useAuthContext } from '../contexts/auth-context';
 
 export function useFinancialData() {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [statements, setStatements] = useState<FinancialStatement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchStatements = async () => {
-    if (!user?.id) return;
+    if (!dbUserId) return;
     
     setLoading(true);
     setError(null);
     
     try {
-      const data = await FinancialDataService.getFinancialStatements(user.id);
+      const data = await FinancialDataService.getFinancialStatements(dbUserId);
       setStatements(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch financial statements');
@@ -27,10 +27,10 @@ export function useFinancialData() {
 
   useEffect(() => {
     fetchStatements();
-  }, [user?.id]);
+  }, [dbUserId]);
 
   const uploadStatement = async (file: File, statementType?: StatementType) => {
-    if (!user?.id) {
+    if (!dbUserId) {
       setError('User not authenticated');
       return { success: false, error: 'User not authenticated' };
     }
@@ -41,7 +41,7 @@ export function useFinancialData() {
     try {
       const result = await FinancialDataService.uploadFinancialStatement(
         file, 
-        user.id, 
+        dbUserId, 
         statementType
       );
 

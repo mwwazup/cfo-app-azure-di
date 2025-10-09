@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, RotateCcw, Calendar, ChevronLeft, ChevronRight, Settings, Edit3 } from 'lucide-react';
 import { AzureDocumentService, type ExtractedFinancialData } from '../../services/azureDocumentService';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
 import { WhereDidTheMoneyGo } from './WhereDidTheMoneyGo';
 import { ManualPLForm } from './ManualPLForm';
@@ -15,7 +15,7 @@ interface ProcessingResult {
 }
 
 export const FinancialStatements: React.FC = () => {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [documents, setDocuments] = useState<FinancialDocument[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -52,19 +52,19 @@ export const FinancialStatements: React.FC = () => {
 
   const loadFinancialDocuments = useCallback(async () => {
     try {
-      if (!user) return;
-      const docs = await AzureDocumentService.getFinancialDocuments(user.id);
+      if (!dbUserId) return;
+      const docs = await AzureDocumentService.getFinancialDocuments(dbUserId);
       setDocuments(docs);
     } catch (error) {
       console.error('Error loading financial documents:', error);
     }
-  }, [user]);
+  }, [dbUserId]);
 
   useEffect(() => {
-    if (user) {
+    if (dbUserId) {
       loadFinancialDocuments();
     }
-  }, [user, loadFinancialDocuments]);
+  }, [dbUserId, loadFinancialDocuments]);
 
   useEffect(() => {
     loadFinancialDocuments();
@@ -113,7 +113,7 @@ export const FinancialStatements: React.FC = () => {
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, docType?: DocumentType) => {
     const file = event.target.files?.[0];
-    if (!file || !user) return;
+    if (!file || !dbUserId) return;
 
     // Validate file type
     const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
@@ -200,7 +200,7 @@ export const FinancialStatements: React.FC = () => {
       console.log('📊 Final metrics for review modal:', finalMetrics);
 
       const processingResultData = {
-        document: { ...documentData, user_id: user.id },
+        document: { ...documentData, user_id: dbUserId },
         metrics: finalMetrics,
         confidence_score: extractedData.metadata?.confidence || 0
       };
@@ -223,7 +223,7 @@ export const FinancialStatements: React.FC = () => {
   };
 
   const handleApproveDocument = async () => {
-    if (!processingResult || !user) return;
+    if (!processingResult || !dbUserId) return;
 
     try {
       // Save document and metrics to database with approved status
@@ -392,7 +392,7 @@ export const FinancialStatements: React.FC = () => {
   };
 
   const updateDocumentStatus = async (documentId: string, newStatus: 'pending' | 'reviewed' | 'approved' | 'rejected') => {
-    if (!user) return;
+    if (!dbUserId) return;
     
     setUpdatingStatusId(documentId);
     
@@ -437,7 +437,7 @@ export const FinancialStatements: React.FC = () => {
   };
 
   const executeDocumentDeletion = async () => {
-    if (!showDeleteConfirmation || !user) return;
+    if (!showDeleteConfirmation || !dbUserId) return;
     
     const { document, impactAnalysis } = showDeleteConfirmation;
     

@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
 import { CoachingMoment, CreateCoachingMomentData } from '../models/CoachingMoment';
 import { CoachingService } from '../services/coachingService';
-import { useAuth } from '../contexts/auth-context';
+import { useAuthContext } from '../contexts/auth-context';
 
 export function useCoachingHistory() {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const [coachingHistory, setCoachingHistory] = useState<CoachingMoment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchCoachingHistory = async () => {
-    if (!user?.id) {
+    if (!dbUserId) {
       setCoachingHistory([]);
       setLoading(false);
       return;
@@ -20,7 +20,7 @@ export function useCoachingHistory() {
     setError(null);
 
     try {
-      const moments = await CoachingService.getCoachingMoments(user.id);
+      const moments = await CoachingService.getCoachingMoments(dbUserId);
       setCoachingHistory(moments);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch coaching history');
@@ -31,10 +31,10 @@ export function useCoachingHistory() {
 
   useEffect(() => {
     fetchCoachingHistory();
-  }, [user?.id]);
+  }, [dbUserId]);
 
   const addCoachingMoment = async (momentData: CreateCoachingMomentData) => {
-    if (!user?.id) {
+    if (!dbUserId) {
       setError('User not authenticated');
       return { success: false, error: 'User not authenticated' };
     }
@@ -42,7 +42,7 @@ export function useCoachingHistory() {
     setError(null);
 
     try {
-      const result = await CoachingService.createCoachingMoment(user.id, momentData);
+      const result = await CoachingService.createCoachingMoment(dbUserId, momentData);
       
       if (result.success && result.moment) {
         setCoachingHistory(prev => [result.moment!, ...prev]);

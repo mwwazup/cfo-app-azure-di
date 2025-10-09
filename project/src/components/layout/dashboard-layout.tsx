@@ -1,5 +1,6 @@
 import { Outlet, Link, useLocation, Navigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
+import { useUser } from '@clerk/clerk-react';
 import { Button } from '../ui/button';
 import { 
   LayoutDashboard, 
@@ -17,15 +18,16 @@ import { useState } from 'react';
 // import VoiceCoach from '../VoiceCoach'; // DISABLED - Archived for future use
 
 export function DashboardLayout() {
-  const { user, logout, isLoading } = useAuth();
+  const { isLoaded, isSignedIn, email } = useAuthContext();
+  const { user, signOut } = useUser();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  if (isLoading) {
+  if (!isLoaded) {
     return null;
   }
 
-  if (!user) {
+  if (!isSignedIn) {
     return <Navigate to="/sign-in" replace />;
   }
 
@@ -40,8 +42,8 @@ export function DashboardLayout() {
     { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
   ];
 
-  const handleLogout = async () => {
-    await logout();
+  const handleLogout = () => {
+    signOut();
   };
 
   return (
@@ -131,10 +133,10 @@ export function DashboardLayout() {
             <div className="flex items-center w-full">
               <div className="flex-1">
                 <p className="text-sm font-medium text-foreground">
-                  {user.first_name ?? ''} {user.last_name ?? ''}
+                  {user?.firstName ?? ''} {user?.lastName ?? ''}
                 </p>
                 <p className="text-xs text-muted">
-                  {user.email}
+                  {email}
                 </p>
               </div>
               <Button variant="ghost" size="sm" onClick={handleLogout}>
@@ -165,7 +167,7 @@ export function DashboardLayout() {
                 <div className="flex items-center space-x-4">
                   <div className="hidden md:block">
                     <span className="text-sm text-muted">
-                      Welcome, {user.first_name ?? user.email}
+                      Welcome, {user?.firstName ?? email}
                     </span>
                   </div>
                 </div>

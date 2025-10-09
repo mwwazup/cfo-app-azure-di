@@ -1,7 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import { useAuth } from './auth-context';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuthContext } from './auth-context';
 import { RevenueDataService } from '../services/revenueDataService';
-import { RevenueKPIGenerator } from '../services/revenueKPIGenerator';
 import { KPIDataService, RevenueKPI } from '../services/kpiDataService';
 
 export interface MonthlyData {
@@ -176,7 +175,7 @@ const createPlaygroundYear = (year: number): YearData => ({
 
 export function RevenueProvider({ children }: { children: React.ReactNode }) {
   const currentYear = new Date().getFullYear();
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   
   const [availableYears, setAvailableYears] = useState<number[]>(Array.from({ length: 6 }, (_, i) => currentYear - i)); // default
    
@@ -206,14 +205,14 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch revenue data from Supabase when user is available
   useEffect(() => {
-    if (!user) return;
+    if (!dbUserId) return;
 
     const fetchRevenue = async () => {
       try {
         setIsLoading(true);
 
         // Get all years that have data for this user
-        const years = await RevenueDataService.getAvailableYears(user.id);
+        const years = await RevenueDataService.getAvailableYears(dbUserId);
 
         if (years && years.length) {
           setAvailableYears(prev => {
@@ -226,7 +225,7 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
         const newYearMap = new Map<number, YearData>();
 
         for (const year of years) {
-          const entries = await RevenueDataService.getRevenueDataForYear(user.id, year);
+          const entries = await RevenueDataService.getRevenueDataForYear(dbUserId, year);
 
           // Build 12-month structure
           const monthlyData: MonthlyData[] = months.map((month, idx) => {
@@ -296,7 +295,7 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
     };
 
     fetchRevenue();
-  }, [user]);
+  }, [dbUserId]);
 
   // Load data from localStorage on mount
   useEffect(() => {
@@ -339,13 +338,13 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
   // Load KPI metrics whenever selected year changes or data is mutated
   useEffect(() => {
     const loadKpis = async () => {
-      if (!user) return;
-      const kpi = await KPIDataService.getKpis(user.id, selectedYear);
+      if (!dbUserId) return;
+      const kpi = await KPIDataService.getKpis(dbUserId, selectedYear);
       setCurrentYearKpis(kpi);
     };
 
     loadKpis();
-  }, [user, selectedYear, allYearsData]);
+  }, [dbUserId, selectedYear, allYearsData]);
 
   const getCurrentYearData = (): YearData => {
     return allYearsData.get(selectedYear) || createCurrentYear(selectedYear, allYearsData);
@@ -374,11 +373,11 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
     setAllYearsData(prev => new Map(prev.set(selectedYear, updatedData)));
 
     // Persist to Supabase if we have an authenticated user
-    if (user) {
+    if (dbUserId) {
       const monthIndex = months.findIndex(m => m === month) + 1; // 1-based index for DB
       try {
         const res = await RevenueDataService.updateMonthlyRevenue(
-          user.id,
+          dbUserId,
           selectedYear,
           monthIndex,
           revenue
@@ -427,10 +426,10 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
     setAllYearsData(prev => new Map(prev.set(selectedYear, updatedData)));
 
     // Persist to Supabase
-    if (user) {
+    if (dbUserId) {
       try {
         const res = await RevenueDataService.updateYearTargets(
-          user.id,
+          dbUserId,
           selectedYear,
           targetRevenue,
           profitMargin

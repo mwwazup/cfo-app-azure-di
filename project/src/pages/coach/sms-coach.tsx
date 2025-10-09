@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Mic, MicOff, Send, Save, Trash2, Tag, Clock, MessageCircle, Volume2, VolumeX } from 'lucide-react';
-import { useAuth } from '../../contexts/auth-context';
+import { useAuthContext } from '../../contexts/auth-context';
 import { useCoachingHistory } from '../../hooks/useCoachingHistory';
 import { supabase } from '../../config/supabaseClient';
 import { CoachingService } from '../../services/coachingService';
@@ -360,14 +360,14 @@ const parseConversationFromResponse = (response: string): Message[] => {
 };
 
 export function SMSCoachPage() {
-  const { user } = useAuth();
+  const { dbUserId } = useAuthContext();
   const { addCoachingMoment } = useCoachingHistory();
   
   // Current conversation state with localStorage persistence
   const [currentConversation, setCurrentConversation] = useState<Conversation>(() => {
     // Try to restore from localStorage on initial load
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(`sms-coach-conversation-${user?.id}`);
+      const saved = localStorage.getItem(`sms-coach-conversation-${dbUserId}`);
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
@@ -406,6 +406,8 @@ export function SMSCoachPage() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
   const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Text input state
   const [textInput, setTextInput] = useState('');
@@ -425,16 +427,16 @@ export function SMSCoachPage() {
   // Load conversation history from coaching moments
   useEffect(() => {
     const loadConversationHistory = async () => {
-      if (!user?.id) return;
+      if (!dbUserId) return;
       
       try {
         // Get coaching moments and convert to conversations
-        const moments = await CoachingService.getCoachingMoments(user.id);
+        const moments = await CoachingService.getCoachingMoments(dbUserId);
         const conversations = moments.map(moment => ({
           id: moment.id,
           title: moment.title || moment.question.slice(0, 50) + '...',
           messages: parseConversationFromResponse(moment.response),
-          tags: [], // Initialize empty tags array
+          tags: moment.tags || [], // Initialize empty tags array
           createdAt: new Date(moment.created_at),
           saved: true
         }));
@@ -446,19 +448,9 @@ export function SMSCoachPage() {
     };
     
     loadConversationHistory();
-  }, [user?.id]);
-  
-  // Auto-save current conversation to localStorage
-  useEffect(() => {
-    if (user?.id && currentConversation.messages.length > 0) {
-      localStorage.setItem(`sms-coach-conversation-${user.id}`, JSON.stringify(currentConversation));
-    }
-  }, [currentConversation, user?.id]);
-  
-  // Refs
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
+  }, [dbUserId]);
 
+  // Auto-save current conversation to localStorage
   // Surf words for loading animation
   const surfWords = ['Surfing', 'Floating', 'Riding', 'Paddling'];
 
@@ -673,7 +665,6 @@ export function SMSCoachPage() {
       ...prev,
       messages: [...prev.messages, userMessage]
     }));
-
     setTextInput('');
     setIsLoading(true);
 
@@ -753,7 +744,7 @@ export function SMSCoachPage() {
       setConversationHistory(prev => [savedConversation, ...prev]);
 
       // Clear localStorage since it's now saved
-      localStorage.removeItem(`sms-coach-conversation-${user?.id}`);
+      localStorage.removeItem(`sms-coach-conversation-${dbUserId}`);
 
       alert('Conversation saved successfully!');
     } catch (error) {
@@ -777,8 +768,8 @@ export function SMSCoachPage() {
     setConversationTitle('');
     
     // Clear localStorage
-    if (user?.id) {
-      localStorage.removeItem(`sms-coach-conversation-${user.id}`);
+    if (dbUserId) {
+      localStorage.removeItem(`sms-coach-conversation-${dbUserId}`);
     }
   };
 
