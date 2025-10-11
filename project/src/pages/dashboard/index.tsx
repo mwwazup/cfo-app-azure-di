@@ -4,7 +4,7 @@ import { useRevenue } from '../../contexts/revenue-context';
 import { useFinancialData } from '../../hooks/useFinancialData';
 import { useCashflowSync } from '../../contexts/cashflow-sync-context';
 import { MiniChart } from '../../components/RevenueChart/MiniChart';
-import { CashflowInputs, CashflowVisualization } from '../../components/dashboard/CashflowCalculator';
+import { WhereDidTheMoneyGo } from '../../components/financial/WhereDidTheMoneyGo';
 import KPIDashboard from '../../components/dashboard/KPIDashboard';
 import ManualPLFormSimplified from '../../components/financial/ManualPLFormSimplified';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -32,7 +32,7 @@ export function DashboardPage() {
   const { profile, loading: profileLoading } = useProfile();
   const { currentYear, historicalYears, selectedYear, selectYear, getYearData, isLoading, currentYearKpis } = useRevenue();
   const { statements } = useFinancialData();
-  const { cashflowData, setCashflowData, syncFromManualPL, isManualPLOpen, setIsManualPLOpen } = useCashflowSync();
+  const { syncFromManualPL, isManualPLOpen, setIsManualPLOpen } = useCashflowSync();
 
   if (isLoading || profileLoading) {
     return (
@@ -364,11 +364,19 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <CashflowInputs data={cashflowData} setData={setCashflowData} />
+        {/* Financial Analysis - Radial Charts */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Financial Analysis
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <WhereDidTheMoneyGo />
+          </CardContent>
+        </Card>
       </div>
-
-      {/* Full-Width Cashflow Visualization */}
-      <CashflowVisualization data={cashflowData} />
 
       <KPIDashboard className="w-full" />
 

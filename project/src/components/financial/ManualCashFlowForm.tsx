@@ -208,15 +208,15 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+      <div className="bg-background rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-background border-b border-border px-6 py-4 flex items-center justify-between">
           <div className="flex items-center">
             <TrendingUp className="h-6 w-6 text-green-600 mr-2" />
-            <h2 className="text-xl font-semibold text-gray-900">Manual Cash Flow Entry</h2>
+            <h2 className="text-xl font-semibold text-foreground">Manual Cash Flow Entry</h2>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-muted-foreground hover:text-foreground"
           >
             <X className="h-6 w-6" />
           </button>
@@ -226,37 +226,37 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
           {/* Company and Period Information */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 Start Date
               </label>
               <input
                 type="date"
                 value={formData.startDate}
                 onChange={(e) => handleInputChange('startDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 End Date
               </label>
               <input
                 type="date"
                 value={formData.endDate}
                 onChange={(e) => handleInputChange('endDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent"
                 required
               />
             </div>
           </div>
 
           {/* Operating Activities Section */}
-          <div className="bg-gray-100 p-4 rounded-lg">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Operating Activities</h3>
+          <div className="bg-card p-4 rounded-lg border border-border">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Operating Activities</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Net Income *
                 </label>
                 <input
@@ -264,12 +264,12 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.netIncome}
                   onChange={(e) => handleInputChange('netIncome', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Depreciation & Amortization
                 </label>
                 <input
@@ -277,11 +277,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.depreciation}
                   onChange={(e) => handleInputChange('depreciation', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Accounts Receivable Change
                 </label>
                 <input
@@ -289,11 +289,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.accountsReceivableChange}
                   onChange={(e) => handleInputChange('accountsReceivableChange', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Inventory Change
                 </label>
                 <input
@@ -301,11 +301,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.inventoryChange}
                   onChange={(e) => handleInputChange('inventoryChange', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Accounts Payable Change
                 </label>
                 <input
@@ -313,11 +313,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.accountsPayableChange}
                   onChange={(e) => handleInputChange('accountsPayableChange', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Accrued Expenses Change
                 </label>
                 <input
@@ -325,11 +325,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.accruedExpensesChange}
                   onChange={(e) => handleInputChange('accruedExpensesChange', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Total Operating Cash Flow *
                 </label>
                 <input
@@ -337,7 +337,7 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.operatingCashFlow}
                   onChange={(e) => handleInputChange('operatingCashFlow', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                   required
                 />
               </div>
@@ -345,11 +345,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
           </div>
 
           {/* Investing Activities Section */}
-          <div className="bg-gray-100 p-4 rounded-lg">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Investing Activities</h3>
+          <div className="bg-card p-4 rounded-lg border border-border">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Investing Activities</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Capital Expenditures
                 </label>
                 <input
@@ -357,11 +357,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.capitalExpenditures}
                   onChange={(e) => handleInputChange('capitalExpenditures', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Asset Sales
                 </label>
                 <input
@@ -369,11 +369,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.assetSales}
                   onChange={(e) => handleInputChange('assetSales', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Investment Purchases
                 </label>
                 <input
@@ -381,11 +381,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.investmentPurchases}
                   onChange={(e) => handleInputChange('investmentPurchases', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Investment Sales
                 </label>
                 <input
@@ -393,11 +393,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.investmentSales}
                   onChange={(e) => handleInputChange('investmentSales', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Total Investing Cash Flow
                 </label>
                 <input
@@ -405,18 +405,18 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.investingCashFlow}
                   onChange={(e) => handleInputChange('investingCashFlow', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
             </div>
           </div>
 
           {/* Financing Activities Section */}
-          <div className="bg-gray-100 p-4 rounded-lg">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Financing Activities</h3>
+          <div className="bg-card p-4 rounded-lg border border-border">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Financing Activities</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Debt Issuance
                 </label>
                 <input
@@ -424,11 +424,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.debtIssuance}
                   onChange={(e) => handleInputChange('debtIssuance', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Debt Repayment
                 </label>
                 <input
@@ -436,11 +436,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.debtRepayment}
                   onChange={(e) => handleInputChange('debtRepayment', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Equity Issuance
                 </label>
                 <input
@@ -448,11 +448,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.equityIssuance}
                   onChange={(e) => handleInputChange('equityIssuance', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Dividends Paid
                 </label>
                 <input
@@ -460,11 +460,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.dividendsPaid}
                   onChange={(e) => handleInputChange('dividendsPaid', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Total Financing Cash Flow
                 </label>
                 <input
@@ -472,18 +472,18 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.financingCashFlow}
                   onChange={(e) => handleInputChange('financingCashFlow', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
             </div>
           </div>
 
           {/* Cash Position Section */}
-          <div className="bg-gray-100 p-4 rounded-lg">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Cash Position</h3>
+          <div className="bg-card p-4 rounded-lg border border-border">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Cash Position</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Beginning Cash *
                 </label>
                 <input
@@ -491,12 +491,12 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.beginningCash}
                   onChange={(e) => handleInputChange('beginningCash', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Ending Cash
                 </label>
                 <input
@@ -504,31 +504,31 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
                   step="0.01"
                   value={formData.endingCash}
                   onChange={(e) => handleInputChange('endingCash', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
             </div>
           </div>
 
           {/* Summary Display */}
-          <div className="bg-gray-100 p-4 rounded-lg">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Cash Flow Summary</h3>
+          <div className="bg-card p-4 rounded-lg border border-border">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Cash Flow Summary</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Operating Cash Flow:</span>
+                  <span className="text-sm text-muted-foreground">Operating Cash Flow:</span>
                   <span className={`text-sm font-medium ${formData.operatingCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {formatCurrency(formData.operatingCashFlow)}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Investing Cash Flow:</span>
+                  <span className="text-sm text-muted-foreground">Investing Cash Flow:</span>
                   <span className={`text-sm font-medium ${formData.investingCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {formatCurrency(formData.investingCashFlow)}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Financing Cash Flow:</span>
+                  <span className="text-sm text-muted-foreground">Financing Cash Flow:</span>
                   <span className={`text-sm font-medium ${formData.financingCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {formatCurrency(formData.financingCashFlow)}
                   </span>
@@ -536,19 +536,19 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between border-t pt-2">
-                  <span className="text-sm font-semibold text-gray-800">Net Cash Change:</span>
+                  <span className="text-sm font-semibold text-foreground">Net Cash Change:</span>
                   <span className={`text-sm font-bold ${calculateNetCashChange() >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {formatCurrency(calculateNetCashChange())}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Beginning Cash:</span>
+                  <span className="text-sm text-muted-foreground">Beginning Cash:</span>
                   <span className="text-sm font-medium">
                     {formatCurrency(formData.beginningCash)}
                   </span>
                 </div>
                 <div className="flex justify-between border-t pt-2">
-                  <span className="text-sm font-semibold text-gray-800">Calculated Ending Cash:</span>
+                  <span className="text-sm font-semibold text-foreground">Calculated Ending Cash:</span>
                   <span className="text-sm font-bold text-blue-600">
                     {formatCurrency(calculateEndingCash())}
                   </span>
@@ -558,11 +558,11 @@ export const ManualCashFlowForm: React.FC<ManualCashFlowFormProps> = ({ onClose,
           </div>
 
           {/* Action Buttons */}
-          <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
+          <div className="flex justify-end space-x-4 pt-6 border-t border-border">
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              className="px-6 py-2 border border-border rounded-md text-foreground hover:bg-card"
               disabled={isSaving}
             >
               Cancel

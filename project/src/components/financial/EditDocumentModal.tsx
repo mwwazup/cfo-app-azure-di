@@ -60,6 +60,25 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
     } : null);
   };
 
+  const updateRawJsonField = (key: string, value: number) => {
+    if (!editedDocument) return;
+    
+    // Round to 2 decimal places to avoid floating-point precision issues
+    const roundedValue = roundToTwoDecimals(value);
+    
+    setEditedDocument(prev => prev ? {
+      ...prev,
+      raw_json: {
+        ...prev.raw_json,
+        [key]: {
+          value: roundedValue,
+          confidence: 1,
+          boundingBox: []
+        }
+      }
+    } : null);
+  };
+
   const getDocumentTypeLabel = (type: string): string => {
     switch (type) {
       case 'pnl': return 'Profit & Loss';
@@ -194,6 +213,42 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Owner Distributions - Special P&L Field */}
+          {editedDocument.document_type === 'pnl' && (
+            <div>
+              <h3 className="text-lg font-medium text-foreground mb-4 flex items-center">
+                <DollarSign className="h-5 w-5 mr-2" style={{ color: '#8B5CF6' }} />
+                Owner Distributions
+              </h3>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Owner Distributions
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">
+                    $
+                  </span>
+                  <input
+                    type="text"
+                    value={(() => {
+                      const ownerDist = editedDocument.raw_json?.ownerDistributions;
+                      const value = typeof ownerDist === 'object' && ownerDist?.value 
+                        ? ownerDist.value 
+                        : (typeof ownerDist === 'number' ? ownerDist : 0);
+                      return typeof value === 'number' ? value.toLocaleString() : String(value || '');
+                    })()}
+                    onChange={(e) => updateRawJsonField('ownerDistributions', parseCurrency(e.target.value))}
+                    className="w-full pl-8 pr-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
+                    placeholder="0.00"
+                  />
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Money taken out of the business for personal use. This affects cash available for growth.
+                </p>
               </div>
             </div>
           )}

@@ -76,8 +76,8 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
             <RadialBarChart
               data={chartData}
               endAngle={dynamicEndAngle}
-              innerRadius={85}
-              outerRadius={130}
+              innerRadius={105}
+              outerRadius={170}
             >
               {/* Muted circle rendered first (underneath) as background track */}
               <circle
@@ -86,12 +86,12 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
                 r={107.5}
                 fill="none"
                 stroke="rgb(156 163 175)"
-                strokeWidth={45}
+                strokeWidth={20}
                 opacity={0.2}
               />
               <RadialBar 
                 dataKey="value" 
-                cornerRadius={4}
+                cornerRadius={6}
                 fill={color}
               />
               <PolarRadiusAxis tick={false} tickLine={false} axisLine={false} />
