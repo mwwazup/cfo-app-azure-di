@@ -527,14 +527,42 @@ export const FinancialStatements: React.FC = () => {
     if (!dbUserId) return;
 
     try {
-      // Update document in database - need to update the analysis_result JSON structure
-      const { supabase } = await import('../../config/supabaseClient');
+      // Use the same API approach as the manual P&L form
+      console.log('🔄 Using API endpoint to update document (same as manual P&L form)');
+      console.log('🔍 Document ID:', updatedDocument.id);
+      console.log('🔍 Using dbUserId (Clerk ID):', dbUserId);
+      console.log('🔍 Updated document data:', updatedDocument);
       
-      // Get the Supabase UUID from the document (it should have the correct user_id)
-      const supabaseUserId = updatedDocument.user_id;
-      console.log('🔍 Using Supabase user ID for update:', supabaseUserId);
+      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5180';
+      const response = await fetch(`${API_BASE_URL}/api/financial-documents/${updatedDocument.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: dbUserId, // Use the same approach as manual P&L form
+          document_type: updatedDocument.document_type,
+          status: updatedDocument.status,
+          start_date: updatedDocument.start_date,
+          end_date: updatedDocument.end_date,
+          summary_metrics: updatedDocument.summary_metrics,
+          raw_json: updatedDocument.raw_json || {},
+          source: 'manual_entry'
+        }),
+      });
+
+      console.log('🔍 API Response status:', response.status);
       
-      // Build the updated analysis_result object
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ API Error response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Document updated successfully via API:', result);
+      
+      // Build the analysis_result structure for local state
       const updatedAnalysisResult = {
         source: "manual_entry",
         start_date: updatedDocument.start_date,
@@ -543,33 +571,64 @@ export const FinancialStatements: React.FC = () => {
         raw_json: updatedDocument.raw_json || {}
       };
       
-      const { error } = await supabase
-        .from('financial_documents')
-        .update({
-          document_type: updatedDocument.document_type,
-          status: updatedDocument.status,
-          analysis_result: updatedAnalysisResult,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', updatedDocument.id)
-        .eq('user_id', supabaseUserId);
-
-      if (error) {
-        throw error;
-      }
-
       // Update local state with the new structure
-      setDocuments(prev => prev.map(doc => 
-        doc.id === updatedDocument.id ? {
-          ...updatedDocument,
-          // Update the analysis_result to reflect the changes
-          analysis_result: updatedAnalysisResult
-        } : doc
-      ));
+      console.log('🔄 Updating local state with:', updatedDocument);
+      console.log('🔄 New analysis_result for local state:', updatedAnalysisResult);
+      
+      setDocuments(prev => {
+        const updated = prev.map(doc => 
+          doc.id === updatedDocument.id ? {
+            ...updatedDocument,
+            // Update the analysis_result to reflect the changes
+            analysis_result: updatedAnalysisResult,
+            // Also update the flattened fields for immediate display
+            start_date: updatedDocument.start_date,
+            end_date: updatedDocument.end_date,
+            summary_metrics: updatedDocument.summary_metrics
+          } : doc
+        );
+        console.log('🔄 Updated documents array:', updated);
+        return updated;
+      });
 
       // Close modal
       setShowEditModal(false);
       setEditingDocument(null);
+      
+      // Optionally refresh the documents list via API (same approach as loading)
+      console.log('🔄 Refreshing documents list via API...');
+      try {
+        const refreshResponse = await fetch(`${API_BASE_URL}/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (refreshResponse.ok) {
+          const refreshResult = await refreshResponse.json();
+          const refreshedDocs = refreshResult.data || [];
+          
+          // Transform the refreshed documents
+          const transformedRefreshed = refreshedDocs.map((doc: any) => {
+            if (doc.analysis_result) {
+              return {
+                ...doc,
+                start_date: doc.analysis_result.start_date || doc.start_date,
+                end_date: doc.analysis_result.end_date || doc.end_date,
+                summary_metrics: doc.analysis_result.summary_metrics || doc.summary_metrics,
+                raw_json: doc.analysis_result.raw_json || {},
+                _original_analysis_result: doc.analysis_result
+              };
+            }
+            return doc;
+          });
+          
+          console.log('🔄 Setting refreshed documents:', transformedRefreshed);
+          setDocuments(transformedRefreshed);
+        }
+      } catch (refreshError) {
+        console.log('⚠️ Could not refresh documents list, but edit was successful:', refreshError);
+      }
 
       // Show success notification
       const notification = document.createElement('div');
@@ -867,6 +926,8 @@ export const FinancialStatements: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Document</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Period</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Revenue</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Net Profit</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
                 </tr>
@@ -874,7 +935,7 @@ export const FinancialStatements: React.FC = () => {
               <tbody className="divide-y divide-border">
                 {documents.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-8 text-center">
+                    <td colSpan={6} className="px-6 py-8 text-center">
                       <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                       <p className="text-foreground font-medium">No financial documents yet</p>
                       <p className="text-sm text-muted-foreground">Upload your first financial statement to get started</p>
@@ -898,6 +959,24 @@ export const FinancialStatements: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
                         {formatPeriod(document.start_date, document.end_date)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
+                        {document.summary_metrics?.totalRevenue 
+                          ? `$${document.summary_metrics.totalRevenue.toLocaleString()}` 
+                          : document.summary_metrics?.revenue 
+                            ? `$${document.summary_metrics.revenue.toLocaleString()}`
+                            : document.raw_json?.revenue?.value
+                              ? `$${document.raw_json.revenue.value.toLocaleString()}`
+                              : '-'
+                        }
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
+                        {document.summary_metrics?.netProfit 
+                          ? `$${document.summary_metrics.netProfit.toLocaleString()}` 
+                          : document.raw_json?.netProfit?.value
+                            ? `$${document.raw_json.netProfit.value.toLocaleString()}`
+                            : '-'
+                        }
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className={`flex items-center ${getStatusColor(document.status)}`}>

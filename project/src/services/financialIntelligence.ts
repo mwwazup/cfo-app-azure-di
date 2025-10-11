@@ -83,10 +83,31 @@ export class FinancialIntelligenceService {
       .from('financial_documents')
       .select('*')
       .eq('user_id', userId)
-      .order('upload_date', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return data || [];
+    
+    // Transform documents to extract data from analysis_result for KPI/AI consumption
+    const transformedData = (data || []).map((doc: any) => {
+      if (doc.analysis_result) {
+        return {
+          ...doc,
+          // Extract financial metrics from analysis_result for KPI/AI consumption
+          totalRevenue: doc.analysis_result.summary_metrics?.totalRevenue || doc.analysis_result.summary_metrics?.revenue,
+          netProfit: doc.analysis_result.summary_metrics?.netProfit,
+          grossProfit: doc.analysis_result.summary_metrics?.grossProfit,
+          totalExpenses: doc.analysis_result.summary_metrics?.totalExpenses,
+          start_date: doc.analysis_result.start_date || doc.start_date,
+          end_date: doc.analysis_result.end_date || doc.end_date,
+          // Keep original for reference
+          _analysis_result: doc.analysis_result
+        };
+      }
+      return doc;
+    });
+    
+    console.log('🔍 Financial Intelligence - Transformed documents:', transformedData);
+    return transformedData;
   }
 
   // Get stored financial insights (your knowledge base)

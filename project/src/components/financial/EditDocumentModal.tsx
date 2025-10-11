@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Calendar, DollarSign } from 'lucide-react';
 import type { FinancialDocument, DocumentType } from '../../models/FinancialStatement';
+import { roundToTwoDecimals, parseCurrency } from '../../utils/numberUtils';
 
 interface EditDocumentModalProps {
   document: FinancialDocument | null;
@@ -46,11 +47,15 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
 
   const updateSummaryMetric = (key: string, value: number) => {
     if (!editedDocument) return;
+    
+    // Round to 2 decimal places to avoid floating-point precision issues
+    const roundedValue = roundToTwoDecimals(value);
+    
     setEditedDocument(prev => prev ? {
       ...prev,
       summary_metrics: {
         ...prev.summary_metrics,
-        [key]: value
+        [key]: roundedValue
       }
     } : null);
   };
@@ -66,12 +71,25 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
 
   // Remove unused formatCurrency function
 
-  const parseCurrency = (value: string): number => {
-    return parseFloat(value.replace(/[$,]/g, '')) || 0;
-  };
+  // Use the imported parseCurrency utility for consistency
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <>
+      <style>
+        {`
+          /* Style the native date picker calendar icon */
+          input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1) brightness(100%);
+            cursor: pointer;
+          }
+          
+          /* Firefox date picker styling */
+          input[type="date"] {
+            color-scheme: white;
+          }
+        `}
+      </style>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-card rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto border border-border">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border">
@@ -82,7 +100,7 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
-            <X className="h-6 w-6" />
+            <X className="h-6 w-6" style={{ color: 'white' }} />
           </button>
         </div>
 
@@ -108,7 +126,7 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">
-                <Calendar className="h-4 w-4 inline mr-1" />
+                <Calendar className="h-4 w-4 inline mr-1" style={{ color: 'white' }} />
                 Start Date
               </label>
               <input
@@ -120,7 +138,7 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">
-                <Calendar className="h-4 w-4 inline mr-1" />
+                <Calendar className="h-4 w-4 inline mr-1" style={{ color: 'white' }} />
                 End Date
               </label>
               <input
@@ -153,7 +171,7 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
           {editedDocument.summary_metrics && Object.keys(editedDocument.summary_metrics).length > 0 && (
             <div>
               <h3 className="text-lg font-medium text-foreground mb-4 flex items-center">
-                <DollarSign className="h-5 w-5 mr-2" />
+                <DollarSign className="h-5 w-5 mr-2" style={{ color: 'white' }} />
                 Financial Metrics
               </h3>
               <div className="space-y-4">
@@ -223,7 +241,7 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
               </>
             ) : (
               <>
-                <Save className="h-4 w-4 mr-2" />
+                <Save className="h-4 w-4 mr-2" style={{ color: 'white' }} />
                 Save Changes
               </>
             )}
@@ -231,5 +249,6 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
         </div>
       </div>
     </div>
+    </>
   );
 };

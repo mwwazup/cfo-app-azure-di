@@ -536,6 +536,63 @@ app.post('/api/financial-documents', async (req, res) => {
     res.status(500).json({ error: e.message || 'failed', details: e.details || 'No additional details' });
   }
 });
+app.put('/api/financial-documents/:documentId', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const clerkUserId = String(req.body.userId || '');
+    const uid = await getSupabaseUuidForClerkId(clerkUserId);
+    
+    console.log('📝 Updating financial document:', {
+      documentId,
+      clerkUserId,
+      supabaseUuid: uid,
+      updateData: req.body
+    });
+    
+    if (!uid) return res.status(400).json({ error: 'Unknown user' });
+    if (!supabase) return res.status(500).json({ error: 'Database not available' });
+    
+    // Build the analysis_result structure
+    const analysisResult = {
+      source: req.body.source || "manual_entry",
+      start_date: req.body.start_date,
+      end_date: req.body.end_date,
+      summary_metrics: req.body.summary_metrics,
+      raw_json: req.body.raw_json || {}
+    };
+    
+    // Update the document
+    const { data, error } = await supabase
+      .from('financial_documents')
+      .update({
+        document_type: req.body.document_type,
+        status: req.body.status,
+        analysis_result: analysisResult,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', documentId)
+      .eq('user_id', uid)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('❌ Update error:', error);
+      throw error;
+    }
+    
+    if (!data) {
+      return res.status(404).json({ error: 'Document not found or no permission to update' });
+    }
+    
+    console.log('✅ Document updated successfully:', data.id);
+    res.json({ data, success: true });
+    
+  } catch (e) {
+    console.error('❌ Document update error:', e);
+    res.status(500).json({ error: e.message || 'failed', details: e.details || 'No additional details' });
+  }
+});
+
 app.delete('/api/financial-documents/:documentId', async (req, res) => {
   try {
     const { documentId } = req.params;
@@ -633,5 +690,6 @@ app.listen(PORT, () => {
   console.log(`   - GET /api/docs/metrics`);
   console.log(`   - GET /api/financial-documents`);
   console.log(`   - POST /api/financial-documents`);
+  console.log(`   - PUT /api/financial-documents/:id`);
   console.log(`   - DELETE /api/financial-documents/:id`);
 });
