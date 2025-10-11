@@ -517,6 +517,15 @@ export function MasterChart() {
   // Calculate KPI values based on current data
   const currentMonth = new Date().getMonth();
   const ytdActual = monthlyRevenue.slice(0, currentMonth + 1).reduce((sum, revenue) => sum + revenue, 0);
+  
+  // Debug: Log Master Revenue Curve YTD calculation
+  console.log(`🎯 Master Revenue Curve YTD Debug:`, {
+    currentMonth: currentMonth,
+    monthsIncluded: currentMonth + 1,
+    monthlyRevenue: monthlyRevenue.slice(0, currentMonth + 1).map((rev, idx) => `${months[idx]}: $${rev}`),
+    ytdActual: ytdActual,
+    totalRevenue: totalRevenue
+  });
   const onPaceAnnual = ytdActual > 0 ? Math.round((ytdActual / (currentMonth + 1)) * 12) : 0;
   
   // FIR Annual: Sum of all monthly FIR values

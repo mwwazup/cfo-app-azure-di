@@ -3,9 +3,10 @@ import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, C
 import { useAuthContext } from '../../contexts/auth-context';
 import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
 import { WhereDidTheMoneyGo } from './WhereDidTheMoneyGo';
-import { ManualPLForm } from './ManualPLForm';
+import { ManualPLFormSimplified } from './ManualPLFormSimplified';
 import { ManualBalanceSheetForm } from './ManualBalanceSheetForm';
 import { ManualCashFlowForm } from './ManualCashFlowForm';
+import { EditDocumentModal } from './EditDocumentModal';
 
 interface ProcessingResult {
   document: Omit<FinancialDocument, 'id' | 'user_id'> & { user_id: string };
@@ -24,6 +25,8 @@ export const FinancialStatements: React.FC = () => {
   const [processingResult, setProcessingResult] = useState<ProcessingResult | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<FinancialDocument | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingDocument, setEditingDocument] = useState<FinancialDocument | null>(null);
   const [documentMetrics, setDocumentMetrics] = useState<Array<FinancialMetric>>([]);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [isDocumentsCollapsed, setIsDocumentsCollapsed] = useState(false);
@@ -51,8 +54,66 @@ export const FinancialStatements: React.FC = () => {
   const [showManualBalanceSheetForm, setShowManualBalanceSheetForm] = useState(false);
   const [showManualCashFlowForm, setShowManualCashFlowForm] = useState(false);
 
-  // Documents are loaded via React Query hook above
-  // No additional useEffect needed
+  // Load documents when component mounts or dbUserId changes
+  useEffect(() => {
+    const loadDocuments = async () => {
+      if (!dbUserId) return;
+      
+      try {
+        console.log('🔄 Loading documents from API...');
+        const response = await fetch(`http://localhost:5180/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('📄 API Response:', result);
+        
+        // The API returns data in a 'data' property
+        const documentsData = result.data || [];
+        console.log('📋 Documents to display:', documentsData);
+        
+        // Debug: Log the structure of the first document
+        if (documentsData.length > 0) {
+          console.log('🔍 First document structure:', documentsData[0]);
+          console.log('🔍 Document keys:', Object.keys(documentsData[0]));
+        }
+        
+        // Transform documents to flatten analysis_result data for the modal
+        const transformedDocuments = documentsData.map((doc: any) => {
+          if (doc.analysis_result) {
+            // Extract data from analysis_result and flatten it
+            return {
+              ...doc,
+              start_date: doc.analysis_result.start_date || doc.start_date,
+              end_date: doc.analysis_result.end_date || doc.end_date,
+              summary_metrics: doc.analysis_result.summary_metrics || doc.summary_metrics,
+              raw_json: doc.analysis_result.raw_json || {},
+              // Keep the original analysis_result for reference
+              _original_analysis_result: doc.analysis_result
+            };
+          }
+          return doc;
+        });
+        
+        console.log('🔍 Transformed documents:', transformedDocuments);
+        setDocuments(transformedDocuments);
+        console.log('✅ Documents loaded successfully:', documentsData.length);
+        
+      } catch (error) {
+        console.error('❌ Error loading documents:', error);
+        // Set empty array on error to show "no documents" message
+        setDocuments([]);
+      }
+    };
+
+    loadDocuments();
+  }, [dbUserId]);
 
   // Initialize calendar dates when processing result changes
   useEffect(() => {
@@ -177,12 +238,15 @@ export const FinancialStatements: React.FC = () => {
           }));
       } else {
         // Fallback to all extractedFields if not P&L or no specific fields found
-        finalMetrics = Object.keys(extractedData.extractedFields || {}).map(key => ({
-          label: key.replace(/_/g, ' '),
-          value: typeof extractedData.extractedFields[key]?.value === 'number' ? extractedData.extractedFields[key]?.value : 0,
-          category: 'extracted',
-          is_verified: false
-        }));
+        finalMetrics = Object.keys(extractedData.extractedFields || {}).map(key => {
+          const fieldData = (extractedData.extractedFields as any)?.[key];
+          return {
+            label: key.replace(/_/g, ' '),
+            value: typeof fieldData?.value === 'number' ? fieldData.value : 0,
+            category: 'extracted',
+            is_verified: false
+          };
+        });
       }
 
       console.log('📊 Final metrics for review modal:', finalMetrics);
@@ -219,26 +283,8 @@ export const FinancialStatements: React.FC = () => {
         throw new Error('No extracted data available to save');
       }
       
-      // Update the processing result to set status as approved
-      const updatedProcessingResult = {
-        ...processingResult,
-        document: {
-          ...processingResult.document,
-          status: 'approved'
-        }
-      };
-      
-      // Create updated extracted data with calendar-selected dates
-      const updatedExtractedData = {
-        ...lastExtractedData,
-        document: {
-          ...lastExtractedData.document,
-          start_date: processingResult.document.start_date,
-          end_date: processingResult.document.end_date
-        }
-      };
-
       // Document saving temporarily disabled - use manual forms instead
+      // Note: Processing result and extracted data would be used here when saving is enabled
       const documentId = `temp_${Date.now()}`;
       console.log('Document save disabled - use manual forms');
 
@@ -467,6 +513,85 @@ export const FinancialStatements: React.FC = () => {
     if (!document) return;
     
     await initiateDocumentDeletion(document);
+  };
+
+  const editDocument = (document: FinancialDocument) => {
+    console.log('🔍 Editing document:', document);
+    console.log('🔍 Document fields:', Object.keys(document));
+    console.log('🔍 Document values:', Object.entries(document));
+    setEditingDocument(document);
+    setShowEditModal(true);
+  };
+
+  const handleSaveDocumentEdit = async (updatedDocument: FinancialDocument) => {
+    if (!dbUserId) return;
+
+    try {
+      // Update document in database - need to update the analysis_result JSON structure
+      const { supabase } = await import('../../config/supabaseClient');
+      
+      // Get the Supabase UUID from the document (it should have the correct user_id)
+      const supabaseUserId = updatedDocument.user_id;
+      console.log('🔍 Using Supabase user ID for update:', supabaseUserId);
+      
+      // Build the updated analysis_result object
+      const updatedAnalysisResult = {
+        source: "manual_entry",
+        start_date: updatedDocument.start_date,
+        end_date: updatedDocument.end_date,
+        summary_metrics: updatedDocument.summary_metrics,
+        raw_json: updatedDocument.raw_json || {}
+      };
+      
+      const { error } = await supabase
+        .from('financial_documents')
+        .update({
+          document_type: updatedDocument.document_type,
+          status: updatedDocument.status,
+          analysis_result: updatedAnalysisResult,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', updatedDocument.id)
+        .eq('user_id', supabaseUserId);
+
+      if (error) {
+        throw error;
+      }
+
+      // Update local state with the new structure
+      setDocuments(prev => prev.map(doc => 
+        doc.id === updatedDocument.id ? {
+          ...updatedDocument,
+          // Update the analysis_result to reflect the changes
+          analysis_result: updatedAnalysisResult
+        } : doc
+      ));
+
+      // Close modal
+      setShowEditModal(false);
+      setEditingDocument(null);
+
+      // Show success notification
+      const notification = document.createElement('div');
+      notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2';
+      notification.innerHTML = `
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        Document updated successfully!
+      `;
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+      }, 3000);
+
+    } catch (error) {
+      console.error('Error updating document:', error);
+      alert(`Error updating document: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   // Calendar helper functions
@@ -736,25 +861,27 @@ export const FinancialStatements: React.FC = () => {
         </div>
         
         {!isDocumentsCollapsed && (
-          documents.length === 0 ? (
-            <div className="p-8 text-center">
-              <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-foreground font-medium">No financial documents yet</p>
-              <p className="text-sm text-muted-foreground">Upload your first financial statement to get started</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-muted/50">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Document</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Period</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {documents.length === 0 ? (
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Document</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Period</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
+                    <td colSpan={4} className="px-6 py-8 text-center">
+                      <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-foreground font-medium">No financial documents yet</p>
+                      <p className="text-sm text-muted-foreground">Upload your first financial statement to get started</p>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {documents.map((document) => (
+                ) : (
+                  documents.map((document) => (
                     <tr key={document.id} className="hover:bg-muted/25">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -840,6 +967,13 @@ export const FinancialStatements: React.FC = () => {
                           </div>
                           
                           <button
+                            onClick={() => editDocument(document)}
+                            className="text-blue-600 hover:text-blue-900 transition-colors"
+                            title="Edit document"
+                          >
+                            <Edit3 className="h-4 w-4" />
+                          </button>
+                          <button
                             onClick={() => {
                               if (document.id) {
                                 deleteDocument(document.id);
@@ -858,11 +992,11 @@ export const FinancialStatements: React.FC = () => {
                         </div>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -1321,7 +1455,7 @@ export const FinancialStatements: React.FC = () => {
 
       {/* Manual Form Modals */}
       {showManualPLForm && (
-        <ManualPLForm
+        <ManualPLFormSimplified
           onClose={() => setShowManualPLForm(false)}
           onSave={() => console.log('Document saved')}
         />
@@ -1340,6 +1474,17 @@ export const FinancialStatements: React.FC = () => {
           onSave={() => console.log('Document saved')}
         />
       )}
+
+      {/* Edit Document Modal */}
+      <EditDocumentModal
+        document={editingDocument}
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingDocument(null);
+        }}
+        onSave={handleSaveDocumentEdit}
+      />
     </div>
   );
 };

@@ -2,9 +2,11 @@ import { useAuthContext } from '../../contexts/auth-context';
 import { useProfile } from '../../hooks/useProfile';
 import { useRevenue } from '../../contexts/revenue-context';
 import { useFinancialData } from '../../hooks/useFinancialData';
+import { useCashflowSync } from '../../contexts/cashflow-sync-context';
 import { MiniChart } from '../../components/RevenueChart/MiniChart';
 import { CashflowInputs, CashflowVisualization } from '../../components/dashboard/CashflowCalculator';
 import KPIDashboard from '../../components/dashboard/KPIDashboard';
+import ManualPLFormSimplified from '../../components/financial/ManualPLFormSimplified';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import AuthDebugButton from '../../components/debug/AuthDebugButton';
@@ -20,32 +22,17 @@ import {
   FileText,
   Upload,
   Loader2,
-  Info
+  Info,
+  Plus
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useState } from 'react';
-
-interface CashflowData {
-  revenue: number;
-  cogs: number;
-  operatingExpenses: number;
-  ownerDistributions: number;
-  taxes: number;
-}
 
 export function DashboardPage() {
-  const { email } = useAuthContext();
+  const { email, dbUserId, isSignedIn } = useAuthContext();
   const { profile, loading: profileLoading } = useProfile();
   const { currentYear, historicalYears, selectedYear, selectYear, getYearData, isLoading, currentYearKpis } = useRevenue();
   const { statements } = useFinancialData();
-
-  const [cashflowData, setCashflowData] = useState<CashflowData>({
-    revenue: 100000,
-    cogs: 40000,
-    operatingExpenses: 25000,
-    ownerDistributions: 24000,
-    taxes: 4800,
-  });
+  const { cashflowData, setCashflowData, syncFromManualPL, isManualPLOpen, setIsManualPLOpen } = useCashflowSync();
 
   if (isLoading || profileLoading) {
     return (
@@ -360,13 +347,13 @@ export function DashboardPage() {
               Revenue Curve Preview
             </CardTitle>
             <Link to="/revenue/master">
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" className="flex items-center gap-2">
                 View Full Chart
                 <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </Link>
-          </CardHeader>
-          <CardContent>
+        </CardHeader>
+        <CardContent>
             <MiniChart />
             <div className="flex items-center justify-between mt-4 text-sm text-muted">
               <span>
@@ -393,13 +380,97 @@ export function DashboardPage() {
               <FileText className="h-5 w-5" />
               Financial Statements Overview
             </CardTitle>
-            <Link to="/financial-statements">
-              <Button variant="outline" size="sm">
-                View All
-                <ArrowRight className="h-4 w-4 ml-2" />
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setIsManualPLOpen(true)}
+                className="flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Manual P&L Entry
               </Button>
-            </Link>
+              <Link to="/financial-statements">
+                <Button variant="outline" size="sm">
+                  View All
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </Link>
+            </div>
           </div>
+        </CardHeader>
+        <CardContent>
+          {statements.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-accent/10 rounded-lg p-4 border border-accent/20">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-accent">
+                      Profit & Loss
+                    </p>
+                    <div className="text-2xl font-bold text-foreground">
+                      {statementsByType.profit_loss}
+                    </div>
+                  </div>
+                  <DollarSign className="h-8 w-8 text-accent" />
+                </div>
+              </div>
+
+              <div className="bg-accent/10 rounded-lg p-4 border border-accent/20">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-accent">
+                      Cash Flow
+                    </p>
+                    <div className="text-2xl font-bold text-foreground">
+                      {statementsByType.cash_flow}
+                    </div>
+                  </div>
+                  <TrendingUp className="h-8 w-8 text-accent" />
+                </div>
+              </div>
+
+              <div className="bg-accent/10 rounded-lg p-4 border border-accent/20">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-accent">
+                      Balance Sheet
+                    </p>
+                    <div className="text-2xl font-bold text-foreground">
+                      {statementsByType.balance_sheet}
+                    </div>
+                  </div>
+                  <BarChart3 className="h-8 w-8 text-accent" />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <Upload className="h-12 w-12 text-muted mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-foreground mb-2">
+                No Financial Statements
+              </h3>
+              <p className="text-muted mb-4">
+                Upload your financial statements to get AI-powered insights and analysis.
+              </p>
+              <Link to="/financial-statements">
+                <Button>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Upload Statements
+                </Button>
+              </Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 5-Year Performance Overview */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5" />
+            5-Year Performance Overview
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {statements.length > 0 ? (
@@ -483,7 +554,6 @@ export function DashboardPage() {
               const growth = previousYearData && previousYearData.total > 0 
                 ? ((yearData.total - previousYearData.total) / previousYearData.total) * 100 
                 : 0;
-              
               return (
                 <div 
                   key={yearData.year}
@@ -559,6 +629,18 @@ export function DashboardPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Manual P&L Entry Modal */}
+      {isManualPLOpen && (
+        <ManualPLFormSimplified
+          onClose={() => setIsManualPLOpen(false)}
+          onSave={() => {
+            // Refresh financial data after save
+            window.location.reload();
+          }}
+          onCashflowSync={syncFromManualPL}
+        />
       )}
     </div>
   );

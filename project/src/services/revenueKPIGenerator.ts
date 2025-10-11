@@ -23,10 +23,14 @@ export class RevenueKPIGenerator {
         return;
       }
       
-      // Generate basic KPIs
+      // Generate all KPIs
       await this.generateMonthlyRevenueKPI(userId, revenueData, year, month);
       await this.generateYTDKPI(userId, revenueData, year, month);
       await this.generateGrowthRateKPI(userId, revenueData, year, month);
+      await this.generateProfitMarginKPI(userId, revenueData, year, month);
+      await this.generateRevenueGapKPI(userId, revenueData, year, month);
+      await this.generateRevenueVelocityKPI(userId, revenueData, year, month);
+      await this.generateNetProfitAfterDrawsKPI(userId, revenueData, year, month);
       
       console.log(`Successfully generated KPIs for period: ${period}`);
     } catch (error) {
@@ -57,6 +61,10 @@ export class RevenueKPIGenerator {
               await this.generateMonthlyRevenueKPI(userId, revenueData, year, month);
               await this.generateYTDKPI(userId, revenueData, year, month);
               await this.generateGrowthRateKPI(userId, revenueData, year, month);
+              await this.generateProfitMarginKPI(userId, revenueData, year, month);
+              await this.generateRevenueGapKPI(userId, revenueData, year, month);
+              await this.generateRevenueVelocityKPI(userId, revenueData, year, month);
+              await this.generateNetProfitAfterDrawsKPI(userId, revenueData, year, month);
             }
           }
         }
@@ -145,7 +153,9 @@ export class RevenueKPIGenerator {
       kpi_category: 'Revenue',
       goal_value: targetRevenue,
       status: status,
-      plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${targetRevenue > 0 ? `vs smart target of $${targetRevenue.toLocaleString()}` : ''}`
+      display_format: 'currency',
+      plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${targetRevenue > 0 ? `vs smart target of $${targetRevenue.toLocaleString()}` : ''}`,
+      action_suggestion: status === 'alert' ? 'Revenue is significantly below target. Focus on immediate revenue generation activities.' : status === 'warning' ? 'Revenue is below target. Review sales pipeline and marketing efforts.' : 'Great job hitting your revenue target! Look for opportunities to exceed it.'
     };
 
     await KPIRecordsService.upsertKPIRecord(userId, kpiData);
@@ -194,9 +204,19 @@ export class RevenueKPIGenerator {
    * Generate Year-to-Date KPI with smart targets
    */
   private static async generateYTDKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
+    // Debug: Log YTD calculation details to identify discrepancy
+    console.log(`🔍 YTD KPI Calculation Debug for ${year}-${month}:`, {
+      totalEntries: revenueData.length,
+      entriesUsed: revenueData.filter(entry => entry.month <= month).length,
+      monthsIncluded: revenueData.filter(entry => entry.month <= month).map(e => `${e.month}: $${e.actual_revenue}`),
+      currentMonth: month
+    });
+    
     const ytdRevenue = revenueData
       .filter(entry => entry.month <= month)
       .reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
+    
+    console.log(`📊 YTD Revenue calculated: $${ytdRevenue.toLocaleString()}`);
 
     // Calculate YTD target using smart targets for each month
     let ytdTarget = 0;
@@ -224,7 +244,9 @@ export class RevenueKPIGenerator {
       kpi_category: 'Revenue',
       goal_value: ytdTarget,
       status: status,
-      plain_explanation: `Year-to-date revenue of $${ytdRevenue.toLocaleString()} ${ytdTarget > 0 ? `vs smart target of $${ytdTarget.toLocaleString()}` : ''}`
+      display_format: 'currency',
+      plain_explanation: `Year-to-date revenue of $${ytdRevenue.toLocaleString()} ${ytdTarget > 0 ? `vs smart target of $${ytdTarget.toLocaleString()}` : ''}`,
+      action_suggestion: status === 'alert' ? 'YTD revenue is significantly behind target. Implement aggressive revenue recovery strategies.' : status === 'warning' ? 'YTD revenue is below target. Focus on accelerating sales to catch up.' : 'Excellent YTD performance! You\'re on track to exceed your annual goals.'
     };
 
     await KPIRecordsService.upsertKPIRecord(userId, kpiData);
@@ -258,7 +280,188 @@ export class RevenueKPIGenerator {
       kpi_category: 'Growth',
       goal_value: 15, // 15% target growth
       status: status,
-      plain_explanation: `${growthRate >= 0 ? 'Growth' : 'Decline'} of ${Math.abs(growthRate).toFixed(1)}% vs previous month`
+      display_format: 'percentage',
+      plain_explanation: `${growthRate >= 0 ? 'Growth' : 'Decline'} of ${Math.abs(growthRate).toFixed(1)}% vs previous month`,
+      action_suggestion: growthRate < 0 ? 'Focus on strategies to reverse the decline and return to growth.' : growthRate < 15 ? 'Good progress! Look for opportunities to accelerate growth further.' : 'Excellent growth rate! Maintain this momentum.'
+    };
+
+    await KPIRecordsService.upsertKPIRecord(userId, kpiData);
+  }
+
+  /**
+   * Generate Profit Margin KPI
+   */
+  private static async generateProfitMarginKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
+    const monthData = revenueData.find(entry => entry.month === month);
+    if (!monthData) return;
+
+    const period = `${year}-${month.toString().padStart(2, '0')}-01`;
+    const actualRevenue = monthData.actual_revenue || 0;
+    const profitMargin = monthData.profit_margin || 0;
+    
+    // Calculate actual profit from revenue and margin
+    const actualProfit = actualRevenue * (profitMargin / 100);
+    
+    // Use 35% as goal profit margin (industry standard), not current margin
+    const goalProfitMargin = 35;
+    
+    let status: 'good' | 'warning' | 'alert' = 'good';
+    if (profitMargin < goalProfitMargin * 0.8) status = 'alert';
+    else if (profitMargin < goalProfitMargin * 0.95) status = 'warning';
+
+    const kpiData = {
+      kpi_name: 'Profit Margin',
+      kpi_value: profitMargin,
+      period: period,
+      kpi_category: 'Profitability',
+      goal_value: goalProfitMargin,
+      status: status,
+      display_format: 'percentage',
+      plain_explanation: `Current profit margin of ${profitMargin.toFixed(1)}% ${goalProfitMargin > 0 ? `vs goal of ${goalProfitMargin.toFixed(1)}%` : ''}. Actual profit: $${actualProfit.toLocaleString()}`,
+      action_suggestion: profitMargin < goalProfitMargin ? 'Focus on increasing prices or reducing costs to improve profit margins.' : 'Excellent profit margin! Consider reinvesting profits for growth.'
+    };
+
+    await KPIRecordsService.upsertKPIRecord(userId, kpiData);
+  }
+
+  /**
+   * Generate Revenue Gap to Target KPI
+   */
+  private static async generateRevenueGapKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
+    const period = `${year}-${month.toString().padStart(2, '0')}-01`;
+    
+    // Calculate YTD actual revenue
+    const ytdRevenue = revenueData
+      .filter(entry => entry.month <= month)
+      .reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
+
+    // Calculate YTD target using smart targets
+    let ytdTarget = 0;
+    for (let m = 1; m <= month; m++) {
+      const monthData = revenueData.find(entry => entry.month === m);
+      if (monthData) {
+        const smartTarget = await this.calculateSmartMonthlyTarget(userId, year, m, monthData);
+        ytdTarget += smartTarget;
+      }
+    }
+
+    // Calculate remaining months target
+    let remainingTarget = 0;
+    for (let m = month + 1; m <= 12; m++) {
+      const monthData = revenueData.find(entry => entry.month === m);
+      if (monthData) {
+        const smartTarget = await this.calculateSmartMonthlyTarget(userId, year, m, monthData);
+        remainingTarget += smartTarget;
+      }
+    }
+
+    const annualTarget = ytdTarget + remainingTarget;
+    const revenueGap = annualTarget - ytdRevenue;
+    
+    let status: 'good' | 'warning' | 'alert' = 'good';
+    if (ytdTarget > 0) {
+      const performance = ytdRevenue / ytdTarget;
+      if (performance < 0.8) status = 'alert';
+      else if (performance < 0.95) status = 'warning';
+    }
+
+    const kpiData = {
+      kpi_name: 'Revenue Gap to Target',
+      kpi_value: revenueGap,
+      period: period,
+      kpi_category: 'Revenue',
+      goal_value: 0, // Goal is to have no gap (zero)
+      status: status,
+      display_format: 'currency',
+      plain_explanation: `Need $${revenueGap.toLocaleString()} more revenue to hit annual target of $${annualTarget.toLocaleString()}. YTD: $${ytdRevenue.toLocaleString()}`,
+      action_suggestion: revenueGap > 0 ? `Focus on generating $${Math.round(revenueGap / (12 - month)).toLocaleString()} additional monthly revenue to close the gap.` : 'Congratulations! You\'re ahead of your annual revenue target.'
+    };
+
+    await KPIRecordsService.upsertKPIRecord(userId, kpiData);
+  }
+
+  /**
+   * Generate Revenue Velocity KPI (Year-over-Year Growth)
+   */
+  private static async generateRevenueVelocityKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
+    const period = `${year}-${month.toString().padStart(2, '0')}-01`;
+    
+    // Get current month revenue
+    const currentMonth = revenueData.find(entry => entry.month === month);
+    if (!currentMonth) return;
+
+    const currentRevenue = currentMonth.actual_revenue || 0;
+
+    // Get previous year's same month revenue
+    try {
+      const previousYear = year - 1;
+      const previousYearResult = await getRevenueEntries(userId, previousYear);
+      const previousYearData = previousYearResult.rows || [];
+      const previousMonthData = previousYearData.find(entry => entry.month === month);
+
+      if (!previousMonthData || !previousMonthData.actual_revenue) {
+        console.log(`No previous year data for velocity calculation: ${previousYear}-${month}`);
+        return;
+      }
+
+      const previousRevenue = previousMonthData.actual_revenue;
+      const velocityGrowth = ((currentRevenue - previousRevenue) / previousRevenue) * 100;
+
+      let status: 'good' | 'warning' | 'alert' = 'good';
+      if (velocityGrowth < -10) status = 'alert';
+      else if (velocityGrowth < 0) status = 'warning';
+
+      const kpiData = {
+        kpi_name: 'Revenue Velocity',
+        kpi_value: velocityGrowth,
+        period: period,
+        kpi_category: 'Growth',
+        goal_value: 15, // 15% year-over-year growth target
+        status: status,
+        display_format: 'percentage',
+        plain_explanation: `${velocityGrowth >= 0 ? 'Growing' : 'Declining'} at ${Math.abs(velocityGrowth).toFixed(1)}% vs same month last year ($${currentRevenue.toLocaleString()} vs $${previousRevenue.toLocaleString()})`,
+        action_suggestion: velocityGrowth < 15 ? 'Focus on strategies to accelerate year-over-year growth.' : 'Excellent velocity! You\'re building strong momentum.'
+      };
+
+      await KPIRecordsService.upsertKPIRecord(userId, kpiData);
+    } catch (error) {
+      console.error('Error calculating revenue velocity:', error);
+    }
+  }
+
+  /**
+   * Generate Net Profit After Owner Draws KPI
+   */
+  private static async generateNetProfitAfterDrawsKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
+    const monthData = revenueData.find(entry => entry.month === month);
+    if (!monthData) return;
+
+    const period = `${year}-${month.toString().padStart(2, '0')}-01`;
+    const actualRevenue = monthData.actual_revenue || 0;
+    const profitMargin = monthData.profit_margin || 0;
+    const ownerDraws = monthData.owner_draws || 0;
+    
+    // Calculate net profit and profit after draws
+    const netProfit = actualRevenue * (profitMargin / 100);
+    const netProfitAfterDraws = netProfit - ownerDraws;
+    
+    // Goal: Leave 20% of profit in business (80% draws max)
+    const goalNetProfitAfterDraws = netProfit * 0.2;
+    
+    let status: 'good' | 'warning' | 'alert' = 'good';
+    if (netProfitAfterDraws < 0) status = 'alert';
+    else if (netProfitAfterDraws < goalNetProfitAfterDraws * 0.5) status = 'warning';
+
+    const kpiData = {
+      kpi_name: 'Net Profit After Owner Draws',
+      kpi_value: netProfitAfterDraws,
+      period: period,
+      kpi_category: 'Profitability',
+      goal_value: goalNetProfitAfterDraws,
+      status: status,
+      display_format: 'currency',
+      plain_explanation: `From $${netProfit.toLocaleString()} profit, drew $${ownerDraws.toLocaleString()}, leaving $${netProfitAfterDraws.toLocaleString()} for business growth`,
+      action_suggestion: netProfitAfterDraws < 0 ? 'Reduce owner draws or increase profit margin to avoid depleting business funds.' : netProfitAfterDraws < goalNetProfitAfterDraws ? 'Consider reducing draws to 80% of profit to leave more for growth.' : 'Excellent financial discipline! You\'re leaving adequate funds for business growth.'
     };
 
     await KPIRecordsService.upsertKPIRecord(userId, kpiData);
