@@ -79,12 +79,15 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     setLoading(true);
     try {
       // Load the KPI records for the selected period
-      const records = await KPIRecordsService.getKPIRecords(dbUserId, {
+      let records = await KPIRecordsService.getKPIRecords(dbUserId, {
         period: filterPeriod === 'current_month' ? 'current' : filterPeriod,
         kpi_category: filterCategory,
         status: filterStatus as any
       });
       
+      // Note: Category filtering is already handled by KPIRecordsService.getKPIRecords()
+      // No need for additional client-side filtering unless there are specific edge cases
+
       // Filter out deprecated KPIs
       const filteredRecords = records.filter(record => 
         record.kpi_name !== 'Revenue Target Based on Profit Margin'
@@ -230,7 +233,11 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     
     setGenerating(true);
     try {
-      await RevenueKPIGenerator.generateHistoricalKPIs(dbUserId);
+      // Only include all years if 'all' period is selected, otherwise optimize for current/previous year
+      const includeAllYears = filterPeriod === 'all';
+      console.log(`Generating historical KPIs with includeAllYears: ${includeAllYears}`);
+      
+      await RevenueKPIGenerator.generateHistoricalKPIs(dbUserId, includeAllYears);
       // Reload records after generation
       await loadKPIRecords(true); // Force reload after generation
     } catch (error) {
@@ -282,12 +289,28 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     setGoalValue('');
   };
 
-  const formatValue = (value: number, format: string) => {
-    switch (format) {
+  const formatValue = (value: number, format: string, kpiName?: string) => {
+    // Always infer format from KPI name to ensure consistent formatting
+    const kpiLower = kpiName?.toLowerCase() || '';
+    let actualFormat = format;
+    
+    // Force format inference for known KPI types to ensure icons are always shown
+    if (kpiLower.includes('revenue') || kpiLower.includes('profit') || kpiLower.includes('gap')) {
+      actualFormat = 'currency';
+    } else if (kpiLower.includes('margin') || kpiLower.includes('rate') || kpiLower.includes('growth') || kpiLower.includes('velocity')) {
+      actualFormat = 'percentage';
+    } else if (!format || format === 'undefined' || format === 'null' || format === '' || format === 'string') {
+      // Only use fallback for truly missing formats
+      actualFormat = 'number';
+    }
+
+    switch (actualFormat?.toLowerCase()) {
       case 'currency':
         return `$${Math.round(value).toLocaleString()}`;
       case 'percentage':
-        return `${(value * 100).toFixed(1)}%`;
+        // Handle both decimal (0.15) and whole number (15) percentage values
+        const percentValue = value > 1 ? value : value * 100;
+        return `${percentValue.toFixed(1)}%`;
       case 'number':
         return Math.round(value).toLocaleString();
       default:
@@ -376,10 +399,10 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
-              <SelectItem value="revenue">Revenue</SelectItem>
-              <SelectItem value="growth">Growth</SelectItem>
-              <SelectItem value="performance">Performance</SelectItem>
-              <SelectItem value="profitability">Profitability</SelectItem>
+              <SelectItem value="Revenue">Revenue</SelectItem>
+              <SelectItem value="Growth">Growth</SelectItem>
+              <SelectItem value="Profitability">Profitability</SelectItem>
+              <SelectItem value="Revenue Planning">Revenue Planning</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -474,7 +497,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                         
                         {/* KPI Value */}
                         <div className="text-2xl font-bold text-foreground mb-1">
-                          {formatValue(kpi.kpi_value, kpi.display_format)}
+                          {formatValue(kpi.kpi_value, kpi.display_format, kpi.kpi_name)}
                         </div>
                         
                         {/* Goal Value - Hide during comparison views */}
@@ -511,7 +534,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                               kpi.status === 'warning' ? 'text-orange-400' : 
                               'text-red-400'
                             }`}>
-                              {kpi.goal_value ? `Goal: ${formatValue(kpi.goal_value, kpi.display_format)}` : 'No goal set'}
+                              {kpi.goal_value ? `Goal: ${formatValue(kpi.goal_value, kpi.display_format, kpi.kpi_name)}` : 'No goal set'}
                             </p>
                           )
                         )}
@@ -532,7 +555,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                             <div>
                               <p className="text-sm text-muted font-medium mb-1">Last Year</p>
                               <div className="text-2xl font-bold text-[#d5b274] mb-1">
-                                {formatValue((kpi as any).comparison_value, kpi.display_format)}
+                                {formatValue((kpi as any).comparison_value, kpi.display_format, kpi.kpi_name)}
                               </div>
                             </div>
                             
@@ -545,7 +568,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                                 }`}>
                                   {(() => {
                                     const dollarDifference = kpi.kpi_value - (kpi as any).comparison_value;
-                                    return (dollarDifference >= 0 ? '+' : '') + formatValue(dollarDifference, kpi.display_format);
+                                    return (dollarDifference >= 0 ? '+' : '') + formatValue(dollarDifference, kpi.display_format, kpi.kpi_name);
                                   })()}
                                 </span>
                                 <span className={`text-sm ${
@@ -576,8 +599,8 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                               (() => {
                                 const dollarDifference = kpi.kpi_value - (kpi as any).comparison_value;
                                 const isPositive = dollarDifference >= 0;
-                                const currentValue = formatValue(kpi.kpi_value, kpi.display_format);
-                                const lastYearValue = formatValue((kpi as any).comparison_value, kpi.display_format);
+                                const currentValue = formatValue(kpi.kpi_value, kpi.display_format, kpi.kpi_name);
+                                const lastYearValue = formatValue((kpi as any).comparison_value, kpi.display_format, kpi.kpi_name);
                                 
                                 return `Your ${kpi.kpi_name.replace(/_/g, ' ').toLowerCase()} this year is ${currentValue} compared to ${lastYearValue} last year. ${isPositive ? 'Great Job!' : 'We need to improve in this area.'}`;
                               })()

@@ -379,8 +379,8 @@ export function MasterChart() {
     datasets.push({
       label: "Actual Revenue",
       data: actualData,
-      borderColor: "rgba(34, 139, 34, 1)",
-      backgroundColor: "rgba(34, 139, 34, 0.2)",
+      borderColor: "rgba(0, 123, 255, 1)",
+      backgroundColor: "rgba(0, 123, 255, 0.2)",
       fill: true,
       tension: 0.4,
       borderWidth: 3,
@@ -824,7 +824,7 @@ export function MasterChart() {
               ) : (
                 <>
                   <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "rgba(34, 139, 34, 1)" }}></div>
+                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "rgba(0, 123, 255, 1)" }}></div>
                     <span>Actual Revenue</span>
                   </div>
                   {viewMode !== 'actual-only' && firData.length > 0 && (

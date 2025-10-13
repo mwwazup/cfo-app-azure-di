@@ -15,7 +15,6 @@ import { MasterRevenuePage } from './pages/revenue/master';
 // import { PlaygroundPage } from './pages/revenue/playground'; // Hidden - not in use
 import { FinancialStatementsPage } from './pages/financial-statements';
 import { YourBigFigPage } from './pages/coach/your-big-fig';
-import WaveRiderCoachPage from './pages/coach/wave-rider';
 import SMSCoachPage from './pages/coach/sms-coach';
 import { MomentumPage } from './pages/momentum';
 import { MomentumWizardPage } from './pages/momentum/wizard';
@@ -52,9 +51,6 @@ function App() {
                     </NavLink>
                     <NavLink to="/financial-statements" className={navLinkClass}>
                       Financial Statements
-                    </NavLink>
-                    <NavLink to="/coach/wave-rider" className={navLinkClass}>
-                      Coach
                     </NavLink>
                   </nav>
                 </SignedIn>
@@ -95,7 +91,6 @@ function App() {
               
               <Route path="/coach" element={<DashboardLayout />}>
                 <Route path="your-big-fig" element={<YourBigFigPage />} />
-                <Route path="wave-rider" element={<WaveRiderCoachPage />} />
                 <Route path="sms" element={<SMSCoachPage />} />
               </Route>
               

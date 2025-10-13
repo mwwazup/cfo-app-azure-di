@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { MasterChart } from '../../components/RevenueChart/MasterChart';
-import KPIDashboard from '../../components/dashboard/KPIDashboard';
 import { useRevenue } from '../../contexts/revenue-context';
 import { Info } from 'lucide-react';
 import { RevenueImportWizard } from '../../components/RevenueImport/RevenueImportWizard';
@@ -59,12 +58,6 @@ export function MasterRevenuePage() {
 
       <MasterChart />
 
-      {/* KPI Dashboard */}
-      <div className="mt-8">
-        <KPIDashboard className="w-full" />
-      </div>
-
-      {/* Import Wizard Modal */}
       <RevenueImportWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
     </div>
   );

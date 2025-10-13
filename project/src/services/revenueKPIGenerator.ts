@@ -40,24 +40,32 @@ export class RevenueKPIGenerator {
 
   /**
    * Generate all historical KPIs for a user using backend APIs
+   * Optimized to only process current and previous year unless 'all' period is selected
    */
-  static async generateAllKPIs(userId: string): Promise<void> {
+  static async generateAllKPIs(userId: string, includeAllYears: boolean = false): Promise<void> {
     try {
-      console.log('Starting comprehensive KPI generation...');
+      console.log('Starting optimized KPI generation...');
       
-      // Get available years from backend
+      // Get available years from backend - optimized to reduce resource usage
       const currentYear = new Date().getFullYear();
-      const years = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1];
+      const years = includeAllYears 
+        ? [currentYear - 2, currentYear - 1, currentYear, currentYear + 1]
+        : [currentYear - 1, currentYear]; // Only current and previous year by default
+      
+      console.log(`Processing ${years.length} years: ${years.join(', ')}`);
       
       for (const year of years) {
+        console.log(`Processing year ${year}...`);
         const result = await getRevenueEntries(userId, year);
         const revenueData = result.rows || [];
         
         if (revenueData.length > 0) {
+          console.log(`Found ${revenueData.length} revenue entries for ${year}`);
           // Generate KPIs for each month with data
           for (let month = 1; month <= 12; month++) {
             const monthData = revenueData.find(entry => entry.month === month);
             if (monthData && monthData.actual_revenue > 0) {
+              console.log(`Generating KPIs for ${year}-${month.toString().padStart(2, '0')}`);
               await this.generateMonthlyRevenueKPI(userId, revenueData, year, month);
               await this.generateYTDKPI(userId, revenueData, year, month);
               await this.generateGrowthRateKPI(userId, revenueData, year, month);
@@ -67,10 +75,12 @@ export class RevenueKPIGenerator {
               await this.generateNetProfitAfterDrawsKPI(userId, revenueData, year, month);
             }
           }
+        } else {
+          console.log(`No revenue data found for ${year}`);
         }
       }
       
-      console.log('Successfully generated all historical KPIs');
+      console.log('Successfully generated optimized historical KPIs');
     } catch (error) {
       console.error('Error generating all KPIs:', error);
     }
@@ -78,9 +88,11 @@ export class RevenueKPIGenerator {
 
   /**
    * Generate historical KPIs for all months with revenue data
+   * @param userId - User ID
+   * @param includeAllYears - If true, processes all years. If false, only current and previous year
    */
-  static async generateHistoricalKPIs(userId: string): Promise<void> {
-    return this.generateAllKPIs(userId);
+  static async generateHistoricalKPIs(userId: string, includeAllYears: boolean = false): Promise<void> {
+    return this.generateAllKPIs(userId, includeAllYears);
   }
 
   /**

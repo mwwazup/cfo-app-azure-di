@@ -24,9 +24,10 @@ interface ChartCardProps {
   trendDirection: 'up' | 'down' | 'neutral';
   trendValue: number;
   dateRange: string;
+  documents?: any[]; // Optional documents array for YTD calculations
 }
 
-function ChartCard({ title, value, percentage, color, trendDirection, trendValue, dateRange }: ChartCardProps) {
+function ChartCard({ title, value, percentage, color, trendDirection, trendValue, dateRange, documents }: ChartCardProps) {
   // Create chart data - using percentage for the radial fill
   const chartData = [
     { 
@@ -119,17 +120,41 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
               } else if (title === 'Total Costs') {
                 return `Total Expenses were ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
               } else if (title === 'Net Profit') {
-                return `Net Profit was ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
+                return `Net Profit was ${valueText} which equals ${percentageText}% of total revenue. Net Profit is Total Revenue minus Cost of Goods Sold minus Operating Expenses - this is how much money you have left before any owner distributions. ${trendText}.`;
               } else if (title === 'Cost of Goods') {
                 return `Cost of Goods was ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
               } else if (title === 'Operating Expenses') {
                 return `Operating Expenses were ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
               } else if (title === 'Owner Distributions') {
-                return `Owner Distributions were ${valueText} which equals ${percentageText}% of total revenue. This represents money taken out of the business for personal use. ${trendText}.`;
+                // Calculate year-to-date owner distributions
+                const currentYear = new Date().getFullYear();
+                let ytdOwnerDistributions = 0;
+                
+                if (documents && documents.length > 0) {
+                  ytdOwnerDistributions = documents
+                    .filter(doc => {
+                      const docYear = doc.start_date ? new Date(doc.start_date).getFullYear() : currentYear;
+                      return docYear === currentYear;
+                    })
+                    .reduce((total, doc) => {
+                      const ownerDistRaw = doc.raw_json?.ownerDistributions;
+                      const ownerDist = (typeof ownerDistRaw === 'object' && ownerDistRaw?.value)
+                        ? ownerDistRaw.value
+                        : (typeof ownerDistRaw === 'number' ? ownerDistRaw : 0) ||
+                          doc.summary_metrics?.ownerDistributions || 0;
+                      return total + ownerDist;
+                    }, 0);
+                }
+                
+                const ytdText = ytdOwnerDistributions > 0 
+                  ? ` For calendar year ${currentYear}, you have taken ${formatCurrency(ytdOwnerDistributions)} in total owner distributions.`
+                  : '';
+                
+                return `Owner Distributions were ${valueText} which equals ${percentageText}% of total revenue. This represents money taken out of the business for personal use.${ytdText} ${trendText}.`;
               } else if (title === 'Cash Left for Growth') {
                 const growthText = value >= 0 
-                  ? `This is the cash available for business growth, reinvestment, and building reserves.`
-                  : `This negative amount indicates the business is operating at a loss after owner distributions.`;
+                  ? `Cash Left for Growth is calculated as Net Profit minus Owner Distributions. After taking out owner distributions from the net profit, this is the true number you have for growth in the business - available for reinvestment, building reserves, and expanding operations.`
+                  : `This negative amount indicates the business is operating at a loss after owner distributions, meaning more money was taken out than the business earned.`;
                 return `Cash Left for Growth is ${valueText} which equals ${percentageText}% of total revenue. ${growthText} ${trendText}.`;
               }
               return `${title} was ${valueText} (${percentageText}% of revenue). ${trendText}.`;
@@ -755,6 +780,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
                     trendDirection={chart.trendDirection}
                     trendValue={chart.trendValue}
                     dateRange={chart.dateRange}
+                    documents={documents}
                   />
                 ))}
               </div>
@@ -772,6 +798,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
                       trendDirection={chart.trendDirection}
                       trendValue={chart.trendValue}
                       dateRange={chart.dateRange}
+                      documents={documents}
                     />
                   ))}
                 </div>

@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, Navigate } from 'react-router-dom';
 import { useAuthContext } from '../../contexts/auth-context';
-import { useUser } from '@clerk/clerk-react';
+import { useUser, useClerk } from '@clerk/clerk-react';
 import { Button } from '../ui/button';
 import { 
   LayoutDashboard, 
@@ -11,7 +11,6 @@ import {
   LogOut, 
   Menu, 
   X,
-  MessageSquare,
   MessageCircle 
 } from 'lucide-react';
 import { useState } from 'react';
@@ -19,7 +18,8 @@ import { useState } from 'react';
 
 export function DashboardLayout() {
   const { isLoaded, isSignedIn, email } = useAuthContext();
-  const { user, signOut } = useUser();
+  const { user } = useUser();
+  const { signOut } = useClerk();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -37,7 +37,6 @@ export function DashboardLayout() {
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
     { name: 'Your Big FIG', href: '/coach/your-big-fig', icon: Heart },
-    { name: 'WaveRider Coach', href: '/coach/wave-rider', icon: MessageSquare },
     { name: 'PERL', href: '/coach/sms', icon: MessageCircle },
     { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
   ];
