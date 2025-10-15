@@ -6,13 +6,14 @@ export default function Footer() {
       <div className="container px-4 md:px-6 max-w-7xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <img 
-                src="/Master-Logo_white-on-white2.png" 
-                alt="Big Fig CFO Logo" 
-                className="h-8 w-auto"
-              />
-              <span className="text-xl font-bold text-foreground">Wave Rider</span>
+            <div className="flex items-center">
+              <a href="/" className="inline-flex items-center">
+                <img 
+                  src="/Wave Rider logo.png" 
+                  alt="Wave Rider Logo" 
+                  className="h-8 w-auto"
+                />
+              </a>
             </div>
             <p className="text-muted">
               Helping service business owners surf their revenue curve with confidence.

@@ -12,11 +12,12 @@ export default function HeroSection() {
           <div className="container px-4 md:px-6 max-w-7xl mx-auto">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-24 items-center">
               <div className="flex flex-col gap-4">
-                <h2 className="text-4xl md:text-6xl font-bold tracking-tighter text-foreground">
-                  Close the Revenue Gap. Build Momentum. Fuel the Future You Dream Of
+                <p className="text-xl text-accent uppercase">WAVE RIDER</p>
+                <h2 className="text-4xl md:text-6xl font-semibold tracking-tighter text-foreground">
+                  Your Business Isn't Seasonal—Your Strategy Is
                 </h2>
                 <p className="text-xl text-muted max-w-[600px]">
-                  Wave RIDER Mastery turns real-life challenges into repeatable growth using the RIDR Framework.
+                  You can't control the waves—but with Wave Rider, you can predict when they're coming
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 mt-4">
                   <a href="/signup" className="inline-flex items-center justify-center rounded-md bg-accent text-background px-6 py-3 text-lg font-semibold hover:bg-accent/90 transition-colors duration-200">

@@ -4,13 +4,12 @@ export default function Navbar() {
   return (
     <header className="bg-background shadow-md sticky top-0 z-50 border-b border-border">
       <div className="container mx-auto px-4 flex justify-between items-center h-16">
-        <a href="/" className="flex items-center gap-2">
+        <a href="/" className="flex items-center">
           <img 
-            src="/Master-Logo_white-on-white2.png" 
-            alt="Big Fig CFO Logo" 
+            src="/Wave Rider Logo.png" 
+            alt="Wave Rider Logo" 
             className="h-8 w-auto"
           />
-          <span className="text-xl font-bold text-foreground">Wave Rider</span>
         </a>
         <nav className="hidden md:flex items-center gap-6">
           <a href="/" className="text-sm font-medium text-muted hover:text-foreground transition-colors">Home</a>
