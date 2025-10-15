@@ -63,13 +63,12 @@ export function DashboardLayout() {
           </div>
           
           <div className="flex-1 h-0 pt-5 pb-4 overflow-y-auto">
-            <div className="flex-shrink-0 flex items-center px-4">
+            <div className="flex-shrink-0 flex items-center justify-center px-4">
               <img 
-                src="/Master-Logo_white-on-white2.png" 
-                alt="Big Fig CFO Logo" 
-                className="h-8 w-auto"
+                src="/wave-rider-logo.png" 
+                alt="Wave Rider Logo" 
+                className="h-14 w-auto"
               />
-              <span className="ml-2 text-xl font-bold text-white">Wave Rider</span>
             </div>
             <nav className="mt-8 px-2 space-y-1">
               {navigation.map((item) => {
@@ -99,13 +98,12 @@ export function DashboardLayout() {
       <div className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0">
         <div className="flex-1 flex flex-col min-h-0 border-r border-border bg-card">
           <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
-            <div className="flex items-center flex-shrink-0 px-4">
+            <div className="flex items-center justify-center flex-shrink-0 px-4">
               <img 
-                src="/Master-Logo_white-on-white2.png" 
-                alt="Big Fig CFO Logo" 
-                className="h-8 w-auto"
+                src="/wave-rider-logo.png" 
+                alt="Wave Rider Logo" 
+                className="h-20 w-auto"
               />
-              <span className="ml-2 text-xl font-bold text-white">Wave Rider</span>
             </div>
             <nav className="mt-8 flex-1 px-2 space-y-1">
               {navigation.map((item) => {

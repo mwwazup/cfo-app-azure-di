@@ -2,6 +2,17 @@ import { getRevenueEntries } from '../config/supabaseClient';
 import { KPIRecordsService } from './kpiRecordsService';
 
 export class RevenueKPIGenerator {
+  private static isGenerating = false;
+  
+  /**
+   * Emergency stop - force release the generation lock
+   * Call this from console if generation gets stuck: RevenueKPIGenerator.emergencyStop()
+   */
+  static emergencyStop(): void {
+    console.log('🛑 EMERGENCY STOP - Forcing lock release');
+    this.isGenerating = false;
+  }
+  
   /**
    * Generate KPIs for a specific period using backend APIs
    */
@@ -43,8 +54,16 @@ export class RevenueKPIGenerator {
    * Optimized to only process current and previous year unless 'all' period is selected
    */
   static async generateAllKPIs(userId: string, includeAllYears: boolean = false): Promise<void> {
+    // Prevent concurrent executions
+    if (this.isGenerating) {
+      console.warn('⚠️ KPI generation already in progress. Skipping duplicate request.');
+      return;
+    }
+    
+    this.isGenerating = true;
+    
     try {
-      console.log('Starting optimized KPI generation...');
+      console.log('🚀 Starting KPI generation...');
       
       // Get available years from backend - optimized to reduce resource usage
       const currentYear = new Date().getFullYear();
@@ -52,37 +71,53 @@ export class RevenueKPIGenerator {
         ? [currentYear - 2, currentYear - 1, currentYear, currentYear + 1]
         : [currentYear - 1, currentYear]; // Only current and previous year by default
       
-      console.log(`Processing ${years.length} years: ${years.join(', ')}`);
+      console.log(`📅 Processing ${years.length} years: ${years.join(', ')}`);
+      
+      let totalKPIsGenerated = 0;
+      let yearsWithData = 0;
       
       for (const year of years) {
-        console.log(`Processing year ${year}...`);
+        console.log(`📊 Checking year ${year}...`);
         const result = await getRevenueEntries(userId, year);
         const revenueData = result.rows || [];
         
-        if (revenueData.length > 0) {
-          console.log(`Found ${revenueData.length} revenue entries for ${year}`);
-          // Generate KPIs for each month with data
-          for (let month = 1; month <= 12; month++) {
-            const monthData = revenueData.find(entry => entry.month === month);
-            if (monthData && monthData.actual_revenue > 0) {
-              console.log(`Generating KPIs for ${year}-${month.toString().padStart(2, '0')}`);
-              await this.generateMonthlyRevenueKPI(userId, revenueData, year, month);
-              await this.generateYTDKPI(userId, revenueData, year, month);
-              await this.generateGrowthRateKPI(userId, revenueData, year, month);
-              await this.generateProfitMarginKPI(userId, revenueData, year, month);
-              await this.generateRevenueGapKPI(userId, revenueData, year, month);
-              await this.generateRevenueVelocityKPI(userId, revenueData, year, month);
-              await this.generateNetProfitAfterDrawsKPI(userId, revenueData, year, month);
-            }
+        // Filter out dummy/zero revenue entries
+        const realRevenueData = revenueData.filter(entry => 
+          entry.actual_revenue && 
+          entry.actual_revenue > 0 && 
+          entry.actual_revenue !== 0
+        );
+        
+        if (realRevenueData.length > 0) {
+          yearsWithData++;
+          console.log(`✅ Found ${realRevenueData.length} real revenue entries for ${year}`);
+          
+          // Only process months that have actual data
+          const monthsWithData = realRevenueData.map(entry => entry.month);
+          console.log(`   Processing months: ${monthsWithData.join(', ')}`);
+          
+          for (const month of monthsWithData) {
+            console.log(`   ⚙️ Generating KPIs for ${year}-${month.toString().padStart(2, '0')}`);
+            await this.generateMonthlyRevenueKPI(userId, revenueData, year, month);
+            await this.generateYTDKPI(userId, revenueData, year, month);
+            await this.generateGrowthRateKPI(userId, revenueData, year, month);
+            await this.generateProfitMarginKPI(userId, revenueData, year, month);
+            await this.generateRevenueGapKPI(userId, revenueData, year, month);
+            await this.generateRevenueVelocityKPI(userId, revenueData, year, month);
+            await this.generateNetProfitAfterDrawsKPI(userId, revenueData, year, month);
+            totalKPIsGenerated++;
           }
         } else {
-          console.log(`No revenue data found for ${year}`);
+          console.log(`⏭️ Skipping ${year} - no real revenue data`);
         }
       }
       
-      console.log('Successfully generated optimized historical KPIs');
+      console.log(`✨ KPI generation complete! Generated ${totalKPIsGenerated} KPI sets across ${yearsWithData} years`);
     } catch (error) {
-      console.error('Error generating all KPIs:', error);
+      console.error('❌ Error generating all KPIs:', error);
+    } finally {
+      this.isGenerating = false;
+      console.log('🔓 KPI generation lock released');
     }
   }
 
@@ -285,6 +320,13 @@ export class RevenueKPIGenerator {
     if (growthRate < -10) status = 'alert';
     else if (growthRate < 0) status = 'warning';
 
+    const roundedGrowthRate = Math.round(Math.abs(growthRate) * 10) / 10;
+    const growthExplanation = growthRate >= 0 
+      ? `Growth of ${roundedGrowthRate}% vs previous month. This can mean sales are up, changes in pricing, new customers, or operational improvements.`
+      : `Decline of ${roundedGrowthRate}% vs previous month. This can mean sales are down, changes in pricing, lost customers, or operational changes.`;
+    
+    console.log('🔧 UPDATED Growth Rate KPI:', { growthRate, roundedGrowthRate, explanation: growthExplanation });
+    
     const kpiData = {
       kpi_name: 'Monthly Growth Rate',
       kpi_value: growthRate,
@@ -293,7 +335,7 @@ export class RevenueKPIGenerator {
       goal_value: 15, // 15% target growth
       status: status,
       display_format: 'percentage',
-      plain_explanation: `${growthRate >= 0 ? 'Growth' : 'Decline'} of ${Math.abs(growthRate).toFixed(1)}% vs previous month`,
+      plain_explanation: growthExplanation,
       action_suggestion: growthRate < 0 ? 'Focus on strategies to reverse the decline and return to growth.' : growthRate < 15 ? 'Good progress! Look for opportunities to accelerate growth further.' : 'Excellent growth rate! Maintain this momentum.'
     };
 
@@ -308,11 +350,7 @@ export class RevenueKPIGenerator {
     if (!monthData) return;
 
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
-    const actualRevenue = monthData.actual_revenue || 0;
     const profitMargin = monthData.profit_margin || 0;
-    
-    // Calculate actual profit from revenue and margin
-    const actualProfit = actualRevenue * (profitMargin / 100);
     
     // Use 35% as goal profit margin (industry standard), not current margin
     const goalProfitMargin = 35;
@@ -321,6 +359,10 @@ export class RevenueKPIGenerator {
     if (profitMargin < goalProfitMargin * 0.8) status = 'alert';
     else if (profitMargin < goalProfitMargin * 0.95) status = 'warning';
 
+    const centsPerDollar = (profitMargin / 100).toFixed(2);
+    
+    console.log('🔧 UPDATED Profit Margin KPI:', { profitMargin, rounded: Math.round(profitMargin), centsPerDollar });
+    
     const kpiData = {
       kpi_name: 'Profit Margin',
       kpi_value: profitMargin,
@@ -329,7 +371,7 @@ export class RevenueKPIGenerator {
       goal_value: goalProfitMargin,
       status: status,
       display_format: 'percentage',
-      plain_explanation: `Current profit margin of ${profitMargin.toFixed(1)}% ${goalProfitMargin > 0 ? `vs goal of ${goalProfitMargin.toFixed(1)}%` : ''}. Actual profit: $${actualProfit.toLocaleString()}`,
+      plain_explanation: `Current net profit margin of ${Math.round(profitMargin)}%. This means you are keeping $${centsPerDollar} cents per every $1 you make before owner distributions.`,
       action_suggestion: profitMargin < goalProfitMargin ? 'Focus on increasing prices or reducing costs to improve profit margins.' : 'Excellent profit margin! Consider reinvesting profits for growth.'
     };
 
@@ -418,6 +460,8 @@ export class RevenueKPIGenerator {
 
       const previousRevenue = previousMonthData.actual_revenue;
       const velocityGrowth = ((currentRevenue - previousRevenue) / previousRevenue) * 100;
+      
+      console.log('🔧 UPDATED Revenue Velocity KPI:', { velocityGrowth, rounded: Math.round(Math.abs(velocityGrowth)) });
 
       let status: 'good' | 'warning' | 'alert' = 'good';
       if (velocityGrowth < -10) status = 'alert';
@@ -431,7 +475,7 @@ export class RevenueKPIGenerator {
         goal_value: 15, // 15% year-over-year growth target
         status: status,
         display_format: 'percentage',
-        plain_explanation: `${velocityGrowth >= 0 ? 'Growing' : 'Declining'} at ${Math.abs(velocityGrowth).toFixed(1)}% vs same month last year ($${currentRevenue.toLocaleString()} vs $${previousRevenue.toLocaleString()})`,
+        plain_explanation: `${velocityGrowth >= 0 ? 'Growing' : 'Declining'} at ${Math.round(Math.abs(velocityGrowth))}% vs same month last year ($${currentRevenue.toLocaleString()} vs $${previousRevenue.toLocaleString()})`,
         action_suggestion: velocityGrowth < 15 ? 'Focus on strategies to accelerate year-over-year growth.' : 'Excellent velocity! You\'re building strong momentum.'
       };
 

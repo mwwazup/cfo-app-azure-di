@@ -152,6 +152,8 @@ export async function getRevenueKpis(userId: string, year: number) {
 export async function getKpiRecords(userId: string, period?: string) {
   const q = new URLSearchParams({ userId });
   if (period) q.set('period', period);
+  // Add timestamp to bust HTTP cache
+  q.set('_t', Date.now().toString());
   return getJSON<{ rows: any[] }>(`/api/kpi-records?${q.toString()}`);
 }
 

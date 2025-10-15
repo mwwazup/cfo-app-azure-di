@@ -1,14 +1,13 @@
-import React from 'react';
 
 export default function Navbar() {
   return (
     <header className="bg-background shadow-md sticky top-0 z-50 border-b border-border">
-      <div className="container mx-auto px-4 flex justify-between items-center h-16">
+      <div className="container px-4 md:px-6 max-w-7xl mx-auto flex justify-between items-center h-16">
         <a href="/" className="flex items-center">
           <img 
-            src="/Wave Rider Logo.png" 
+            src="/wave-rider-logo.png" 
             alt="Wave Rider Logo" 
-            className="h-8 w-auto"
+            className="h-14 w-auto"
           />
         </a>
         <nav className="hidden md:flex items-center gap-6">

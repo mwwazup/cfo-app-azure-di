@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthContext } from '../../contexts/auth-context';
 import { KPIRecordsService, KPIRecord } from '../../services/kpiRecordsService';
 import { RevenueKPIGenerator } from '../../services/revenueKPIGenerator';
@@ -49,6 +50,7 @@ const getKPIIcon = (kpiName: string) => {
 
 
 export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
+  const queryClient = useQueryClient();
   const { dbUserId } = useAuthContext();
   const [kpiRecords, setKpiRecords] = useState<KPIRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,6 +94,13 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
       const filteredRecords = records.filter(record => 
         record.kpi_name !== 'Revenue Target Based on Profit Margin'
       );
+      
+      console.log('📊 Loaded KPI records:', filteredRecords.map(r => ({
+        name: r.kpi_name,
+        value: r.kpi_value,
+        format: r.display_format,
+        explanation: r.plain_explanation?.substring(0, 50) + '...'
+      })));
       
       // For historical periods, load comparison data (same month last year)
       let recordsWithComparison = filteredRecords;
@@ -187,8 +196,22 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     }
   };
 
-  const refreshData = () => {
-    loadKPIRecords(true); // Force reload when user manually refreshes
+  const refreshData = async () => {
+    console.log('🔄 Manual refresh - AGGRESSIVE cache clear');
+    
+    // Clear ALL React Query caches
+    queryClient.clear();
+    
+    // Reset last load time to force reload
+    lastLoadTime.current = 0;
+    
+    // Add small delay to ensure cache is cleared
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Force reload with timestamp to bypass any HTTP caching
+    await loadKPIRecords(true);
+    
+    console.log('✅ Refresh complete');
   };
 
   // Log window focus status for debugging alt-tab refresh prevention
@@ -227,6 +250,13 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   useEffect(() => {
     loadKPIRecords(true); // Force load on filter changes
   }, [loadKPIRecords, filterPeriod, filterCategory, filterStatus]);
+
+  const stopGeneration = () => {
+    console.log('🛑 User requested stop');
+    RevenueKPIGenerator.emergencyStop();
+    setGenerating(false);
+    loadKPIRecords(true); // Reload whatever was generated
+  };
 
   const generateHistoricalKPIs = async () => {
     if (!dbUserId) return;
@@ -294,23 +324,29 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     const kpiLower = kpiName?.toLowerCase() || '';
     let actualFormat = format;
     
-    // Force format inference for known KPI types to ensure icons are always shown
-    if (kpiLower.includes('revenue') || kpiLower.includes('profit') || kpiLower.includes('gap')) {
-      actualFormat = 'currency';
-    } else if (kpiLower.includes('margin') || kpiLower.includes('rate') || kpiLower.includes('growth') || kpiLower.includes('velocity')) {
+    // Force format inference for known KPI types
+    // IMPORTANT: Check percentage KPIs FIRST before generic keyword matching
+    if (kpiLower.includes('margin') || kpiLower.includes('rate') || kpiLower.includes('growth') || kpiLower.includes('velocity')) {
       actualFormat = 'percentage';
+    } else if (kpiLower.includes('revenue') || kpiLower.includes('profit') || kpiLower.includes('gap')) {
+      actualFormat = 'currency';
     } else if (!format || format === 'undefined' || format === 'null' || format === '' || format === 'string') {
       // Only use fallback for truly missing formats
       actualFormat = 'number';
     }
+
+    console.log(`🔍 formatValue: "${kpiName}" value=${value} format="${format}" actualFormat="${actualFormat}"`);
 
     switch (actualFormat?.toLowerCase()) {
       case 'currency':
         return `$${Math.round(value).toLocaleString()}`;
       case 'percentage':
         // Handle both decimal (0.15) and whole number (15) percentage values
-        const percentValue = value > 1 ? value : value * 100;
-        return `${percentValue.toFixed(1)}%`;
+        // If absolute value is less than 1, it's stored as decimal (0.15 = 15%)
+        const percentValue = Math.abs(value) < 1 ? value * 100 : value;
+        const result = `${Math.round(percentValue)}%`;
+        console.log(`   → percentValue=${percentValue}, result="${result}"`);
+        return result;
       case 'number':
         return Math.round(value).toLocaleString();
       default:
@@ -340,15 +376,25 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
           <h2 className="text-2xl font-bold">KPI Coaching Dashboard</h2>
         </div>
         <div className="flex items-center gap-2">
-          <Button 
-            onClick={generateHistoricalKPIs} 
-            disabled={generating}
-            variant="outline"
-            className="flex items-center gap-2"
-          >
-            <Calendar className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
-            {generating ? 'Generating...' : 'Generate Historical KPIs'}
-          </Button>
+          {generating ? (
+            <Button 
+              onClick={stopGeneration}
+              variant="outline"
+              className="flex items-center gap-2 border-red-500 text-red-500 hover:bg-red-50"
+            >
+              <span className="h-4 w-4">⏹️</span>
+              Stop Generation
+            </Button>
+          ) : (
+            <Button 
+              onClick={generateHistoricalKPIs} 
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Calendar className="h-4 w-4" />
+              Generate Historical KPIs
+            </Button>
+          )}
           <Button 
             onClick={refreshData} 
             disabled={generating}

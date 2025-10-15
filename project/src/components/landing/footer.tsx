@@ -1,4 +1,3 @@
-import React from 'react';
 
 export default function Footer() {
   return (
@@ -9,9 +8,9 @@ export default function Footer() {
             <div className="flex items-center">
               <a href="/" className="inline-flex items-center">
                 <img 
-                  src="/Wave Rider logo.png" 
+                  src="/wave-rider-logo.png" 
                   alt="Wave Rider Logo" 
-                  className="h-8 w-auto"
+                  className="h-16 w-auto"
                 />
               </a>
             </div>
