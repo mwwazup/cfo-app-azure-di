@@ -163,11 +163,16 @@ export class KPIRecordsService {
 
   /**
    * Update KPI goal value
-   * TODO: Migrate to backend API
    */
-  static async updateKPIGoal(_kpiId: string, _newGoal: number): Promise<boolean> {
-    console.warn('updateKPIGoal temporarily disabled - migration to backend API in progress');
-    return false;
+  static async updateKPIGoal(kpiId: string, newGoal: number): Promise<boolean> {
+    try {
+      const { updateKpiGoal } = await import('../config/supabaseClient');
+      const result = await updateKpiGoal(kpiId, newGoal);
+      return result.ok;
+    } catch (error) {
+      console.error('Error updating KPI goal:', error);
+      return false;
+    }
   }
 
   /**

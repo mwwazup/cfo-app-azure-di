@@ -106,7 +106,7 @@ async function getJSON<T>(path: string) {
   return (await resp.json()) as T;
 }
 
-async function sendJSON<T>(path: string, method: 'POST' | 'DELETE', body?: any) {
+async function sendJSON<T>(path: string, method: 'POST' | 'DELETE' | 'PUT', body?: any) {
   const resp = await fetch(`${API_BASE}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -165,6 +165,11 @@ export async function upsertKpiRecord(userId: string, kpiData: any) {
 export async function deleteKpiByName(userId: string, kpiName: string) {
   const q = new URLSearchParams({ userId, kpi_name: kpiName });
   return sendJSON<{ ok: true }>(`/api/kpi-records?${q.toString()}`, 'DELETE');
+}
+
+export async function updateKpiGoal(kpiId: string, newGoal: number) {
+  const payload = { kpiId, goalValue: newGoal };
+  return sendJSON<{ ok: true }>(`/api/kpi-records/goal`, 'PUT', payload);
 }
 
 // Default export (optional)

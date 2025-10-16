@@ -174,6 +174,26 @@ export class RevenueKPIGenerator {
   }
 
   /**
+   * Get existing custom goal if user has set one
+   */
+  private static async getExistingCustomGoal(userId: string, kpiName: string, period: string): Promise<number | null> {
+    try {
+      const { getKpiRecords } = await import('../config/supabaseClient');
+      const result = await getKpiRecords(userId, period);
+      const existingRecord = result.rows?.find((r: any) => r.kpi_name === kpiName && r.period === period);
+      
+      // If user has manually edited the goal (different from auto-calculated), use it
+      if (existingRecord && existingRecord.goal_value) {
+        return existingRecord.goal_value;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching existing goal:', error);
+      return null;
+    }
+  }
+
+  /**
    * Generate Monthly Revenue KPI with Previous Year + Growth calculation
    */
   private static async generateMonthlyRevenueKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
@@ -183,8 +203,14 @@ export class RevenueKPIGenerator {
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
     const actualRevenue = monthData.actual_revenue || 0;
     
-    // Calculate smart target: Previous Year Same Month + Desired Growth
-    const targetRevenue = await this.calculateSmartMonthlyTarget(userId, year, month, monthData);
+    // Check if user has set a custom goal
+    const customGoal = await this.getExistingCustomGoal(userId, 'Monthly Revenue', period);
+    console.log('🎯 Monthly Revenue - Custom Goal Check:', { period, customGoal, userId });
+    
+    // Use custom goal if exists, otherwise calculate smart target
+    const targetRevenue = customGoal || await this.calculateSmartMonthlyTarget(userId, year, month, monthData);
+    const isCustomGoal = customGoal !== null;
+    console.log('🎯 Monthly Revenue - Using target:', { targetRevenue, isCustomGoal });
     
     let status: 'good' | 'warning' | 'alert' = 'good';
     if (targetRevenue > 0) {
@@ -193,6 +219,7 @@ export class RevenueKPIGenerator {
       else if (performance < 0.95) status = 'warning';
     }
 
+    const goalLabel = isCustomGoal ? 'your goal' : 'smart target';
     const kpiData = {
       kpi_name: 'Monthly Revenue',
       kpi_value: actualRevenue,
@@ -201,7 +228,7 @@ export class RevenueKPIGenerator {
       goal_value: targetRevenue,
       status: status,
       display_format: 'currency',
-      plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${targetRevenue > 0 ? `vs smart target of $${targetRevenue.toLocaleString()}` : ''}`,
+      plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${targetRevenue > 0 ? `vs ${goalLabel} of $${targetRevenue.toLocaleString()}` : ''}`,
       action_suggestion: status === 'alert' ? 'Revenue is significantly below target. Focus on immediate revenue generation activities.' : status === 'warning' ? 'Revenue is below target. Review sales pipeline and marketing efforts.' : 'Great job hitting your revenue target! Look for opportunities to exceed it.'
     };
 
@@ -277,22 +304,28 @@ export class RevenueKPIGenerator {
 
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
     
+    // Check if user has set a custom goal
+    const customGoal = await this.getExistingCustomGoal(userId, 'YTD Revenue', period);
+    const finalTarget = customGoal || ytdTarget;
+    const isCustomGoal = customGoal !== null;
+    
     let status: 'good' | 'warning' | 'alert' = 'good';
-    if (ytdTarget > 0) {
-      const performance = ytdRevenue / ytdTarget;
+    if (finalTarget > 0) {
+      const performance = ytdRevenue / finalTarget;
       if (performance < 0.8) status = 'alert';
       else if (performance < 0.95) status = 'warning';
     }
 
+    const goalLabel = isCustomGoal ? 'your goal' : 'smart target';
     const kpiData = {
       kpi_name: 'YTD Revenue',
       kpi_value: ytdRevenue,
       period: period,
       kpi_category: 'Revenue',
-      goal_value: ytdTarget,
+      goal_value: finalTarget,
       status: status,
       display_format: 'currency',
-      plain_explanation: `Year-to-date revenue of $${ytdRevenue.toLocaleString()} ${ytdTarget > 0 ? `vs smart target of $${ytdTarget.toLocaleString()}` : ''}`,
+      plain_explanation: `Year-to-date revenue of $${ytdRevenue.toLocaleString()} ${finalTarget > 0 ? `vs ${goalLabel} of $${finalTarget.toLocaleString()}` : ''}`,
       action_suggestion: status === 'alert' ? 'YTD revenue is significantly behind target. Implement aggressive revenue recovery strategies.' : status === 'warning' ? 'YTD revenue is below target. Focus on accelerating sales to catch up.' : 'Excellent YTD performance! You\'re on track to exceed your annual goals.'
     };
 
@@ -352,8 +385,10 @@ export class RevenueKPIGenerator {
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
     const profitMargin = monthData.profit_margin || 0;
     
-    // Use 35% as goal profit margin (industry standard), not current margin
-    const goalProfitMargin = 35;
+    // Check if user has set a custom goal, otherwise use 35% (industry standard)
+    const customGoal = await this.getExistingCustomGoal(userId, 'Profit Margin', period);
+    const goalProfitMargin = customGoal || 35;
+    const isCustomGoal = customGoal !== null;
     
     let status: 'good' | 'warning' | 'alert' = 'good';
     if (profitMargin < goalProfitMargin * 0.8) status = 'alert';
@@ -411,24 +446,39 @@ export class RevenueKPIGenerator {
 
     const annualTarget = ytdTarget + remainingTarget;
     const revenueGap = annualTarget - ytdRevenue;
+    const isAheadOfTarget = revenueGap < 0;
+    const absGap = Math.abs(revenueGap);
     
+    // Status based on YTD performance
     let status: 'good' | 'warning' | 'alert' = 'good';
     if (ytdTarget > 0) {
       const performance = ytdRevenue / ytdTarget;
       if (performance < 0.8) status = 'alert';
       else if (performance < 0.95) status = 'warning';
+      else if (performance >= 1.0) status = 'good'; // Ahead of target
     }
+
+    // Create clear explanation based on whether ahead or behind
+    const explanation = isAheadOfTarget
+      ? `Great news! You're ahead of your annual target by $${absGap.toLocaleString()}. You've earned $${ytdRevenue.toLocaleString()} YTD against a target of $${annualTarget.toLocaleString()} for the full year. Keep up the momentum!`
+      : `You need $${absGap.toLocaleString()} more revenue to hit your annual target of $${annualTarget.toLocaleString()}. You've earned $${ytdRevenue.toLocaleString()} YTD. With ${12 - month} months remaining, that's about $${Math.round(revenueGap / Math.max(12 - month, 1)).toLocaleString()} per month needed.`;
+    
+    const actionSuggestion = isAheadOfTarget
+      ? `Outstanding! You're exceeding your annual target. Consider: (1) Setting a stretch goal for the remainder of the year, (2) Investing surplus in growth initiatives, or (3) Increasing owner distributions while maintaining business health.`
+      : revenueGap > 0 && (12 - month) > 0
+      ? `To close the $${absGap.toLocaleString()} gap, focus on generating approximately $${Math.round(revenueGap / (12 - month)).toLocaleString()} additional monthly revenue. Consider: (1) Accelerating sales efforts, (2) Launching promotions, (3) Upselling existing customers, or (4) Introducing new revenue streams.`
+      : `You're in the final stretch! Focus on maximizing revenue in the remaining time to hit or exceed your annual target.`;
 
     const kpiData = {
       kpi_name: 'Revenue Gap to Target',
-      kpi_value: revenueGap,
+      kpi_value: absGap, // Always store as positive number for display
       period: period,
       kpi_category: 'Revenue',
       goal_value: 0, // Goal is to have no gap (zero)
       status: status,
       display_format: 'currency',
-      plain_explanation: `Need $${revenueGap.toLocaleString()} more revenue to hit annual target of $${annualTarget.toLocaleString()}. YTD: $${ytdRevenue.toLocaleString()}`,
-      action_suggestion: revenueGap > 0 ? `Focus on generating $${Math.round(revenueGap / (12 - month)).toLocaleString()} additional monthly revenue to close the gap.` : 'Congratulations! You\'re ahead of your annual revenue target.'
+      plain_explanation: explanation,
+      action_suggestion: actionSuggestion
     };
 
     await KPIRecordsService.upsertKPIRecord(userId, kpiData);
@@ -467,6 +517,21 @@ export class RevenueKPIGenerator {
       if (velocityGrowth < -10) status = 'alert';
       else if (velocityGrowth < 0) status = 'warning';
 
+      // Create detailed explanation with context
+      const dollarIncrease = currentRevenue - previousRevenue;
+      const isGrowing = velocityGrowth >= 0;
+      const roundedVelocity = Math.round(Math.abs(velocityGrowth));
+      
+      const explanation = isGrowing
+        ? `Your revenue is accelerating! This month you earned $${currentRevenue.toLocaleString()}, which is ${roundedVelocity}% more than the $${previousRevenue.toLocaleString()} you made in the same month last year. That's an increase of $${Math.abs(dollarIncrease).toLocaleString()}. This "velocity" shows your business is growing year-over-year, which is critical for long-term success.`
+        : `Your revenue is slowing down. This month you earned $${currentRevenue.toLocaleString()}, which is ${roundedVelocity}% less than the $${previousRevenue.toLocaleString()} you made in the same month last year. That's a decrease of $${Math.abs(dollarIncrease).toLocaleString()}. This negative "velocity" means your business is shrinking year-over-year, which requires immediate attention.`;
+      
+      const actionSuggestion = velocityGrowth >= 15
+        ? `Outstanding ${roundedVelocity}% growth! You're exceeding the 15% target. Keep this momentum by doubling down on what's working - whether that's marketing, new products, or customer retention.`
+        : velocityGrowth >= 0
+        ? `You're growing at ${roundedVelocity}%, but below the 15% target. To accelerate: (1) Analyze what drove growth this year, (2) Increase marketing spend, (3) Launch new offerings, or (4) raise prices strategically.`
+        : `Declining ${roundedVelocity}% year-over-year is a red flag. Immediate actions: (1) Identify why customers left, (2) Review pricing strategy, (3) Audit marketing effectiveness, (4) Consider new revenue streams. This trend must reverse.`;
+
       const kpiData = {
         kpi_name: 'Revenue Velocity',
         kpi_value: velocityGrowth,
@@ -475,8 +540,8 @@ export class RevenueKPIGenerator {
         goal_value: 15, // 15% year-over-year growth target
         status: status,
         display_format: 'percentage',
-        plain_explanation: `${velocityGrowth >= 0 ? 'Growing' : 'Declining'} at ${Math.round(Math.abs(velocityGrowth))}% vs same month last year ($${currentRevenue.toLocaleString()} vs $${previousRevenue.toLocaleString()})`,
-        action_suggestion: velocityGrowth < 15 ? 'Focus on strategies to accelerate year-over-year growth.' : 'Excellent velocity! You\'re building strong momentum.'
+        plain_explanation: explanation,
+        action_suggestion: actionSuggestion
       };
 
       await KPIRecordsService.upsertKPIRecord(userId, kpiData);

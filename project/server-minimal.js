@@ -386,6 +386,26 @@ app.delete('/api/kpi-records', async (req, res) => {
   }
 });
 
+app.put('/api/kpi-records/goal', async (req, res) => {
+  try {
+    const { kpiId, goalValue } = req.body || {};
+    if (!kpiId) return res.status(400).json({ error: 'kpiId required' });
+    if (goalValue === undefined || goalValue === null) return res.status(400).json({ error: 'goalValue required' });
+
+    const { error } = await supabase
+      .from('kpi_records')
+      .update({ goal_value: goalValue, updated_at: new Date().toISOString() })
+      .eq('id', kpiId);
+
+    if (error) throw error;
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || 'failed' });
+  }
+});
+
 // Financial documents endpoints
 app.get('/api/financial-documents', async (req, res) => {
   try {
@@ -688,6 +708,10 @@ app.listen(PORT, () => {
   console.log(`   - GET /api/docs/meta`);
   console.log(`   - GET /api/docs/kpis`);
   console.log(`   - GET /api/docs/metrics`);
+  console.log(`   - GET /api/kpi-records`);
+  console.log(`   - POST /api/kpi-records`);
+  console.log(`   - PUT /api/kpi-records/goal`);
+  console.log(`   - DELETE /api/kpi-records`);
   console.log(`   - GET /api/financial-documents`);
   console.log(`   - POST /api/financial-documents`);
   console.log(`   - PUT /api/financial-documents/:id`);

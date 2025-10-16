@@ -5,7 +5,6 @@ import { KPIRecordsService, KPIRecord } from '../../services/kpiRecordsService';
 import { RevenueKPIGenerator } from '../../services/revenueKPIGenerator';
 import { 
   Loader2, 
-  Brain, 
   Edit3, 
   BarChart3, 
   PieChart, 
@@ -17,7 +16,9 @@ import {
   RefreshCw,
   Filter,
   Check,
-  X
+  X,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 import { Button } from '../ui/button';
@@ -61,6 +62,8 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   const [editingGoal, setEditingGoal] = useState<string | null>(null);
   const [goalValue, setGoalValue] = useState<string>('');
   const [isWindowFocused, setIsWindowFocused] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [hasHistoricalData, setHasHistoricalData] = useState(false);
   const lastLoadTime = React.useRef<number>(0);
 
   // Load KPI records with proper comparison data and throttling
@@ -95,12 +98,17 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
         record.kpi_name !== 'Revenue Target Based on Profit Margin'
       );
       
-      console.log('📊 Loaded KPI records:', filteredRecords.map(r => ({
-        name: r.kpi_name,
-        value: r.kpi_value,
-        format: r.display_format,
-        explanation: r.plain_explanation?.substring(0, 50) + '...'
-      })));
+      // Check if there's historical data (records from previous months/years)
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth() + 1;
+      const currentYear = currentDate.getFullYear();
+      const hasHistorical = filteredRecords.some(record => {
+        const recordDate = new Date(record.period);
+        const recordMonth = recordDate.getMonth() + 1;
+        const recordYear = recordDate.getFullYear();
+        return recordYear < currentYear || (recordYear === currentYear && recordMonth < currentMonth);
+      });
+      setHasHistoricalData(hasHistorical);
       
       // For historical periods, load comparison data (same month last year)
       let recordsWithComparison = filteredRecords;
@@ -335,7 +343,6 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
       actualFormat = 'number';
     }
 
-    console.log(`🔍 formatValue: "${kpiName}" value=${value} format="${format}" actualFormat="${actualFormat}"`);
 
     switch (actualFormat?.toLowerCase()) {
       case 'currency':
@@ -344,9 +351,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
         // Handle both decimal (0.15) and whole number (15) percentage values
         // If absolute value is less than 1, it's stored as decimal (0.15 = 15%)
         const percentValue = Math.abs(value) < 1 ? value * 100 : value;
-        const result = `${Math.round(percentValue)}%`;
-        console.log(`   → percentValue=${percentValue}, result="${result}"`);
-        return result;
+        return `${Math.round(percentValue)}%`;
       case 'number':
         return Math.round(value).toLocaleString();
       default:
@@ -372,8 +377,13 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     <div className={`w-full ${className}`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsCollapsed(!isCollapsed)}>
           <h2 className="text-2xl font-bold">KPI Coaching Dashboard</h2>
+          {isCollapsed ? (
+            <ChevronDown className="h-5 w-5 text-gray-500" />
+          ) : (
+            <ChevronUp className="h-5 w-5 text-gray-500" />
+          )}
         </div>
         <div className="flex items-center gap-2">
           {generating ? (
@@ -386,32 +396,38 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
               Stop Generation
             </Button>
           ) : (
-            <Button 
-              onClick={generateHistoricalKPIs} 
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Calendar className="h-4 w-4" />
-              Generate Historical KPIs
-            </Button>
+            // Only show Generate Historical KPIs button if historical data doesn't exist
+            !hasHistoricalData && (
+              <Button 
+                onClick={generateHistoricalKPIs} 
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <Calendar className="h-4 w-4" />
+                Generate Historical KPIs
+              </Button>
+            )
           )}
           <Button 
-            onClick={refreshData} 
+            onClick={handleRefreshKPIs} 
             disabled={generating}
             className="flex items-center gap-2"
           >
             <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
-            {generating ? 'Refreshing...' : 'Refresh KPIs'}
+            {generating ? 'Regenerating...' : 'Refresh KPIs'}
           </Button>
         </div>
       </div>
 
-      {/* Subtitle */}
-      <div className="text-sm text-gray-600 mb-4">
-        <span>AI-powered KPI insights with coaching recommendations</span>
-      </div>
+      {/* Collapsible Content */}
+      {!isCollapsed && (
+        <>
+          {/* Subtitle */}
+          <div className="text-sm text-gray-600 mb-4">
+            <span>AI-powered KPI insights with coaching recommendations</span>
+          </div>
 
-      {/* Filters */}
+          {/* Filters */}
       <div className="flex flex-wrap items-center gap-4 mb-6">
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-gray-500" />
@@ -507,10 +523,10 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
             const IconComponent = getKPIIcon(kpi.kpi_name);
             
             return (
-              <div key={kpi.id} className="space-y-3">
+              <div key={kpi.id} className="h-full flex flex-col">
                 {/* KPI Card */}
-                <div className="bg-card rounded-lg shadow-sm border border-border">
-                  <div className="px-6 py-4 pt-6">
+                <div className="bg-card rounded-lg shadow-sm border border-border h-full flex flex-col">
+                  <div className="px-6 py-4 pt-6 flex-1 flex flex-col">
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-lg font-bold text-[#d5b274] mb-2">
@@ -534,7 +550,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                               case 'Net Profit After Owner Draws':
                                 return 'Am I leaving enough money in the business after paying myself?';
                               case 'Revenue Gap to Target':
-                                return 'How much more revenue do I need to hit my annual goal?';
+                                return 'Am I ahead or behind my annual revenue target?';
                               default:
                                 return '';
                             }
@@ -636,7 +652,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                     
                     {/* Explanation and Action - Enhanced for Historical Comparison */}
                     {(kpi.plain_explanation || kpi.action_suggestion || (kpi as any).comparison_value) && (
-                      <div className="mt-4 pt-3 border-t border-border">
+                      <div className="mt-auto pt-3 border-t border-border">
                         {/* Enhanced explanation for historical comparison */}
                         <div className="mb-2">
                           <div className="text-xs font-medium text-muted mb-1">What it means</div>
@@ -698,38 +714,30 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                         <MoneyBreakdown kpi={kpi} />
                       </div>
                     )}
+                    
+                    {/* Edit Goal Button - Inside Card at Bottom */}
+                    {editingGoal !== kpi.id && !(kpi as any).comparison_value && (
+                      <div className="mt-4 pt-3 border-t border-border">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditGoal(kpi.id, kpi.goal_value || 0)}
+                          className="w-full flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground"
+                          title="Edit goal for this KPI"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                          Edit Goal
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                </div>
-                
-                {/* Action Buttons - Outside Card */}
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 flex items-center gap-2"
-                    onClick={() => alert(`AI Coaching for ${kpi.kpi_name}: ${kpi.action_suggestion || 'Focus on improving this metric based on current performance.'}`)}
-                  >
-                    <Brain className="h-4 w-4" />
-                    AI Tip
-                  </Button>
-                  
-                  {editingGoal !== kpi.id && !(kpi as any).comparison_value && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleEditGoal(kpi.id, kpi.goal_value || 0)}
-                      className="flex items-center gap-2"
-                      title="Edit goal"
-                    >
-                      <Edit3 className="h-4 w-4" />
-                      Edit Goal
-                    </Button>
-                  )}
                 </div>
               </div>
             );
           })}
         </div>
+      )}
+        </>
       )}
     </div>
   );
