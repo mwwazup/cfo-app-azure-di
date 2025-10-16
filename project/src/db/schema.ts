@@ -195,6 +195,51 @@ export const revenueKpis = pgTable("revenue_kpis", {
   periodIdx: index("idx_revenue_kpis_period").on(t.year, t.month),
 }));
 
+export const services = pgTable("services", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(), // Clerk user ID (TEXT format)
+  serviceName: text("service_name").notNull(),
+  serviceCategory: text("service_category"),
+  color: text("color"),
+  defaultPrice: numeric("default_price", { precision: 15, scale: 2 }),
+  isAutoPricingEnabled: boolean("is_auto_pricing_enabled").default(false),
+  displayOrder: integer("display_order").default(0),
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  uniqUserName: uniqueIndex("uq_services_user_name").on(t.userId, t.serviceName),
+  userIdx: index("idx_services_user").on(t.userId),
+  activeIdx: index("idx_services_active").on(t.userId, t.isActive),
+}));
+
+export const serviceActivities = pgTable("service_activities", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(), // Clerk user ID (TEXT format)
+  serviceId: uuid("service_id").notNull()
+    .references(() => services.id, { onDelete: "cascade" }),
+  year: integer("year").notNull(),
+  month: integer("month").notNull(),
+  weekOfMonth: integer("week_of_month").notNull(),
+  weekStartDate: date("week_start_date").notNull(),
+  weekEndDate: date("week_end_date").notNull(),
+  appointmentCount: integer("appointment_count").default(0),
+  totalRevenue: numeric("total_revenue", { precision: 15, scale: 2 }).default("0"),
+  avgTicketPrice: numeric("avg_ticket_price", { precision: 15, scale: 2 }),
+  isAutoCalculated: boolean("is_auto_calculated").default(false),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  uniqServiceWeek: uniqueIndex("uq_service_activities_service_week")
+    .on(t.serviceId, t.year, t.month, t.weekOfMonth),
+  userIdx: index("idx_service_activities_user").on(t.userId),
+  serviceIdx: index("idx_service_activities_service").on(t.serviceId),
+  periodIdx: index("idx_service_activities_period").on(t.year, t.month),
+  weekIdx: index("idx_service_activities_week").on(t.weekStartDate),
+}));
+
 // -------- Relations (TypeScript-only, optional but nice) --------
 export const profilesRelations = relations(profiles, ({ many }) => ({
   revenueEntries: many(revenueEntries),
@@ -203,6 +248,8 @@ export const profilesRelations = relations(profiles, ({ many }) => ({
   kpiRecords: many(kpiRecords),
   momentumEntries: many(momentumEntries),
   financialDocuments: many(financialDocuments),
+  services: many(services),
+  serviceActivities: many(serviceActivities),
 }));
 
 export const revenueEntriesRelations = relations(revenueEntries, ({ one }) => ({
@@ -242,6 +289,25 @@ export const documentKpisRelations = relations(documentKpis, ({ one }) => ({
   }),
 }));
 
+export const servicesRelations = relations(services, ({ one, many }) => ({
+  user: one(profiles, {
+    fields: [services.userId],
+    references: [profiles.id],
+  }),
+  activities: many(serviceActivities),
+}));
+
+export const serviceActivitiesRelations = relations(serviceActivities, ({ one }) => ({
+  user: one(profiles, {
+    fields: [serviceActivities.userId],
+    references: [profiles.id],
+  }),
+  service: one(services, {
+    fields: [serviceActivities.serviceId],
+    references: [services.id],
+  }),
+}));
+
 // -------- Types --------
 export type Profile = typeof profiles.$inferSelect;
 export type RevenueEntry = typeof revenueEntries.$inferSelect;
@@ -253,4 +319,6 @@ export type FinancialDocument = typeof financialDocuments.$inferSelect;
 export type DocumentMetric = typeof documentMetrics.$inferSelect;
 export type DocumentKpi = typeof documentKpis.$inferSelect;
 export type RevenueKpi = typeof revenueKpis.$inferSelect;
+export type Service = typeof services.$inferSelect;
+export type ServiceActivity = typeof serviceActivities.$inferSelect;
 
