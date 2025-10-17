@@ -14,6 +14,7 @@ import { DashboardPage } from './pages/dashboard';
 import { MasterRevenuePage } from './pages/revenue/master';
 // import { PlaygroundPage } from './pages/revenue/playground'; // Hidden - not in use
 import { ServiceMixTestPage } from './pages/ServiceMixTest';
+import { ServiceMixPage } from './pages/ServiceMixPage';
 import { FinancialStatementsPage } from './pages/financial-statements';
 import { YourBigFigPage } from './pages/coach/your-big-fig';
 import SMSCoachPage from './pages/coach/sms-coach';
@@ -98,6 +99,11 @@ function App() {
               <Route path="/momentum" element={<DashboardLayout />}>
                 <Route index element={<MomentumPage />} />
                 <Route path="wizard" element={<MomentumWizardPage />} />
+              </Route>
+              
+              {/* Service Mix page */}
+              <Route path="/service-mix" element={<DashboardLayout />}>
+                <Route index element={<ServiceMixPage />} />
               </Route>
               
               {/* Test page for Service Mix feature */}

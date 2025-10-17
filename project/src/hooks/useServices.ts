@@ -387,6 +387,90 @@ export function useMonthlyServiceSummary(year: number, month: number) {
 }
 
 /**
+ * Hook for getting service revenue data for charting
+ * Returns monthly revenue totals for each service across a year
+ */
+export function useServiceRevenueData(year: number) {
+  const { dbUserId } = useAuthContext();
+  const { services } = useServices();
+  const [revenueData, setRevenueData] = useState<{
+    serviceId: string;
+    serviceName: string;
+    color: string;
+    monthlyRevenue: { month: number; revenue: number }[];
+  }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchRevenueData = async () => {
+      if (!dbUserId || services.length === 0) return;
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch all activities for the year
+        const { data: activities, error: fetchError } = await supabase
+          .from('service_activities')
+          .select('service_id, month, total_revenue')
+          .eq('user_id', dbUserId)
+          .eq('year', year);
+
+        if (fetchError) throw fetchError;
+
+        // Aggregate by service and month
+        const serviceMap = new Map<string, { month: number; revenue: number }[]>();
+        
+        activities?.forEach((activity) => {
+          if (!serviceMap.has(activity.service_id)) {
+            serviceMap.set(activity.service_id, []);
+          }
+          
+          const existing = serviceMap.get(activity.service_id)!;
+          const monthData = existing.find(m => m.month === activity.month);
+          
+          if (monthData) {
+            monthData.revenue += Number(activity.total_revenue || 0);
+          } else {
+            existing.push({
+              month: activity.month,
+              revenue: Number(activity.total_revenue || 0)
+            });
+          }
+        });
+
+        // Map to service details
+        const chartData = Array.from(serviceMap.entries()).map(([serviceId, monthlyData]) => {
+          const service = services.find(s => s.id === serviceId);
+          return {
+            serviceId,
+            serviceName: service?.serviceName || 'Unknown Service',
+            color: service?.color || '#3B82F6',
+            monthlyRevenue: monthlyData.sort((a, b) => a.month - b.month)
+          };
+        });
+
+        setRevenueData(chartData);
+      } catch (err) {
+        console.error('Error fetching service revenue data:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch revenue data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRevenueData();
+  }, [dbUserId, year, services]);
+
+  return {
+    revenueData,
+    loading,
+    error,
+  };
+}
+
+/**
  * Utility function to calculate week of month from a date
  */
 export function getWeekOfMonth(date: Date): number {

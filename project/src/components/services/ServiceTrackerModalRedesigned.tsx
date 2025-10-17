@@ -6,18 +6,11 @@ import { Button } from '../ui/button';
 interface ServiceTrackerModalProps {
   open: boolean;
   onClose: () => void;
+  defaultTab?: 'services' | 'activities';
 }
 
-const DEFAULT_COLORS = [
-  '#3B82F6', // Blue
-  '#10B981', // Green  
-  '#F59E0B', // Amber
-  '#EF4444', // Red
-  '#8B5CF6', // Purple
-  '#EC4899', // Pink
-  '#14B8A6', // Teal
-  '#F97316', // Orange
-];
+// Gold accent color for all services
+const ACCENT_COLOR = '#D0B46A'; // Gold accent
 
 const SERVICE_CATEGORIES = [
   'Recurring',
@@ -30,7 +23,7 @@ const SERVICE_CATEGORIES = [
   'Consultation',
 ];
 
-export function ServiceTrackerModal({ open, onClose }: ServiceTrackerModalProps) {
+export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }: ServiceTrackerModalProps) {
   const { services, createService, deleteService, refreshServices } = useServices();
   const [filterYear, setFilterYear] = useState<number>(new Date().getFullYear());
   const { createActivity, activities } = useServiceActivities(filterYear);
@@ -38,7 +31,6 @@ export function ServiceTrackerModal({ open, onClose }: ServiceTrackerModalProps)
   // Service Management State
   const [serviceName, setServiceName] = useState('');
   const [serviceCategory, setServiceCategory] = useState('');
-  const [serviceColor, setServiceColor] = useState(DEFAULT_COLORS[0]);
   const [defaultPrice, setDefaultPrice] = useState('');
   const [autoPricing, setAutoPricing] = useState(false);
 
@@ -55,7 +47,8 @@ export function ServiceTrackerModal({ open, onClose }: ServiceTrackerModalProps)
   }>>([]);
   const [existingActivity, setExistingActivity] = useState<any>(null);
   const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
-  const [activeTab, setActiveTab] = useState<'track' | 'manage'>('track');
+  const [activeTab, setActiveTab] = useState<'track' | 'manage'>(defaultTab === 'services' ? 'manage' : 'track');
+  const showOnlyServices = defaultTab === 'services';
 
   const [isSaving, setIsSaving] = useState(false);
 
@@ -72,7 +65,7 @@ export function ServiceTrackerModal({ open, onClose }: ServiceTrackerModalProps)
       await createService({
         serviceName,
         serviceCategory: serviceCategory || undefined,
-        color: serviceColor,
+        color: ACCENT_COLOR,
         defaultPrice: defaultPrice ? parseFloat(defaultPrice) : undefined,
         isAutoPricingEnabled: autoPricing,
         displayOrder: services.length,
@@ -81,7 +74,6 @@ export function ServiceTrackerModal({ open, onClose }: ServiceTrackerModalProps)
       // Clear form
       setServiceName('');
       setServiceCategory('');
-      setServiceColor(DEFAULT_COLORS[0]);
       setDefaultPrice('');
       setAutoPricing(false);
       
@@ -240,29 +232,31 @@ export function ServiceTrackerModal({ open, onClose }: ServiceTrackerModalProps)
             </button>
           </div>
 
-          {/* Tabs */}
-          <div className="flex border-b border-border">
-            <button
-              onClick={() => setActiveTab('track')}
-              className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'track'
-                  ? 'text-accent border-b-2 border-accent bg-accent/5'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
-              }`}
-            >
-              Track Activities
-            </button>
-            <button
-              onClick={() => setActiveTab('manage')}
-              className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'manage'
-                  ? 'text-accent border-b-2 border-accent bg-accent/5'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
-              }`}
-            >
-              Manage Services
-            </button>
-          </div>
+          {/* Tabs - Only show if not in services-only mode */}
+          {!showOnlyServices && (
+            <div className="flex border-b border-border">
+              <button
+                onClick={() => setActiveTab('track')}
+                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+                  activeTab === 'track'
+                    ? 'text-accent border-b-2 border-accent bg-accent/5'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+                }`}
+              >
+                Track Activities
+              </button>
+              <button
+                onClick={() => setActiveTab('manage')}
+                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+                  activeTab === 'manage'
+                    ? 'text-accent border-b-2 border-accent bg-accent/5'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+                }`}
+              >
+                Manage Services
+              </button>
+            </div>
+          )}
 
           {/* Content */}
           <div className="p-6 space-y-8">
@@ -341,24 +335,7 @@ export function ServiceTrackerModal({ open, onClose }: ServiceTrackerModalProps)
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Color
-                    </label>
-                    <div className="flex gap-2">
-                      {DEFAULT_COLORS.slice(0, 4).map((color) => (
-                        <button
-                          key={color}
-                          className={`w-8 h-8 rounded-full border-2 ${
-                            serviceColor === color ? 'border-white' : 'border-gray-600'
-                          }`}
-                          style={{ backgroundColor: color }}
-                          onClick={() => setServiceColor(color)}
-                        />
-                      ))}
-                    </div>
-                  </div>
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">
                       Default Price

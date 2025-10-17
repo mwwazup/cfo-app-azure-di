@@ -426,6 +426,9 @@ export function MasterChart() {
       },
     },
     plugins: {
+      datalabels: {
+        display: false, // Disable datalabels plugin for this chart
+      },
       legend: {
         display: false,
       },
