@@ -322,3 +322,42 @@ export type RevenueKpi = typeof revenueKpis.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type ServiceActivity = typeof serviceActivities.$inferSelect;
 
+// -------- Weekly Budget Tracking --------
+export const weeklyBudgetTracking = pgTable("weekly_budget_tracking", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(), // Clerk user ID (TEXT format)
+  year: integer("year").notNull(),
+  month: integer("month").notNull(),
+  weekOfMonth: integer("week_of_month").notNull(),
+  weekStartDate: date("week_start_date").notNull(),
+  weekEndDate: date("week_end_date").notNull(),
+  weeklyBudgetTarget: numeric("weekly_budget_target", { precision: 15, scale: 2 }).default("0").notNull(),
+  monthlyFirTotal: numeric("monthly_fir_total", { precision: 15, scale: 2 }),
+  monthlyRevenuePercentage: numeric("monthly_revenue_percentage", { precision: 5, scale: 4 }),
+  actualRevenue: numeric("actual_revenue", { precision: 15, scale: 2 }).default("0"),
+  jobsCompleted: integer("jobs_completed").default(0),
+  varianceAmount: numeric("variance_amount", { precision: 15, scale: 2 }),
+  variancePercentage: numeric("variance_percentage", { precision: 5, scale: 2 }),
+  isOnTrack: boolean("is_on_track").default(true),
+  isAutoPopulated: boolean("is_auto_populated").default(false),
+  lastServiceSyncAt: timestamp("last_service_sync_at", { withTimezone: true }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  uniqUserWeek: uniqueIndex("uq_weekly_budget_user_week")
+    .on(t.userId, t.year, t.month, t.weekOfMonth),
+  userIdx: index("idx_weekly_budget_user").on(t.userId),
+  periodIdx: index("idx_weekly_budget_period").on(t.year, t.month),
+  weekIdx: index("idx_weekly_budget_week").on(t.weekStartDate),
+}));
+
+export const weeklyBudgetTrackingRelations = relations(weeklyBudgetTracking, ({ one }) => ({
+  user: one(profiles, {
+    fields: [weeklyBudgetTracking.userId],
+    references: [profiles.id],
+  }),
+}));
+
+export type WeeklyBudgetTracking = typeof weeklyBudgetTracking.$inferSelect;
+

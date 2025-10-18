@@ -12,7 +12,8 @@ import {
   Menu, 
   X,
   MessageCircle,
-  BarChart3
+  BarChart3,
+  Target
 } from 'lucide-react';
 import { useState } from 'react';
 // import VoiceCoach from '../VoiceCoach'; // DISABLED - Archived for future use
@@ -35,6 +36,7 @@ export function DashboardLayout() {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Master Revenue', href: '/revenue/master', icon: TrendingUp },
+    { name: 'Budget vs Actual', href: '/budget-vs-actual', icon: Target },
     { name: 'Service Mix', href: '/service-mix', icon: BarChart3 },
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },

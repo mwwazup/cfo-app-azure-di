@@ -16,6 +16,7 @@ import { MasterRevenuePage } from './pages/revenue/master';
 import { ServiceMixTestPage } from './pages/ServiceMixTest';
 import { ServiceMixPage } from './pages/ServiceMixPage';
 import { FinancialStatementsPage } from './pages/financial-statements';
+import { BudgetVsActualPage } from './pages/BudgetVsActualPage';
 import { YourBigFigPage } from './pages/coach/your-big-fig';
 import SMSCoachPage from './pages/coach/sms-coach';
 import { MomentumPage } from './pages/momentum';
@@ -109,6 +110,11 @@ function App() {
               {/* Test page for Service Mix feature */}
               <Route path="/service-mix-test" element={<DashboardLayout />}>
                 <Route index element={<ServiceMixTestPage />} />
+              </Route>
+              
+              {/* Budget vs Actual Tracking */}
+              <Route path="/budget-vs-actual" element={<DashboardLayout />}>
+                <Route index element={<BudgetVsActualPage />} />
               </Route>
               
               {/* Redirect any unknown routes to dashboard if authenticated, otherwise to home */}
