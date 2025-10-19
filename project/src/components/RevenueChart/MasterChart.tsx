@@ -72,7 +72,6 @@ export function MasterChart() {
     currentYear,
     selectedYear,
     availableYears,
-    historicalYears,
     updateMonthlyRevenue, 
     updateTargets, 
     saveAndLockYear,
@@ -315,9 +314,6 @@ export function MasterChart() {
       setActiveMonthIndex(null);
     }
   };
-
-  // Get current year for labeling
-  const currentYearNum = new Date().getFullYear();
 
   const getFilteredData = () => {
     switch (timePeriod) {
@@ -982,77 +978,6 @@ export function MasterChart() {
           )}
         </Card>
       </div>
-
-      {/* Historical Comparison - Only show for current/future years */}
-      {!isHistoricalYear && historicalYears.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                Historical Performance Comparison
-              </CardTitle>
-              {availableYears.length > 1 && (
-                <Select value={selectedYear.toString()} onValueChange={handleYearChange}>
-                  <SelectTrigger className="w-[200px]">
-                    <SelectValue placeholder="Select year" />
-                    <ChevronDown className="h-4 w-4 opacity-50" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableYears.map(year => (
-                      <SelectItem key={year} value={year.toString()}>
-                        {year} {year === currentYearNum ? '(Current Year)' : year < currentYearNum ? '(Historical)' : '(Future)'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {historicalYears.slice(-3).map((year) => {
-                const yearTotal = year.data.reduce((sum, item) => sum + item.revenue, 0);
-                const isCurrentComparison = year.year === selectedYear - 1;
-                
-                return (
-                  <div 
-                    key={year.year} 
-                    className={`flex items-center justify-between p-4 rounded-lg border transition-colors cursor-pointer hover:bg-gray-700 ${
-                      isCurrentComparison 
-                        ? 'bg-accent/20 border-accent' 
-                        : 'bg-card border-gray-700'
-                    }`}
-                    onClick={() => selectYear(year.year)}
-                  >
-                    <div>
-                      <h4 className="font-medium text-foreground flex items-center gap-2">
-                        {year.year}
-                        {isCurrentComparison && (
-                          <span className="text-xs bg-accent/20 text-accent px-2 py-1 rounded">
-                            Previous Year
-                          </span>
-                        )}
-                      </h4>
-                      <p className="text-sm text-gray-400">
-                        Actual Revenue (Historical)
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-medium text-foreground">
-                        ${Math.round(yearTotal).toLocaleString()}
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        Click to view details
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

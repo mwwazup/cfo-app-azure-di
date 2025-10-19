@@ -1,6 +1,7 @@
 import { ServiceMixBarChart } from '../components/services/ServiceMixBarChart';
 import { ServiceTrackerModal } from '../components/services/ServiceTrackerModalRedesigned';
 import { TrackActivitiesCard } from '../components/services/TrackActivitiesCard';
+import { ServiceAnalyticsSection } from '../components/services/ServiceAnalyticsSection';
 import { useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Plus } from 'lucide-react';
@@ -38,6 +39,8 @@ export function ServiceMixPage() {
       <ServiceMixBarChart year={currentYear} />
 
       <TrackActivitiesCard year={currentYear} />
+
+      <ServiceAnalyticsSection year={currentYear} />
 
       <ServiceTrackerModal
         open={modalOpen}

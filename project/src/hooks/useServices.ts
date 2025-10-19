@@ -397,7 +397,7 @@ export function useServiceRevenueData(year: number) {
     serviceId: string;
     serviceName: string;
     color: string;
-    monthlyRevenue: { month: number; revenue: number }[];
+    monthlyRevenue: { month: number; revenue: number; appointments: number }[];
   }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -413,14 +413,14 @@ export function useServiceRevenueData(year: number) {
         // Fetch all activities for the year
         const { data: activities, error: fetchError } = await supabase
           .from('service_activities')
-          .select('service_id, month, total_revenue')
+          .select('service_id, month, total_revenue, appointment_count')
           .eq('user_id', dbUserId)
           .eq('year', year);
 
         if (fetchError) throw fetchError;
 
         // Aggregate by service and month
-        const serviceMap = new Map<string, { month: number; revenue: number }[]>();
+        const serviceMap = new Map<string, { month: number; revenue: number; appointments: number }[]>();
         
         activities?.forEach((activity) => {
           if (!serviceMap.has(activity.service_id)) {
@@ -432,10 +432,12 @@ export function useServiceRevenueData(year: number) {
           
           if (monthData) {
             monthData.revenue += Number(activity.total_revenue || 0);
+            monthData.appointments += Number(activity.appointment_count || 0);
           } else {
             existing.push({
               month: activity.month,
-              revenue: Number(activity.total_revenue || 0)
+              revenue: Number(activity.total_revenue || 0),
+              appointments: Number(activity.appointment_count || 0)
             });
           }
         });

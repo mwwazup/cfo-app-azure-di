@@ -130,13 +130,7 @@ export function TrackActivitiesCard({ year }: TrackActivitiesCardProps) {
                 {services.map((service) => (
                   <tr key={service.id} className="border-t border-border">
                     <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: service.color }}
-                        />
-                        <span className="text-sm">{service.serviceName}</span>
-                      </div>
+                      <span className="text-sm font-medium">{service.serviceName}</span>
                     </td>
                     <td className="p-3">
                       <Input

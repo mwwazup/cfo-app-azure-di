@@ -307,14 +307,10 @@ export function ServiceMixBarChart({ year }: ServiceMixBarChartProps) {
                     onClick={() => toggleService(service.id)}
                     className={`flex items-center gap-2 p-2 rounded-md border transition-all ${
                       isSelected
-                        ? 'border-accent bg-accent/10'
+                        ? 'border-accent bg-muted/30'
                         : 'border-border hover:border-accent/50'
                     }`}
                   >
-                    <div
-                      className="w-3 h-3 rounded-sm flex-shrink-0"
-                      style={{ backgroundColor: service.color }}
-                    />
                     <div className="flex-1 text-left min-w-0">
                       <p className="text-xs font-medium text-foreground truncate">
                         {service.serviceName}

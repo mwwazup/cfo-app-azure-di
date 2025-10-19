@@ -279,6 +279,31 @@ export function useWeeklyBudget(year?: number, month?: number) {
   };
 
   /**
+   * Update weekly budget target
+   */
+  const updateWeeklyBudgetTarget = async (
+    weekId: string,
+    newTarget: number
+  ) => {
+    if (!dbUserId) throw new Error('User not authenticated');
+
+    const { data, error } = await supabase
+      .from('weekly_budget_tracking')
+      .update({
+        weekly_budget_target: newTarget,
+      })
+      .eq('id', weekId)
+      .eq('user_id', dbUserId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    
+    await fetchWeeklyBudget();
+    return data;
+  };
+
+  /**
    * Sync weekly actuals from service activities
    */
   const syncFromServiceMix = async (targetYear: number, targetMonth: number) => {
@@ -320,6 +345,7 @@ export function useWeeklyBudget(year?: number, month?: number) {
     error,
     initializeMonthlyBudget,
     updateWeeklyActual,
+    updateWeeklyBudgetTarget,
     syncFromServiceMix,
     deleteWeeklyEntry,
     refreshWeeklyBudget: fetchWeeklyBudget,
