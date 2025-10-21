@@ -397,6 +397,35 @@ export async function deleteDailyRecord(recordId: string): Promise<boolean> {
 // COGS SETTINGS
 // ============================================
 
+// Get services with COGS costs from services table
+export async function getServicesWithCOGS(userId: string): Promise<{ [key: string]: number }> {
+  if (!userId) {
+    return {};
+  }
+
+  const { data, error } = await supabase
+    .from('services')
+    .select('service_name, cogs_cost')
+    .eq('user_id', userId)
+    .eq('is_active', true);
+
+  if (error) {
+    console.error('Error fetching services with COGS:', error);
+    return {};
+  }
+
+  // Convert to object: { "grill": 19.20, "oven": 16.20, ... }
+  const cogsMap: { [key: string]: number } = {};
+  data?.forEach(service => {
+    if (service.service_name && service.cogs_cost) {
+      cogsMap[service.service_name] = parseFloat(service.cogs_cost);
+    }
+  });
+
+  return cogsMap;
+}
+
+// Legacy function - kept for backward compatibility
 export async function getCOGSSettings(userId: string): Promise<COGSSettings> {
   if (!userId) {
     return { grill: 19.20, oven: 16.20, range: 15.00, ventHood: 20.00 };

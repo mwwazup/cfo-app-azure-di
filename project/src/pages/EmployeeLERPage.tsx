@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -17,21 +18,18 @@ import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tool
 import { AddPayPeriodDialog } from '../components/employee/AddPayPeriodDialog';
 import { EditPayPeriodDialog } from '../components/employee/EditPayPeriodDialog';
 import { EditEmployeeDialog } from '../components/employee/EditEmployeeDialog';
-import { AddDailyRecordDialog } from '../components/employee/AddDailyRecordDialog';
+import { AddDailyRecordDialogDynamic } from '../components/employee/AddDailyRecordDialogDynamic';
 import { COGSSettingsDialog } from '../components/employee/COGSSettingsDialog';
 import { CompanySettingsDialog } from '../components/employee/CompanySettingsDialog';
 import { EmployeeSetupDialog } from '../components/employee/EmployeeSetupDialog';
-import { COGS_CALCULATOR, COMPANY_SETTINGS } from '../components/employee/AddDailyRecordDialog';
+import { COMPANY_SETTINGS } from '../components/employee/AddDailyRecordDialogDynamic';
 import { Settings } from 'lucide-react';
 import * as employeeLERService from '../services/employeeLERService';
 import { useAuthContext } from '../contexts/auth-context';
 
 // Types
 interface JobTypes {
-  grill: number;
-  oven: number;
-  range: number;
-  ventHood: number;
+  [serviceName: string]: number;
 }
 
 interface DailyRecord {
@@ -114,7 +112,7 @@ const EmployeeLERPage: React.FC = () => {
   const [showAddDay, setShowAddDay] = useState(false);
   const [showCOGSSettings, setShowCOGSSettings] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
-  const [cogsSettings, setCogsSettings] = useState(COGS_CALCULATOR);
+  const [servicesWithCOGS, setServicesWithCOGS] = useState<{ [key: string]: number }>({});
   const [companySettings, setCompanySettings] = useState(COMPANY_SETTINGS);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [editingRecord, setEditingRecord] = useState<{record: DailyRecord, index: number} | null>(null);
@@ -165,12 +163,16 @@ const EmployeeLERPage: React.FC = () => {
     try {
       // Check if user is authenticated
       if (!dbUserId) {
+        console.log('❌ No dbUserId - user not authenticated');
         setLoading(false);
         return;
       }
       
+      console.log('🔍 Loading employee data for user:', dbUserId);
+      
       // Load employee info
       const empInfo = await employeeLERService.getEmployeeInfo(dbUserId);
+      console.log('👤 Employee info loaded:', empInfo);
       
       // If no employee exists, show setup dialog
       if (!empInfo) {
@@ -189,15 +191,18 @@ const EmployeeLERPage: React.FC = () => {
         
         // Load pay periods
         const periods = await employeeLERService.getPayPeriods(empInfo.id);
+        console.log('📅 Pay periods loaded:', periods.length, 'periods');
         
         if (periods.length > 0) {
           // Load daily records for each period
           const periodsWithRecords = await Promise.all(
             periods.map(async (period) => {
               const records = await employeeLERService.getDailyRecords(period.id!);
+              console.log(`📊 Period "${period.period_name}":`, records.length, 'daily records');
               
               // Calculate totals
               const workingRecords = records.filter(r => !r.called_out && r.number_of_jobs > 0);
+              console.log(`   └─ Working records:`, workingRecords.length);
               
               return {
                 periodName: period.period_name,
@@ -250,14 +255,17 @@ const EmployeeLERPage: React.FC = () => {
             })
           );
           
+          console.log('✅ Setting pay periods data:', periodsWithRecords.length, 'periods with records');
           setPayPeriodsData(periodsWithRecords);
+        } else {
+          console.log('⚠️ No pay periods found for employee');
         }
       }
       
-      // Load settings
-      const cogsSettings = await employeeLERService.getCOGSSettings(dbUserId);
-      setCogsSettings(cogsSettings);
-      Object.assign(COGS_CALCULATOR, cogsSettings);
+      // Load services with COGS costs
+      const services = await employeeLERService.getServicesWithCOGS(dbUserId);
+      console.log('📦 Services with COGS loaded:', services);
+      setServicesWithCOGS(services);
       
       const companySettings = await employeeLERService.getCompanySettings(dbUserId);
       setCompanySettings(companySettings);
@@ -274,29 +282,71 @@ const EmployeeLERPage: React.FC = () => {
 
   const selectedPeriod = payPeriods[selectedPeriodIndex];
 
-  // Calculate KPIs
+  // Calculate YTD KPIs (across all pay periods in current year)
   const kpis = useMemo(() => {
-    if (!selectedPeriod) {
+    if (payPeriods.length === 0) {
       return {
         avgLER: 0,
-        bonusQualificationRate: 0,
-        revenuePerHour: 0,
-        profitMargin: 0
+        totalBonusEarned: 0,
+        avgHourlyRate: 0,
+        profitMargin: 0,
+        totalRevenue: 0,
+        totalHours: 0,
+        totalGrossProfit: 0
       };
     }
 
-    const records = selectedPeriod.dailyRecords.filter(r => !r.calledOut && r.numberOfJobs > 0);
-    const bonusQualifiedDays = records.filter(r => r.qualifyForBonus).length;
-    const totalRevenue = records.reduce((sum, r) => sum + r.totalJobRevenue, 0);
-    const totalHours = records.reduce((sum, r) => sum + r.totalHoursWorked, 0);
+    // Get current year
+    const currentYear = new Date().getFullYear();
+    const today = new Date();
+
+    // Aggregate all daily records from all pay periods in current year, up to today
+    const ytdRecords = payPeriods.flatMap(period => 
+      period.dailyRecords.filter(record => {
+        const recordDate = new Date(record.date);
+        return recordDate.getFullYear() === currentYear && recordDate <= today;
+      })
+    );
+
+    // Filter out called out days and days with no jobs
+    const workingRecords = ytdRecords.filter(r => !r.calledOut && r.numberOfJobs > 0);
+    
+    if (workingRecords.length === 0) {
+      return {
+        avgLER: 0,
+        totalBonusEarned: 0,
+        avgHourlyRate: 0,
+        profitMargin: 0,
+        totalRevenue: 0,
+        totalHours: 0,
+        totalGrossProfit: 0
+      };
+    }
+
+    // Calculate totals
+    const totalRevenue = workingRecords.reduce((sum, r) => sum + r.totalJobRevenue, 0);
+    const totalHours = workingRecords.reduce((sum, r) => sum + r.totalHoursWorked, 0);
+    const totalGrossProfit = workingRecords.reduce((sum, r) => sum + r.grossProfitBeforeBonus, 0);
+    const totalBasePay = workingRecords.reduce((sum, r) => sum + r.employeeBasePay, 0);
+    const totalNetProfit = workingRecords.reduce((sum, r) => sum + r.dailyNetProfitAfterBonus, 0);
+    const totalBonusEarned = workingRecords.reduce((sum, r) => sum + r.appointmentBasedBonus, 0);
+    const totalEmployeePay = workingRecords.reduce((sum, r) => sum + r.totalEmployeePay, 0);
+    
+    // Calculate averages
+    const avgLER = totalBasePay > 0 ? totalGrossProfit / totalBasePay : 0;
+    const avgHourlyRate = totalHours > 0 ? totalEmployeePay / totalHours : 0;
+    const profitMargin = totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : 0;
 
     return {
-      avgLER: selectedPeriod.periodTotals.avgLER,
-      bonusQualificationRate: records.length > 0 ? (bonusQualifiedDays / records.length) * 100 : 0,
-      revenuePerHour: totalHours > 0 ? totalRevenue / totalHours : 0,
-      profitMargin: selectedPeriod.periodTotals.netProfitAfterBonusPercent
+      avgLER,
+      totalBonusEarned,
+      avgHourlyRate,
+      profitMargin,
+      totalRevenue,
+      totalHours,
+      totalGrossProfit
     };
-  }, [selectedPeriod]);
+  }, [payPeriods]);
 
   // LER color coding
   const getLERColor = (ler: number): string => {
@@ -311,39 +361,56 @@ const EmployeeLERPage: React.FC = () => {
     return 'destructive';
   };
 
-  // Chart data
-  const lerTrendData = selectedPeriod?.dailyRecords
-    ? selectedPeriod.dailyRecords
-        .filter(r => !r.calledOut && r.numberOfJobs > 0)
-        .map(r => ({
-          date: r.date,
-          ler: r.ler,
-          revenue: r.totalJobRevenue
-        }))
-    : [];
+  // Chart data - YTD LER Trend (all periods)
+  const lerTrendData = useMemo(() => {
+    const allRecords: any[] = [];
+    
+    // Collect all daily records from all pay periods
+    payPeriodsData.forEach(period => {
+      period.dailyRecords.forEach(record => {
+        if (!record.calledOut && record.numberOfJobs > 0) {
+          allRecords.push({
+            date: new Date(record.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            ler: record.ler,
+            revenue: record.totalJobRevenue
+          });
+        }
+      });
+    });
+    
+    // Sort by date
+    return allRecords.sort((a, b) => {
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
+      return dateA.getTime() - dateB.getTime();
+    });
+  }, [payPeriodsData]);
 
+  // Job Type Distribution - YTD (all periods, dynamic services)
   const jobTypeData = useMemo(() => {
-    if (!selectedPeriod) {
-      return [];
-    }
-
-    const totals = selectedPeriod.dailyRecords.reduce(
-      (acc, r) => ({
-        grill: acc.grill + r.jobTypes.grill,
-        oven: acc.oven + r.jobTypes.oven,
-        range: acc.range + r.jobTypes.range,
-        ventHood: acc.ventHood + r.jobTypes.ventHood
-      }),
-      { grill: 0, oven: 0, range: 0, ventHood: 0 }
-    );
-
-    return [
-      { name: 'Grill', value: totals.grill, color: '#ef4444' },
-      { name: 'Oven', value: totals.oven, color: '#f59e0b' },
-      { name: 'Range', value: totals.range, color: '#10b981' },
-      { name: 'Vent Hood', value: totals.ventHood, color: '#3b82f6' }
-    ].filter(item => item.value > 0);
-  }, [selectedPeriod]);
+    const totals: { [key: string]: number } = {};
+    
+    // Collect all job types from all pay periods
+    payPeriodsData.forEach(period => {
+      period.dailyRecords.forEach(record => {
+        Object.entries(record.jobTypes).forEach(([serviceName, count]) => {
+          totals[serviceName] = (totals[serviceName] || 0) + count;
+        });
+      });
+    });
+    
+    // Generate colors dynamically
+    const colors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+    
+    return Object.entries(totals)
+      .map(([name, value], index) => ({
+        name: name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, ' '),
+        value,
+        color: colors[index % colors.length]
+      }))
+      .filter(item => item.value > 0)
+      .sort((a, b) => b.value - a.value); // Sort by count descending
+  }, [payPeriodsData]);
 
   // Render main content
   let content;
@@ -527,7 +594,7 @@ const EmployeeLERPage: React.FC = () => {
                 )}
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Average LER</p>
+                <p className="text-sm text-muted-foreground">Average LER (YTD)</p>
                 <div className={`text-2xl font-bold mt-1 ${getLERColor(kpis.avgLER)}`}>
                   {kpis.avgLER.toFixed(2)}
                 </div>
@@ -546,12 +613,12 @@ const EmployeeLERPage: React.FC = () => {
                 <Award className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Bonus Qualification</p>
+                <p className="text-sm text-muted-foreground">Bonus Earned (YTD)</p>
                 <div className="text-2xl font-bold text-foreground mt-1">
-                  {kpis.bonusQualificationRate.toFixed(0)}%
+                  ${kpis.totalBonusEarned.toFixed(0)}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Days qualified for bonus
+                  Total bonus compensation
                 </p>
               </div>
             </div>
@@ -565,12 +632,12 @@ const EmployeeLERPage: React.FC = () => {
                 <Clock className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Revenue per Hour</p>
+                <p className="text-sm text-muted-foreground">Avg Hourly Rate (YTD)</p>
                 <div className="text-2xl font-bold text-foreground mt-1">
-                  ${kpis.revenuePerHour.toFixed(0)}
+                  ${kpis.avgHourlyRate.toFixed(2)}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Average hourly revenue
+                  Including base pay, bonus & tips
                 </p>
               </div>
             </div>
@@ -584,12 +651,12 @@ const EmployeeLERPage: React.FC = () => {
                 <DollarSign className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Profit Margin</p>
+                <p className="text-sm text-muted-foreground">Profit Margin (YTD)</p>
                 <div className="text-2xl font-bold text-foreground mt-1">
                   {kpis.profitMargin.toFixed(1)}%
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Net profit after bonus
+                  Company net profit after bonus
                 </p>
               </div>
             </div>
@@ -602,7 +669,7 @@ const EmployeeLERPage: React.FC = () => {
         {/* LER Trend Chart */}
           <Card className="bg-muted/30 border-accent/50">
             <CardHeader>
-              <CardTitle className="text-foreground">LER Trend</CardTitle>
+              <CardTitle className="text-foreground">LER Trend (YTD)</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
@@ -624,7 +691,7 @@ const EmployeeLERPage: React.FC = () => {
           {/* Job Type Distribution */}
           <Card className="bg-muted/30">
             <CardHeader>
-              <CardTitle className="text-foreground">Job Type Distribution</CardTitle>
+              <CardTitle className="text-foreground">Job Type Distribution (YTD)</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
@@ -686,10 +753,12 @@ const EmployeeLERPage: React.FC = () => {
                 </thead>
                 <tbody>
                   {selectedPeriod.dailyRecords.map((record, index) => (
-                    <tr key={index} className="border-b border-gray-800 hover:bg-[rgb(17,24,39)]">
+                    <tr key={record.id || index} className="border-b border-gray-800 hover:bg-[rgb(17,24,39)]">
                       <td className="py-3 px-4 text-foreground">
                         <div className="font-medium">{record.workDay}</div>
-                        <div className="text-xs text-gray-500">{record.date}</div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(record.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-foreground">
                         {record.calledOut ? (
@@ -998,13 +1067,14 @@ const EmployeeLERPage: React.FC = () => {
         }}
       />
 
-      <AddDailyRecordDialog
+      <AddDailyRecordDialogDynamic
         open={showAddDay}
         onClose={() => {
           setShowAddDay(false);
           setEditingRecord(null);
         }}
         baseRate={selectedPeriod?.baseRate || employeeInfo.currentBaseRate}
+        servicesWithCOGS={servicesWithCOGS}
         editingRecord={editingRecord?.record || null}
         onUpdate={async (record) => {
           if (editingRecord) {
@@ -1019,6 +1089,7 @@ const EmployeeLERPage: React.FC = () => {
             const success = await employeeLERService.updateDailyRecord(recordToUpdate.id, supabaseRecord);
             
             if (success) {
+              setShowAddDay(false);
               setEditingRecord(null);
               await loadEmployeeData();
             } else {
@@ -1037,6 +1108,7 @@ const EmployeeLERPage: React.FC = () => {
           const savedRecord = await employeeLERService.createDailyRecord(currentPeriod.periodId, supabaseRecord);
           
           if (savedRecord) {
+            setShowAddDay(false);
             await loadEmployeeData();
           } else {
             alert('Error saving record. Please try again.');
@@ -1044,27 +1116,23 @@ const EmployeeLERPage: React.FC = () => {
         }}
       />
 
-      <COGSSettingsDialog
-        open={showCOGSSettings}
-        onClose={() => setShowCOGSSettings(false)}
-        currentSettings={cogsSettings}
-        onSave={async (settings) => {
-          if (!dbUserId) {
-            alert('Error: User not authenticated');
-            return;
-          }
-          
-          setCogsSettings(settings);
-          Object.assign(COGS_CALCULATOR, settings);
-          
-          const success = await employeeLERService.saveCOGSSettings(dbUserId, settings);
-          if (success) {
-            alert('COGS settings saved successfully!');
-          } else {
-            alert('Error saving COGS settings. Please try again.');
-          }
-        }}
-      />
+      {/* COGS Settings Dialog - DEPRECATED: Now using Service Mix for COGS costs */}
+      {showCOGSSettings && (
+        <Dialog open={showCOGSSettings} onOpenChange={() => setShowCOGSSettings(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>COGS Settings Moved</DialogTitle>
+            </DialogHeader>
+            <div className="p-4">
+              <p className="mb-4">COGS costs are now managed in the Service Mix page.</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Go to Service Mix → Manage Services to set COGS costs for each service.
+              </p>
+              <Button onClick={() => setShowCOGSSettings(false)}>Got it</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <CompanySettingsDialog
         open={showCompanySettings}

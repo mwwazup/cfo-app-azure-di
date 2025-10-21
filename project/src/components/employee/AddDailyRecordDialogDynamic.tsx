@@ -5,14 +5,6 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Checkbox } from '../ui/checkbox';
 
-// COGS Calculator - Average cost per service type
-export const COGS_CALCULATOR = {
-  grill: 19.20,
-  oven: 16.20,
-  range: 15.00,
-  ventHood: 20.00
-};
-
 // Company Settings
 export const COMPANY_SETTINGS = {
   overheadPercent: 32,
@@ -54,7 +46,7 @@ interface DailyRecord {
   notes: string;
 }
 
-interface AddDailyRecordDialogProps {
+interface AddDailyRecordDialogDynamicProps {
   open: boolean;
   onClose: () => void;
   onAdd: (record: DailyRecord) => void;
@@ -62,12 +54,33 @@ interface AddDailyRecordDialogProps {
   enableOvertime?: boolean;
   editingRecord?: DailyRecord | null;
   onUpdate?: (record: DailyRecord) => void;
-  servicesWithCOGS?: { [serviceName: string]: number };
+  servicesWithCOGS: { [serviceName: string]: number };
 }
 
-export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOvertime = false, editingRecord = null, onUpdate, servicesWithCOGS = {} }: AddDailyRecordDialogProps) {
+// Helper function to format service names for display
+function formatServiceName(serviceName: string): string {
+  return serviceName
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+// Helper function to round to 2 decimal places (for money)
+function roundToTwo(num: number): number {
+  return Math.round(num * 100) / 100;
+}
+
+export function AddDailyRecordDialogDynamic({ 
+  open, 
+  onClose, 
+  onAdd, 
+  baseRate, 
+  enableOvertime = false, 
+  editingRecord = null, 
+  onUpdate,
+  servicesWithCOGS 
+}: AddDailyRecordDialogDynamicProps) {
   const [date, setDate] = useState('');
-  // Dynamic service quantities - one entry per service
   const [serviceQuantities, setServiceQuantities] = useState<{ [serviceName: string]: string }>({});
   const [revenue, setRevenue] = useState('0');
   const [hours, setHours] = useState('0');
@@ -75,16 +88,27 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
   const [notes, setNotes] = useState('');
   const [applyOvertime, setApplyOvertime] = useState(enableOvertime);
 
+  // Initialize service quantities when services change
+  useEffect(() => {
+    const initialQuantities: { [key: string]: string } = {};
+    Object.keys(servicesWithCOGS).forEach(serviceName => {
+      initialQuantities[serviceName] = '0';
+    });
+    setServiceQuantities(initialQuantities);
+  }, [servicesWithCOGS]);
+
   // Load editing record data when dialog opens
   useEffect(() => {
     if (editingRecord) {
-      // Use date directly if already in ISO format (YYYY-MM-DD)
-      // This avoids timezone conversion issues
       setDate(editingRecord.date);
-      setGrillJobs(editingRecord.jobTypes.grill.toString());
-      setOvenJobs(editingRecord.jobTypes.oven.toString());
-      setRangeJobs(editingRecord.jobTypes.range.toString());
-      setVentHoodJobs(editingRecord.jobTypes.ventHood.toString());
+      
+      // Load service quantities from editing record
+      const quantities: { [key: string]: string } = {};
+      Object.keys(servicesWithCOGS).forEach(serviceName => {
+        quantities[serviceName] = (editingRecord.jobTypes[serviceName] || 0).toString();
+      });
+      setServiceQuantities(quantities);
+      
       setRevenue(editingRecord.totalJobRevenue.toString());
       setHours(editingRecord.totalHoursWorked.toString());
       setTips(editingRecord.tipAmount.toString());
@@ -92,21 +116,33 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
     } else {
       // Reset form for new record
       setDate('');
-      setGrillJobs('0');
-      setOvenJobs('0');
-      setRangeJobs('0');
-      setVentHoodJobs('0');
+      const resetQuantities: { [key: string]: string } = {};
+      Object.keys(servicesWithCOGS).forEach(serviceName => {
+        resetQuantities[serviceName] = '0';
+      });
+      setServiceQuantities(resetQuantities);
       setRevenue('0');
       setHours('0');
       setTips('0');
       setNotes('');
     }
-  }, [editingRecord, open]);
+  }, [editingRecord, open, servicesWithCOGS]);
+
+  const updateServiceQuantity = (serviceName: string, value: string) => {
+    setServiceQuantities(prev => ({
+      ...prev,
+      [serviceName]: value
+    }));
+  };
 
   const calculatePreview = () => {
     const totalRevenue = parseFloat(revenue) || 0;
     const totalHours = parseFloat(hours) || 0;
-    const totalJobs = parseInt(grillJobs) + parseInt(ovenJobs) + parseInt(rangeJobs) + parseInt(ventHoodJobs);
+    
+    // Calculate total jobs dynamically
+    const totalJobs = Object.values(serviceQuantities).reduce((sum, qty) => {
+      return sum + (parseInt(qty) || 0);
+    }, 0);
     
     // Calculate labor costs with optional overtime
     let regularHours = totalHours;
@@ -125,29 +161,29 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
     
     const basePay = employeeBaseHourlyPay + overtimePay;
     
-    // Calculate COGS based on actual services performed
-    const cogsNoLaborDollars = 
-      (parseInt(grillJobs) * COGS_CALCULATOR.grill) +
-      (parseInt(ovenJobs) * COGS_CALCULATOR.oven) +
-      (parseInt(rangeJobs) * COGS_CALCULATOR.range) +
-      (parseInt(ventHoodJobs) * COGS_CALCULATOR.ventHood);
+    // Calculate COGS dynamically based on services performed (full precision)
+    const cogsNoLaborDollars = Object.entries(serviceQuantities).reduce((total, [serviceName, qty]) => {
+      const quantity = parseInt(qty) || 0;
+      const costPerService = servicesWithCOGS[serviceName] || 0;
+      return total + (quantity * costPerService);
+    }, 0);
     
     const cogsNoLaborPercent = totalRevenue > 0 ? (cogsNoLaborDollars / totalRevenue) * 100 : 0;
     
-    // Calculate overhead allocation
+    // Calculate overhead allocation (full precision)
     const overheadPercent = COMPANY_SETTINGS.overheadPercent;
     const overheadAllocationRate = totalRevenue * (overheadPercent / 100);
     
-    // Calculate total cost of job
+    // Calculate total cost of job (full precision)
     const totalCostOfJob = basePay + cogsNoLaborDollars + overheadAllocationRate;
     
-    // Calculate gross profit before bonus
+    // Calculate gross profit before bonus (full precision)
     const grossProfitBeforeBonusDollars = totalRevenue - totalCostOfJob;
     const grossProfitBeforeBonusPercent = totalRevenue > 0 
-      ? (grossProfitBeforeBonusDollars / totalRevenue) * 100 
+      ? (grossProfitBeforeBonusDollars / totalRevenue) * 100
       : 0;
     
-    // Calculate LER (Labor Efficiency Ratio)
+    // Calculate LER (Labor Efficiency Ratio) - full precision
     const ler = basePay > 0 ? grossProfitBeforeBonusDollars / basePay : 0;
     
     // Check if qualifies for bonus (Gross Profit % between 25% and 100%)
@@ -155,7 +191,7 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
       grossProfitBeforeBonusPercent >= COMPANY_SETTINGS.bonusThresholdMin && 
       grossProfitBeforeBonusPercent <= COMPANY_SETTINGS.bonusThresholdMax;
     
-    // Calculate Bonus Qualified For $ = LER × Total Hours Worked (if qualified)
+    // Calculate Bonus Qualified For $ = LER × Total Hours Worked (if qualified) - full precision
     const bonusQualifiedForDollars = qualifyForBonus ? ler * totalHours : 0;
     
     // Calculate Appointment Based Bonus
@@ -166,39 +202,41 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
       appointmentBasedBonus = 10;
     }
     
-    // Total bonus
+    // Total bonus (full precision)
     const totalBonus = qualifyForBonus ? bonusQualifiedForDollars + appointmentBasedBonus : 0;
     
-    // Total employee pay
+    // Total employee pay (full precision)
     const tipAmount = parseFloat(tips) || 0;
     const totalEmployeePay = basePay + totalBonus + tipAmount;
     const dailyHourlyWithTipsAndBonus = totalHours > 0 ? totalEmployeePay / totalHours : 0;
     
-    // Net profit after bonus
+    // Net profit after bonus (full precision)
     const dailyNetProfitAfterBonus = grossProfitBeforeBonusDollars - totalBonus;
     const dailyNetProfitAfterBonusPercent = totalRevenue > 0 
-      ? (dailyNetProfitAfterBonus / totalRevenue) * 100 
+      ? (dailyNetProfitAfterBonus / totalRevenue) * 100
       : 0;
     
+    // Round all final values to 2 decimal places for display and saving
     return {
-      ler,
-      grossProfitBeforeBonusPercent,
-      grossProfitBeforeBonusDollars,
+      totalJobs,
+      ler: roundToTwo(ler),
+      grossProfitBeforeBonusPercent: roundToTwo(grossProfitBeforeBonusPercent),
+      grossProfitBeforeBonusDollars: roundToTwo(grossProfitBeforeBonusDollars),
       qualifyForBonus,
-      bonusQualifiedForDollars,
+      bonusQualifiedForDollars: roundToTwo(bonusQualifiedForDollars),
       appointmentBasedBonus,
-      totalBonus,
-      totalEmployeePay,
-      basePay,
-      overtimeHours,
-      overtimePay,
-      cogsNoLaborDollars,
-      cogsNoLaborPercent,
-      overheadAllocationRate,
-      totalCostOfJob,
-      dailyHourlyWithTipsAndBonus,
-      dailyNetProfitAfterBonus,
-      dailyNetProfitAfterBonusPercent
+      totalBonus: roundToTwo(totalBonus),
+      totalEmployeePay: roundToTwo(totalEmployeePay),
+      basePay: roundToTwo(basePay),
+      overtimeHours: roundToTwo(overtimeHours),
+      overtimePay: roundToTwo(overtimePay),
+      cogsNoLaborDollars: roundToTwo(cogsNoLaborDollars),
+      cogsNoLaborPercent: roundToTwo(cogsNoLaborPercent),
+      overheadAllocationRate: roundToTwo(overheadAllocationRate),
+      totalCostOfJob: roundToTwo(totalCostOfJob),
+      dailyHourlyWithTipsAndBonus: roundToTwo(dailyHourlyWithTipsAndBonus),
+      dailyNetProfitAfterBonus: roundToTwo(dailyNetProfitAfterBonus),
+      dailyNetProfitAfterBonusPercent: roundToTwo(dailyNetProfitAfterBonusPercent)
     };
   };
 
@@ -209,21 +247,25 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
     }
 
     const preview = calculatePreview();
-    const totalJobs = parseInt(grillJobs) + parseInt(ovenJobs) + parseInt(rangeJobs) + parseInt(ventHoodJobs);
     const totalRevenue = parseFloat(revenue);
     const totalHours = parseFloat(hours);
 
+    // Build jobTypes object dynamically
+    const jobTypes: { [key: string]: number } = {};
+    Object.entries(serviceQuantities).forEach(([serviceName, qty]) => {
+      jobTypes[serviceName] = parseInt(qty) || 0;
+    });
+
+    // Parse date locally to avoid timezone issues
+    const [year, month, day] = date.split('-').map(Number);
+    const localDate = new Date(year, month - 1, day);
+    
     const record: DailyRecord = {
-      workDay: new Date(date).toLocaleDateString('en-US', { weekday: 'long' }),
-      date: date, // Keep ISO format (YYYY-MM-DD) for database consistency
+      workDay: localDate.toLocaleDateString('en-US', { weekday: 'long' }),
+      date: date,
       calledOut: false,
-      numberOfJobs: totalJobs,
-      jobTypes: {
-        grill: parseInt(grillJobs),
-        oven: parseInt(ovenJobs),
-        range: parseInt(rangeJobs),
-        ventHood: parseInt(ventHoodJobs)
-      },
+      numberOfJobs: preview.totalJobs,
+      jobTypes: jobTypes,
       totalJobRevenue: totalRevenue,
       totalHoursWorked: totalHours,
       totalJobTime: totalHours,
@@ -256,16 +298,19 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
     
     // Reset form
     setDate('');
-    setGrillJobs('0');
-    setOvenJobs('0');
-    setRangeJobs('0');
-    setVentHoodJobs('0');
+    const resetQuantities: { [key: string]: string } = {};
+    Object.keys(servicesWithCOGS).forEach(serviceName => {
+      resetQuantities[serviceName] = '0';
+    });
+    setServiceQuantities(resetQuantities);
     setRevenue('0');
     setHours('0');
     setTips('0');
     setNotes('');
     onClose();
   };
+
+  const serviceNames = Object.keys(servicesWithCOGS);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -285,48 +330,35 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
             />
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Dynamic Service Inputs */}
+          {serviceNames.length > 0 ? (
             <div>
-              <Label htmlFor="grill">Grill Jobs</Label>
-              <Input 
-                id="grill" 
-                type="number" 
-                min="0" 
-                value={grillJobs} 
-                onChange={(e) => setGrillJobs(e.target.value)} 
-              />
+              <Label className="text-sm font-medium mb-2 block">Services Performed</Label>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {serviceNames.map(serviceName => (
+                  <div key={serviceName}>
+                    <Label htmlFor={serviceName} className="text-xs">
+                      {formatServiceName(serviceName)}
+                    </Label>
+                    <Input 
+                      id={serviceName}
+                      type="number" 
+                      min="0" 
+                      value={serviceQuantities[serviceName] || '0'}
+                      onChange={(e) => updateServiceQuantity(serviceName, e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-            <div>
-              <Label htmlFor="oven">Oven Jobs</Label>
-              <Input 
-                id="oven" 
-                type="number" 
-                min="0" 
-                value={ovenJobs} 
-                onChange={(e) => setOvenJobs(e.target.value)} 
-              />
+          ) : (
+            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                ⚠️ No services defined. Please add services in the Service Mix page first.
+              </p>
             </div>
-            <div>
-              <Label htmlFor="range">Range Jobs</Label>
-              <Input 
-                id="range" 
-                type="number" 
-                min="0" 
-                value={rangeJobs} 
-                onChange={(e) => setRangeJobs(e.target.value)} 
-              />
-            </div>
-            <div>
-              <Label htmlFor="ventHood">Vent Hood Jobs</Label>
-              <Input 
-                id="ventHood" 
-                type="number" 
-                min="0" 
-                value={ventHoodJobs} 
-                onChange={(e) => setVentHoodJobs(e.target.value)} 
-              />
-            </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>

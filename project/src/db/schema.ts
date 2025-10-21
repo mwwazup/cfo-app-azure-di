@@ -202,6 +202,7 @@ export const services = pgTable("services", {
   serviceCategory: text("service_category"),
   color: text("color"),
   defaultPrice: numeric("default_price", { precision: 15, scale: 2 }),
+  cogsCost: numeric("cogs_cost", { precision: 15, scale: 2 }),
   isAutoPricingEnabled: boolean("is_auto_pricing_enabled").default(false),
   displayOrder: integer("display_order").default(0),
   isActive: boolean("is_active").default(true),

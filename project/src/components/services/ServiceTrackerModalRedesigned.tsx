@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Plus, Trash2, Calendar, DollarSign, Hash, Save, TrendingUp, Activity } from 'lucide-react';
+import { X, Plus, Trash2, Edit2, Calendar, DollarSign, Hash, Save, TrendingUp, Activity } from 'lucide-react';
 import { useServices, useServiceActivities, getWeekOfMonth, getWeekDates } from '../../hooks/useServices';
 import { Button } from '../ui/button';
 
@@ -24,7 +24,7 @@ const SERVICE_CATEGORIES = [
 ];
 
 export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }: ServiceTrackerModalProps) {
-  const { services, createService, deleteService, refreshServices } = useServices();
+  const { services, createService, updateService, deleteService, refreshServices } = useServices();
   const [filterYear, setFilterYear] = useState<number>(new Date().getFullYear());
   const { createActivity, activities } = useServiceActivities(filterYear);
   
@@ -32,7 +32,9 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }
   const [serviceName, setServiceName] = useState('');
   const [serviceCategory, setServiceCategory] = useState('');
   const [defaultPrice, setDefaultPrice] = useState('');
+  const [cogsCost, setCogsCost] = useState('');
   const [autoPricing, setAutoPricing] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
 
   // Activity Tracking State
   const [selectedServiceId, setSelectedServiceId] = useState('');
@@ -67,6 +69,7 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }
         serviceCategory: serviceCategory || undefined,
         color: ACCENT_COLOR,
         defaultPrice: defaultPrice ? parseFloat(defaultPrice) : undefined,
+        cogsCost: cogsCost ? parseFloat(cogsCost) : undefined,
         isAutoPricingEnabled: autoPricing,
         displayOrder: services.length,
       });
@@ -75,6 +78,7 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }
       setServiceName('');
       setServiceCategory('');
       setDefaultPrice('');
+      setCogsCost('');
       setAutoPricing(false);
       
       // Refresh services list
@@ -86,6 +90,59 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleEditService = (service: any) => {
+    setEditingServiceId(service.id);
+    setServiceName(service.serviceName);
+    setServiceCategory(service.serviceCategory || '');
+    setDefaultPrice(service.defaultPrice ? service.defaultPrice.toString() : '');
+    setCogsCost(service.cogsCost ? service.cogsCost.toString() : '');
+    setAutoPricing(service.isAutoPricingEnabled || false);
+  };
+
+  const handleSaveService = async () => {
+    if (!serviceName.trim() || !editingServiceId) {
+      alert('Please enter a service name');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      await updateService(editingServiceId, {
+        serviceName,
+        serviceCategory: serviceCategory || undefined,
+        defaultPrice: defaultPrice ? parseFloat(defaultPrice) : undefined,
+        cogsCost: cogsCost ? parseFloat(cogsCost) : undefined,
+        isAutoPricingEnabled: autoPricing,
+      });
+
+      // Clear form
+      setEditingServiceId(null);
+      setServiceName('');
+      setServiceCategory('');
+      setDefaultPrice('');
+      setCogsCost('');
+      setAutoPricing(false);
+      
+      // Refresh services list
+      await refreshServices();
+      
+      alert('Service updated successfully');
+    } catch (error) {
+      alert(`Failed to update service: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingServiceId(null);
+    setServiceName('');
+    setServiceCategory('');
+    setDefaultPrice('');
+    setCogsCost('');
+    setAutoPricing(false);
   };
 
   const handleDeleteService = async (serviceId: string, serviceName: string) => {
@@ -283,27 +340,51 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }
                           {service.serviceCategory && (
                             <p className="text-xs text-muted-foreground">{service.serviceCategory}</p>
                           )}
-                          {service.isAutoPricingEnabled && service.defaultPrice && (
+                          <div className="flex gap-3 mt-1">
+                            {service.defaultPrice && (
+                              <p className="text-xs text-blue-400">
+                                Price: ${Number(service.defaultPrice).toFixed(2)}
+                              </p>
+                            )}
+                            {service.cogsCost && (
+                              <p className="text-xs text-orange-400">
+                                COGS: ${Number(service.cogsCost).toFixed(2)}
+                              </p>
+                            )}
+                          </div>
+                          {service.isAutoPricingEnabled && (
                             <p className="text-xs text-green-400">
-                              Auto-pricing: ${Number(service.defaultPrice).toFixed(2)}/appointment
+                              Auto-pricing enabled
                             </p>
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleDeleteService(service.id, service.serviceName)}
-                        className="p-2 hover:bg-gray-700 rounded transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4 text-red-400" />
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEditService(service)}
+                          className="p-2 hover:bg-gray-700 rounded transition-colors"
+                          title="Edit service"
+                        >
+                          <Edit2 className="h-4 w-4 text-blue-400" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteService(service.id, service.serviceName)}
+                          className="p-2 hover:bg-gray-700 rounded transition-colors"
+                          title="Delete service"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-400" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Add New Service Form */}
+              {/* Add/Edit Service Form */}
               <div className="p-4 border border-border rounded-lg bg-background space-y-4">
-                <h4 className="text-sm font-medium text-foreground">Add New Service</h4>
+                <h4 className="text-sm font-medium text-foreground">
+                  {editingServiceId ? 'Edit Service' : 'Add New Service'}
+                </h4>
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -342,33 +423,69 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }
                     </label>
                     <input
                       type="number"
+                      step="0.01"
                       placeholder="0.00"
                       value={defaultPrice}
                       onChange={(e) => setDefaultPrice(e.target.value)}
                       className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
                     />
                   </div>
-                  <div className="flex items-end">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={autoPricing}
-                        onChange={(e) => setAutoPricing(e.target.checked)}
-                        className="rounded"
-                      />
-                      <span className="text-sm text-foreground">Auto-calculate revenue</span>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      COGS Cost (per service)
                     </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={cogsCost}
+                      onChange={(e) => setCogsCost(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
+                    />
                   </div>
                 </div>
 
-                <Button
-                  onClick={handleAddService}
-                  disabled={!serviceName.trim() || isSaving}
-                  className="w-full"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Service
-                </Button>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoPricing}
+                      onChange={(e) => setAutoPricing(e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-sm text-foreground">Auto-calculate revenue</span>
+                  </label>
+                </div>
+
+                <div className="flex gap-2">
+                  {editingServiceId && (
+                    <Button
+                      onClick={handleCancelEdit}
+                      variant="outline"
+                      disabled={isSaving}
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                  <Button
+                    onClick={editingServiceId ? handleSaveService : handleAddService}
+                    disabled={!serviceName.trim() || isSaving}
+                    className="flex-1"
+                  >
+                    {editingServiceId ? (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save Changes
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Service
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
             )}

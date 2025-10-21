@@ -62,6 +62,7 @@ export function useServices() {
         serviceCategory: service.service_category,
         color: service.color,
         defaultPrice: service.default_price,
+        cogsCost: service.cogs_cost,
         isAutoPricingEnabled: service.is_auto_pricing_enabled,
         displayOrder: service.display_order,
         isActive: service.is_active,
@@ -88,6 +89,7 @@ export function useServices() {
     serviceCategory?: string;
     color?: string;
     defaultPrice?: number;
+    cogsCost?: number;
     isAutoPricingEnabled?: boolean;
     displayOrder?: number;
   }) => {
@@ -101,6 +103,7 @@ export function useServices() {
         service_category: serviceData.serviceCategory,
         color: serviceData.color,
         default_price: serviceData.defaultPrice,
+        cogs_cost: serviceData.cogsCost,
         is_auto_pricing_enabled: serviceData.isAutoPricingEnabled || false,
         display_order: serviceData.displayOrder || 0,
         is_active: true,
@@ -117,13 +120,14 @@ export function useServices() {
   const updateService = async (serviceId: string, updates: Partial<Service>) => {
     if (!dbUserId) throw new Error('User not authenticated');
 
-    const { data, error } = await supabase
+    const { data, error} = await supabase
       .from('services')
       .update({
         service_name: updates.serviceName,
         service_category: updates.serviceCategory,
         color: updates.color,
         default_price: updates.defaultPrice,
+        cogs_cost: updates.cogsCost,
         is_auto_pricing_enabled: updates.isAutoPricingEnabled,
         display_order: updates.displayOrder,
         notes: updates.notes,
