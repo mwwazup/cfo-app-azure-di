@@ -15,6 +15,7 @@ export interface PayPeriod {
   period_name: string;
   start_date: string;
   end_date: string;
+  base_rate?: number;  // Hourly rate at time of pay period creation
 }
 
 export interface DailyRecord {
@@ -33,6 +34,7 @@ export interface DailyRecord {
   total_job_revenue: number;
   total_hours_worked: number;
   total_job_time: number;
+  base_rate: number;  // Hourly rate used for this daily record
   employee_base_pay: number;
   overtime_hours: number;
   overtime_pay: number;
@@ -72,6 +74,55 @@ export interface CompanySettings {
 // EMPLOYEE INFO
 // ============================================
 
+// Get all employees for a manager
+export async function getAllEmployees(userId: string): Promise<EmployeeInfo[]> {
+  if (!userId) return [];
+
+  const { data, error } = await supabase
+    .from('employee_info')
+    .select('*')
+    .eq('user_id', userId)
+    .order('name');
+
+  if (error) {
+    console.error('Error fetching employees:', error);
+    return [];
+  }
+
+  return data ? data.map(emp => ({
+    id: emp.id,
+    user_id: emp.user_id,
+    name: emp.name,
+    position: emp.position,
+    current_base_rate: parseFloat(emp.current_base_rate)
+  })) : [];
+}
+
+// Get single employee by ID
+export async function getEmployeeById(employeeId: string): Promise<EmployeeInfo | null> {
+  if (!employeeId) return null;
+
+  const { data, error } = await supabase
+    .from('employee_info')
+    .select('*')
+    .eq('id', employeeId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error fetching employee info:', error);
+    return null;
+  }
+
+  return data ? {
+    id: data.id,
+    user_id: data.user_id,
+    name: data.name,
+    position: data.position,
+    current_base_rate: parseFloat(data.current_base_rate)
+  } : null;
+}
+
+// Legacy function - kept for backward compatibility
 export async function getEmployeeInfo(userId: string): Promise<EmployeeInfo | null> {
   if (!userId) return null;
 
@@ -162,14 +213,15 @@ export async function getPayPeriods(employeeId: string): Promise<PayPeriod[]> {
   return data || [];
 }
 
-export async function createPayPeriod(employeeId: string, period: PayPeriod): Promise<PayPeriod | null> {
+export async function createPayPeriod(employeeId: string, period: PayPeriod, baseRate: number): Promise<PayPeriod | null> {
   const { data, error } = await supabase
     .from('pay_periods')
     .insert([{
       employee_id: employeeId,
       period_name: period.period_name,
       start_date: period.start_date,
-      end_date: period.end_date
+      end_date: period.end_date,
+      base_rate: baseRate  // Store the base rate at time of pay period creation
     }])
     .select()
     .single();
@@ -180,6 +232,46 @@ export async function createPayPeriod(employeeId: string, period: PayPeriod): Pr
   }
 
   return data;
+}
+
+export async function updatePayPeriod(payPeriodId: string, updates: { period_name?: string; start_date?: string; end_date?: string; base_rate?: number }): Promise<boolean> {
+  const { error } = await supabase
+    .from('pay_periods')
+    .update(updates)
+    .eq('id', payPeriodId);
+
+  if (error) {
+    console.error('Error updating pay period:', error);
+    return false;
+  }
+
+  return true;
+}
+
+export async function deletePayPeriod(payPeriodId: string): Promise<boolean> {
+  // First check if there are any daily records
+  const { data: records } = await supabase
+    .from('employee_daily_records')
+    .select('id')
+    .eq('pay_period_id', payPeriodId)
+    .limit(1);
+
+  if (records && records.length > 0) {
+    console.error('Cannot delete pay period with existing daily records');
+    return false;
+  }
+
+  const { error } = await supabase
+    .from('pay_periods')
+    .delete()
+    .eq('id', payPeriodId);
+
+  if (error) {
+    console.error('Error deleting pay period:', error);
+    return false;
+  }
+
+  return true;
 }
 
 // ============================================
@@ -214,6 +306,7 @@ export async function createDailyRecord(payPeriodId: string, record: DailyRecord
       total_job_revenue: record.total_job_revenue,
       total_hours_worked: record.total_hours_worked,
       total_job_time: record.total_job_time,
+      base_rate: record.base_rate,
       employee_base_pay: record.employee_base_pay,
       overtime_hours: record.overtime_hours,
       overtime_pay: record.overtime_pay,
@@ -256,6 +349,7 @@ export async function updateDailyRecord(recordId: string, record: DailyRecord): 
       total_job_revenue: record.total_job_revenue,
       total_hours_worked: record.total_hours_worked,
       total_job_time: record.total_job_time,
+      base_rate: record.base_rate,
       employee_base_pay: record.employee_base_pay,
       overtime_hours: record.overtime_hours,
       overtime_pay: record.overtime_pay,

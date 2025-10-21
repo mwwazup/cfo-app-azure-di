@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AddPayPeriodDialog } from '../components/employee/AddPayPeriodDialog';
+import { EditPayPeriodDialog } from '../components/employee/EditPayPeriodDialog';
 import { EditEmployeeDialog } from '../components/employee/EditEmployeeDialog';
 import { AddDailyRecordDialog } from '../components/employee/AddDailyRecordDialog';
 import { COGSSettingsDialog } from '../components/employee/COGSSettingsDialog';
@@ -43,6 +44,7 @@ interface DailyRecord {
   totalJobRevenue: number;
   totalHoursWorked: number;
   totalJobTime: number;
+  baseRate: number;
   employeeBasePay: number;
   overtimeHours: number;
   overtimePay: number;
@@ -68,6 +70,7 @@ interface PayPeriod {
   periodName: string;
   startDate: string;
   endDate: string;
+  baseRate?: number;  // Hourly rate at time of pay period creation
   dailyRecords: DailyRecord[];
   periodTotals: {
     totalJobs: number;
@@ -107,13 +110,14 @@ const EmployeeLERPage: React.FC = () => {
   const [showEmployeeSetup, setShowEmployeeSetup] = useState(false);
   const [showEditEmployee, setShowEditEmployee] = useState(false);
   const [showAddPeriod, setShowAddPeriod] = useState(false);
+  const [showEditPeriod, setShowEditPeriod] = useState(false);
   const [showAddDay, setShowAddDay] = useState(false);
   const [showCOGSSettings, setShowCOGSSettings] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const [cogsSettings, setCogsSettings] = useState(COGS_CALCULATOR);
   const [companySettings, setCompanySettings] = useState(COMPANY_SETTINGS);
-  const [editingRecord, setEditingRecord] = useState<{record: DailyRecord, index: number} | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<{record: DailyRecord, index: number} | null>(null);
 
   // Helper function to convert DailyRecord to Supabase format
   function convertToSupabaseFormat(record: DailyRecord): employeeLERService.DailyRecord {
@@ -126,6 +130,7 @@ const EmployeeLERPage: React.FC = () => {
       total_job_revenue: record.totalJobRevenue,
       total_hours_worked: record.totalHoursWorked,
       total_job_time: record.totalJobTime,
+      base_rate: record.baseRate,
       employee_base_pay: record.employeeBasePay,
       overtime_hours: record.overtimeHours,
       overtime_pay: record.overtimePay,
@@ -199,6 +204,7 @@ const EmployeeLERPage: React.FC = () => {
                 startDate: period.start_date,
                 endDate: period.end_date,
                 periodId: period.id,
+                baseRate: period.base_rate,  // Include base rate from pay period
                 dailyRecords: records.map(r => ({
                   id: r.id,
                   workDay: r.work_day,
@@ -209,6 +215,7 @@ const EmployeeLERPage: React.FC = () => {
                   totalJobRevenue: r.total_job_revenue,
                   totalHoursWorked: r.total_hours_worked,
                   totalJobTime: r.total_job_time,
+                  baseRate: r.base_rate,
                   employeeBasePay: r.employee_base_pay,
                   overtimeHours: r.overtime_hours,
                   overtimePay: r.overtime_pay,
@@ -462,13 +469,47 @@ const EmployeeLERPage: React.FC = () => {
                 ))}
               </select>
             </div>
-            <Button 
-              onClick={() => setShowAddPeriod(true)}
-              className="bg-accent text-white hover:bg-accent/90"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Pay Period
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline"
+                onClick={() => setShowEditPeriod(true)}
+                disabled={payPeriods.length === 0}
+              >
+                Edit Period
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={async () => {
+                  if (!selectedPeriod?.periodId) return;
+                  
+                  if (selectedPeriod.dailyRecords && selectedPeriod.dailyRecords.length > 0) {
+                    alert('Cannot delete a pay period that has daily records. Please delete all records first.');
+                    return;
+                  }
+                  
+                  if (confirm(`Are you sure you want to delete "${selectedPeriod.periodName}"?`)) {
+                    const success = await employeeLERService.deletePayPeriod(selectedPeriod.periodId);
+                    if (success) {
+                      await loadEmployeeData();
+                      setSelectedPeriodIndex(0);
+                    } else {
+                      alert('Error deleting pay period. Please try again.');
+                    }
+                  }
+                }}
+                disabled={payPeriods.length === 0}
+                className="text-red-600 hover:text-red-700"
+              >
+                Delete Period
+              </Button>
+              <Button 
+                onClick={() => setShowAddPeriod(true)}
+                className="bg-accent text-white hover:bg-accent/90"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Pay Period
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -633,6 +674,7 @@ const EmployeeLERPage: React.FC = () => {
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Jobs</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Revenue</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Hours</th>
+                    <th className="text-left py-3 px-4 text-muted-foreground font-medium">Base Rate</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">LER</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Bonus</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Tips</th>
@@ -668,6 +710,9 @@ const EmployeeLERPage: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-foreground">
                         {record.totalHoursWorked.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-foreground font-medium">
+                        ${selectedPeriod.baseRate?.toFixed(2) || '0.00'}/hr
                       </td>
                       <td className="py-3 px-4">
                         <Badge variant={getLERBadgeColor(record.ler)}>
@@ -894,6 +939,7 @@ const EmployeeLERPage: React.FC = () => {
       <AddPayPeriodDialog
         open={showAddPeriod}
         onClose={() => setShowAddPeriod(false)}
+        currentBaseRate={employeeInfo.currentBaseRate}
         onAdd={async (period) => {
           if (!dbUserId) {
             alert('Error: User not authenticated');
@@ -910,7 +956,7 @@ const EmployeeLERPage: React.FC = () => {
             period_name: period.periodName,
             start_date: period.startDate,
             end_date: period.endDate
-          });
+          }, period.baseRate);
           
           if (created) {
             setShowAddPeriod(false);
@@ -921,13 +967,44 @@ const EmployeeLERPage: React.FC = () => {
         }}
       />
 
+      <EditPayPeriodDialog
+        open={showEditPeriod}
+        onClose={() => setShowEditPeriod(false)}
+        currentPeriod={selectedPeriod ? {
+          periodName: selectedPeriod.periodName,
+          startDate: selectedPeriod.startDate,
+          endDate: selectedPeriod.endDate,
+          baseRate: selectedPeriod.baseRate || employeeInfo.currentBaseRate
+        } : null}
+        onUpdate={async (period) => {
+          if (!selectedPeriod?.periodId) {
+            alert('Error: No pay period selected');
+            return;
+          }
+          
+          const success = await employeeLERService.updatePayPeriod(selectedPeriod.periodId, {
+            period_name: period.periodName,
+            start_date: period.startDate,
+            end_date: period.endDate,
+            base_rate: period.baseRate
+          });
+          
+          if (success) {
+            setShowEditPeriod(false);
+            await loadEmployeeData();
+          } else {
+            alert('Error updating pay period. Please try again.');
+          }
+        }}
+      />
+
       <AddDailyRecordDialog
         open={showAddDay}
         onClose={() => {
           setShowAddDay(false);
           setEditingRecord(null);
         }}
-        baseRate={employeeInfo.currentBaseRate}
+        baseRate={selectedPeriod?.baseRate || employeeInfo.currentBaseRate}
         editingRecord={editingRecord?.record || null}
         onUpdate={async (record) => {
           if (editingRecord) {

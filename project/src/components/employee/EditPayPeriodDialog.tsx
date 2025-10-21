@@ -1,21 +1,35 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 
-interface AddPayPeriodDialogProps {
+interface EditPayPeriodDialogProps {
   open: boolean;
   onClose: () => void;
-  currentBaseRate: number;
-  onAdd: (period: { periodName: string; startDate: string; endDate: string; baseRate: number }) => void;
+  currentPeriod: {
+    periodName: string;
+    startDate: string;
+    endDate: string;
+    baseRate: number;
+  } | null;
+  onUpdate: (period: { periodName: string; startDate: string; endDate: string; baseRate: number }) => void;
 }
 
-export function AddPayPeriodDialog({ open, onClose, currentBaseRate, onAdd }: AddPayPeriodDialogProps) {
+export function EditPayPeriodDialog({ open, onClose, currentPeriod, onUpdate }: EditPayPeriodDialogProps) {
   const [periodName, setPeriodName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [baseRate, setBaseRate] = useState(currentBaseRate.toString());
+  const [baseRate, setBaseRate] = useState('');
+
+  useEffect(() => {
+    if (currentPeriod && open) {
+      setPeriodName(currentPeriod.periodName);
+      setStartDate(currentPeriod.startDate);
+      setEndDate(currentPeriod.endDate);
+      setBaseRate(currentPeriod.baseRate.toString());
+    }
+  }, [currentPeriod, open]);
 
   const handleSubmit = () => {
     if (!periodName || !startDate || !endDate || !baseRate) {
@@ -27,11 +41,7 @@ export function AddPayPeriodDialog({ open, onClose, currentBaseRate, onAdd }: Ad
       alert('Please enter a valid base rate');
       return;
     }
-    onAdd({ periodName, startDate, endDate, baseRate: rate });
-    setPeriodName('');
-    setStartDate('');
-    setEndDate('');
-    setBaseRate(currentBaseRate.toString());
+    onUpdate({ periodName, startDate, endDate, baseRate: rate });
     onClose();
   };
 
@@ -39,7 +49,7 @@ export function AddPayPeriodDialog({ open, onClose, currentBaseRate, onAdd }: Ad
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add New Pay Period</DialogTitle>
+          <DialogTitle>Edit Pay Period</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div>
@@ -77,12 +87,14 @@ export function AddPayPeriodDialog({ open, onClose, currentBaseRate, onAdd }: Ad
               onChange={(e) => setBaseRate(e.target.value)}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Current employee rate: ${currentBaseRate.toFixed(2)}/hr
+              This rate will be used for all calculations in this pay period
             </p>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSubmit} className="bg-accent hover:bg-accent/90">Add Period</Button>
+            <Button onClick={handleSubmit} className="bg-accent hover:bg-accent/90">
+              Update Period
+            </Button>
           </div>
         </div>
       </DialogContent>

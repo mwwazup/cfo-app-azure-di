@@ -36,6 +36,7 @@ interface DailyRecord {
   totalJobRevenue: number;
   totalHoursWorked: number;
   totalJobTime: number;
+  baseRate: number;
   employeeBasePay: number;
   overtimeHours: number;
   overtimePay: number;
@@ -231,6 +232,7 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
       totalJobRevenue: totalRevenue,
       totalHoursWorked: totalHours,
       totalJobTime: totalHours,
+      baseRate: baseRate,
       employeeBasePay: preview.basePay,
       overtimeHours: preview.overtimeHours,
       overtimePay: preview.overtimePay,
@@ -446,7 +448,7 @@ export function AddDailyRecordDialog({ open, onClose, onAdd, baseRate, enableOve
                 ${calculatePreview().totalEmployeePay.toFixed(2)}
               </div>
               <div className="text-xs text-muted-foreground">
-                Base: ${calculatePreview().basePay.toFixed(2)} + Bonus: ${calculatePreview().totalBonus.toFixed(2)} + Tips: ${parseFloat(tips || '0').toFixed(2)}
+                Base: ${baseRate.toFixed(2)} × {hours || '0'} hrs = ${calculatePreview().basePay.toFixed(2)} | Bonus: ${calculatePreview().totalBonus.toFixed(2)} | Tips: ${parseFloat(tips || '0').toFixed(2)}
               </div>
             </div>
           </div>
