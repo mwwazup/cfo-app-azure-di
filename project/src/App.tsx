@@ -17,6 +17,7 @@ import { ServiceMixTestPage } from './pages/ServiceMixTest';
 import { ServiceMixPage } from './pages/ServiceMixPage';
 import { FinancialStatementsPage } from './pages/financial-statements';
 import { BudgetVsActualPage } from './pages/BudgetVsActualPage';
+import EmployeeLERPage from './pages/EmployeeLERPage';
 import { YourBigFigPage } from './pages/coach/your-big-fig';
 import SMSCoachPage from './pages/coach/sms-coach';
 import { MomentumPage } from './pages/momentum';
@@ -115,6 +116,11 @@ function App() {
               {/* Budget vs Actual Tracking */}
               <Route path="/budget-vs-actual" element={<DashboardLayout />}>
                 <Route index element={<BudgetVsActualPage />} />
+              </Route>
+              
+              {/* Employee LER Tracking */}
+              <Route path="/employee-ler" element={<DashboardLayout />}>
+                <Route index element={<EmployeeLERPage />} />
               </Route>
               
               {/* Redirect any unknown routes to dashboard if authenticated, otherwise to home */}

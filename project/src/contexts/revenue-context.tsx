@@ -399,23 +399,15 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
     const previousYearData = allYearsData.get(selectedYear - 1);
     const newMonthlyFIRTargets = calculateMonthlyFIRTargets(targetRevenue, previousYearData, yearData);
     
-    // Smart distribution to avoid rounding errors (same logic as backend)
-    const baseAmount = Math.floor(targetRevenue / 12 * 100) / 100;
-    const totalBase = baseAmount * 12;
-    const remainder = Math.round((targetRevenue - totalBase) * 100) / 100;
-    
+    // Use intelligent monthly FIR targets instead of flat distribution
     const updatedData = {
       ...yearData,
       targetRevenue,
       profitMargin,
       monthlyFIRTargets: newMonthlyFIRTargets,
       data: yearData.data.map((item, index) => {
-        let monthlyTarget = baseAmount;
-        
-        // Distribute remainder across first few months
-        if (index < Math.round(remainder * 100)) {
-          monthlyTarget += 0.01;
-        }
+        // Use the intelligent monthly FIR target for this month
+        const monthlyTarget = newMonthlyFIRTargets[index] || (targetRevenue / 12);
         
         return {
           ...item,
@@ -432,7 +424,8 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
           dbUserId,
           selectedYear,
           targetRevenue,
-          profitMargin
+          profitMargin,
+          newMonthlyFIRTargets // Pass intelligent monthly FIR targets
         );
         if (!res.success) {
           console.error(res.error || 'Unknown error saving targets');

@@ -13,7 +13,8 @@ import {
   X,
   MessageCircle,
   BarChart3,
-  Target
+  Target,
+  Users
 } from 'lucide-react';
 import { useState } from 'react';
 // import VoiceCoach from '../VoiceCoach'; // DISABLED - Archived for future use
@@ -38,6 +39,7 @@ export function DashboardLayout() {
     { name: 'Master Revenue', href: '/revenue/master', icon: TrendingUp },
     { name: 'Budget vs Actual', href: '/budget-vs-actual', icon: Target },
     { name: 'Service Mix', href: '/service-mix', icon: BarChart3 },
+    { name: 'Employee LER', href: '/employee-ler', icon: Users },
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
     { name: 'Your Big FIG', href: '/coach/your-big-fig', icon: Heart },

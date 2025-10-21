@@ -84,26 +84,39 @@ export class RevenueDataService {
     userId: string,
     year: number,
     targetRevenue: number,
-    profitMargin: number
+    profitMargin: number,
+    monthlyFIRTargets?: number[]
   ): Promise<{ success: boolean; error?: string }> {
     try {
       // Update all months for the year with new targets
       const months = Array.from({ length: 12 }, (_, i) => i + 1);
       
-      // Smart distribution to avoid rounding errors
-      const baseAmount = Math.floor(targetRevenue / 12 * 100) / 100;
-      const totalBase = baseAmount * 12;
-      const remainder = Math.round((targetRevenue - totalBase) * 100) / 100;
+      // Use intelligent monthly FIR targets if provided, otherwise fall back to flat distribution
+      let monthlyTargets: number[];
+      
+      if (monthlyFIRTargets && monthlyFIRTargets.length === 12) {
+        // Use the intelligent seasonal distribution
+        monthlyTargets = monthlyFIRTargets;
+      } else {
+        // Fallback: Smart flat distribution to avoid rounding errors
+        const baseAmount = Math.floor(targetRevenue / 12 * 100) / 100;
+        const totalBase = baseAmount * 12;
+        const remainder = Math.round((targetRevenue - totalBase) * 100) / 100;
+        
+        monthlyTargets = months.map((_, i) => {
+          let monthlyAmount = baseAmount;
+          // Distribute the remainder across the first few months (in cents)
+          if (i < Math.round(remainder * 100)) {
+            monthlyAmount += 0.01;
+          }
+          return monthlyAmount;
+        });
+      }
       
       // Update each month using the backend API
       for (let i = 0; i < months.length; i++) {
         const month = months[i];
-        let monthlyAmount = baseAmount;
-        
-        // Distribute the remainder across the first few months (in cents)
-        if (i < Math.round(remainder * 100)) {
-          monthlyAmount += 0.01;
-        }
+        const monthlyAmount = monthlyTargets[i];
         
         await upsertMonthlyRevenue({
           userId: userId, // Let backend handle user ID conversion
