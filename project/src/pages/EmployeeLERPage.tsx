@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { 
   TrendingUp, 
@@ -83,6 +84,7 @@ interface PayPeriod {
 }
 
 interface EmployeeInfo {
+  id?: string;
   name: string;
   position: string;
   currentBaseRate: number;
@@ -97,6 +99,10 @@ function parseLocalDate(dateString: string): Date {
 const EmployeeLERPage: React.FC = () => {
   // Get Clerk user ID
   const { dbUserId } = useAuthContext();
+  
+  // Multi-employee state
+  const [allEmployees, setAllEmployees] = useState<EmployeeInfo[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   
   // Employee and period state
   const [employeeInfo, setEmployeeInfo] = useState<EmployeeInfo>({
@@ -155,40 +161,66 @@ const EmployeeLERPage: React.FC = () => {
     };
   }
 
-  // Load employee data from Supabase
+  // Load all employees on mount
   useEffect(() => {
     if (dbUserId) {
-      loadEmployeeData();
+      loadAllEmployees();
     }
   }, [dbUserId]);
 
-  async function loadEmployeeData() {
-    setLoading(true);
+  // Load data when selected employee changes
+  useEffect(() => {
+    if (selectedEmployeeId) {
+      loadEmployeeData(selectedEmployeeId);
+    }
+  }, [selectedEmployeeId]);
+
+  async function loadAllEmployees() {
+    if (!dbUserId) return;
     
     try {
-      // Check if user is authenticated
-      if (!dbUserId) {
-        console.log('❌ No dbUserId - user not authenticated');
-        setLoading(false);
-        return;
-      }
+      const employees = await employeeLERService.getAllEmployees(dbUserId);
+      console.log('👥 All employees loaded:', employees.length);
       
-      console.log('🔍 Loading employee data for user:', dbUserId);
+      setAllEmployees(employees);
       
-      // Load employee info
-      const empInfo = await employeeLERService.getEmployeeInfo(dbUserId);
-      console.log('👤 Employee info loaded:', empInfo);
-      
-      // If no employee exists, show setup dialog
-      if (!empInfo) {
+      // If no employees exist, show setup dialog
+      if (employees.length === 0) {
         setNeedsSetup(true);
         setShowEmployeeSetup(true);
         setLoading(false);
         return;
       }
       
+      // Auto-select first employee
+      if (employees.length > 0 && !selectedEmployeeId) {
+        setSelectedEmployeeId(employees[0].id!);
+      }
+    } catch (error) {
+      console.error('Error loading employees:', error);
+      setLoading(false);
+    }
+  }
+
+  async function loadEmployeeData(employeeId: string) {
+    setLoading(true);
+    
+    try {
+      console.log('🔍 Loading data for employee:', employeeId);
+      
+      // Load employee info by ID
+      const empInfo = await employeeLERService.getEmployeeById(employeeId);
+      console.log('👤 Employee info loaded:', empInfo);
+      
+      if (!empInfo) {
+        console.error('Employee not found');
+        setLoading(false);
+        return;
+      }
+      
       if (empInfo && empInfo.id) {
         setEmployeeInfo({
+          id: empInfo.id,
           name: empInfo.name,
           position: empInfo.position,
           currentBaseRate: empInfo.current_base_rate
@@ -508,6 +540,38 @@ const EmployeeLERPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Employee Selector */}
+      {allEmployees.length > 1 && (
+        <Card className="bg-muted/30">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <Label htmlFor="employee-select" className="text-sm font-medium whitespace-nowrap">
+                Select Employee:
+              </Label>
+              <select
+                id="employee-select"
+                value={selectedEmployeeId}
+                onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                className="flex-1 px-3 py-2 border rounded-md bg-background text-foreground"
+              >
+                {allEmployees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} - {emp.position}
+                  </option>
+                ))}
+              </select>
+              <Button
+                onClick={() => setShowEmployeeSetup(true)}
+                className="bg-accent hover:bg-accent/90 whitespace-nowrap"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Employee
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Employee Info & Actions */}
       <Card>
@@ -1010,12 +1074,16 @@ const EmployeeLERPage: React.FC = () => {
             current_base_rate: employee.baseRate
           });
           
-          if (created) {
+          if (created && created.id) {
             setShowEmployeeSetup(false);
             setNeedsSetup(false);
+            
+            // Reload all employees and select the new one
+            await loadAllEmployees();
+            setSelectedEmployeeId(created.id);
+            
             // Show add pay period dialog next
             setShowAddPeriod(true);
-            await loadEmployeeData();
           } else {
             alert('Error creating employee profile. Please try again.');
           }
