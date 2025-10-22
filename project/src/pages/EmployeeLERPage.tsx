@@ -1107,20 +1107,22 @@ const EmployeeLERPage: React.FC = () => {
         onClose={() => setShowEditEmployee(false)}
         employee={employeeInfo}
         onSave={async (updated) => {
-          if (!dbUserId) {
-            alert('Error: User not authenticated');
+          if (!selectedEmployeeId) {
+            alert('Error: No employee selected');
             return;
           }
           
-          setEmployeeInfo(updated);
-          const success = await employeeLERService.updateEmployeeInfo(dbUserId, {
+          const success = await employeeLERService.updateEmployeeById(selectedEmployeeId, {
             name: updated.name,
             position: updated.position,
             current_base_rate: updated.currentBaseRate
           });
           
           if (success) {
+            setEmployeeInfo(updated);
             setShowEditEmployee(false);
+            // Reload all employees to update the dropdown
+            await loadAllEmployees();
           } else {
             alert('Error updating employee info. Please try again.');
           }
@@ -1132,18 +1134,12 @@ const EmployeeLERPage: React.FC = () => {
         onClose={() => setShowAddPeriod(false)}
         currentBaseRate={employeeInfo.currentBaseRate}
         onAdd={async (period) => {
-          if (!dbUserId) {
-            alert('Error: User not authenticated');
+          if (!selectedEmployeeId) {
+            alert('Error: No employee selected');
             return;
           }
           
-          const empInfo = await employeeLERService.getEmployeeInfo(dbUserId);
-          if (!empInfo || !empInfo.id) {
-            alert('Error: Employee not found');
-            return;
-          }
-          
-          const created = await employeeLERService.createPayPeriod(empInfo.id, {
+          const created = await employeeLERService.createPayPeriod(selectedEmployeeId, {
             period_name: period.periodName,
             start_date: period.startDate,
             end_date: period.endDate
@@ -1151,7 +1147,7 @@ const EmployeeLERPage: React.FC = () => {
           
           if (created) {
             setShowAddPeriod(false);
-            await loadEmployeeData();
+            await loadEmployeeData(selectedEmployeeId);
           } else {
             alert('Error creating pay period. Please try again.');
           }
@@ -1182,7 +1178,7 @@ const EmployeeLERPage: React.FC = () => {
           
           if (success) {
             setShowEditPeriod(false);
-            await loadEmployeeData();
+            await loadEmployeeData(selectedEmployeeId);
           } else {
             alert('Error updating pay period. Please try again.');
           }

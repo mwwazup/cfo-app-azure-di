@@ -130,7 +130,8 @@ export async function getEmployeeInfo(userId: string): Promise<EmployeeInfo | nu
     .maybeSingle();
 
   if (error) {
-    console.error('Error fetching employee info:', error);
+    console.error('Error fetching employee info (legacy function):', error);
+    console.error('This is expected if using multi-employee mode. Use getAllEmployees() instead.');
     return null;
   }
 
@@ -171,6 +172,28 @@ export async function createEmployeeInfo(userId: string, info: EmployeeInfo): Pr
   } : null;
 }
 
+// Update employee by ID (for multi-employee support)
+export async function updateEmployeeById(employeeId: string, info: Partial<EmployeeInfo>): Promise<boolean> {
+  if (!employeeId) return false;
+
+  const { error } = await supabase
+    .from('employee_info')
+    .update({
+      name: info.name,
+      position: info.position,
+      current_base_rate: info.current_base_rate
+    })
+    .eq('id', employeeId);
+
+  if (error) {
+    console.error('Error updating employee info:', error);
+    return false;
+  }
+
+  return true;
+}
+
+// Legacy function - updates first employee for user
 export async function updateEmployeeInfo(userId: string, info: EmployeeInfo): Promise<boolean> {
   if (!userId) return false;
 
@@ -184,7 +207,7 @@ export async function updateEmployeeInfo(userId: string, info: EmployeeInfo): Pr
     .eq('user_id', userId);
 
   if (error) {
-    console.error('Error updating employee info:', error);
+    console.error('Error updating employee info (legacy):', error);
     return false;
   }
 
