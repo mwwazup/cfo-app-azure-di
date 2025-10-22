@@ -83,12 +83,16 @@ interface PayPeriod {
   };
 }
 
+// Local interface for component state (camelCase)
 interface EmployeeInfo {
   id?: string;
   name: string;
   position: string;
   currentBaseRate: number;
 }
+
+// Import the service type for API responses (snake_case)
+import type { EmployeeInfo as EmployeeInfoDB } from '../services/employeeLERService';
 
 // Utility function to parse date strings locally (timezone-safe)
 function parseLocalDate(dateString: string): Date {
@@ -100,8 +104,8 @@ const EmployeeLERPage: React.FC = () => {
   // Get Clerk user ID
   const { dbUserId } = useAuthContext();
   
-  // Multi-employee state
-  const [allEmployees, setAllEmployees] = useState<EmployeeInfo[]>([]);
+  // Multi-employee state (uses DB type with snake_case)
+  const [allEmployees, setAllEmployees] = useState<EmployeeInfoDB[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   
   // Employee and period state
@@ -203,6 +207,13 @@ const EmployeeLERPage: React.FC = () => {
   }
 
   async function loadEmployeeData(employeeId: string) {
+    if (!employeeId) {
+      console.error('❌ loadEmployeeData called with undefined/empty employeeId');
+      console.error('Current selectedEmployeeId:', selectedEmployeeId);
+      console.error('Stack trace:', new Error().stack);
+      return;
+    }
+    
     console.log('🔄 Switching to employee:', employeeId);
     setLoading(true);
     
@@ -218,7 +229,7 @@ const EmployeeLERPage: React.FC = () => {
       console.log('👤 Employee info loaded:', empInfo);
       
       if (!empInfo) {
-        console.error('Employee not found');
+        console.error('Employee not found for ID:', employeeId);
         setLoading(false);
         return;
       }
