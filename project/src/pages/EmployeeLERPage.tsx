@@ -1221,7 +1221,7 @@ const EmployeeLERPage: React.FC = () => {
             if (success) {
               setShowAddDay(false);
               setEditingRecord(null);
-              await loadEmployeeData();
+              await loadEmployeeData(selectedEmployeeId);
             } else {
               alert('Error updating record. Please try again.');
             }
@@ -1246,7 +1246,7 @@ const EmployeeLERPage: React.FC = () => {
           
           if (savedRecord) {
             setShowAddDay(false);
-            await loadEmployeeData();
+            await loadEmployeeData(selectedEmployeeId);
           } else {
             alert('Error saving record. Please try again.');
           }
