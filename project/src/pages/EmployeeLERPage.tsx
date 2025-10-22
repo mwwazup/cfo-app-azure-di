@@ -1133,6 +1133,7 @@ const EmployeeLERPage: React.FC = () => {
         open={showAddPeriod}
         onClose={() => setShowAddPeriod(false)}
         currentBaseRate={employeeInfo.currentBaseRate}
+        hasMultipleEmployees={allEmployees.length > 1}
         onAdd={async (period) => {
           if (!selectedEmployeeId) {
             alert('Error: No employee selected');
@@ -1150,6 +1151,43 @@ const EmployeeLERPage: React.FC = () => {
             await loadEmployeeData(selectedEmployeeId);
           } else {
             alert('Error creating pay period. Please try again.');
+          }
+        }}
+        onAddForAllEmployees={async (period) => {
+          try {
+            let successCount = 0;
+            let failCount = 0;
+            
+            // Create pay period for each employee with their own base rate
+            for (const employee of allEmployees) {
+              if (employee.id) {
+                const created = await employeeLERService.createPayPeriod(employee.id, {
+                  period_name: period.periodName,
+                  start_date: period.startDate,
+                  end_date: period.endDate
+                }, employee.current_base_rate);
+                
+                if (created) {
+                  successCount++;
+                } else {
+                  failCount++;
+                }
+              }
+            }
+            
+            setShowAddPeriod(false);
+            
+            if (failCount === 0) {
+              alert(`✅ Pay period "${period.periodName}" created for all ${successCount} employees!`);
+            } else {
+              alert(`⚠️ Pay period created for ${successCount} employees, but failed for ${failCount} employees.`);
+            }
+            
+            // Reload current employee's data
+            await loadEmployeeData(selectedEmployeeId);
+          } catch (error) {
+            console.error('Error creating bulk pay period:', error);
+            alert('Error creating pay periods. Please try again.');
           }
         }}
       />
