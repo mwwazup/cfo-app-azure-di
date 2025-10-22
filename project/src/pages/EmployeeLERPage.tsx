@@ -203,7 +203,12 @@ const EmployeeLERPage: React.FC = () => {
   }
 
   async function loadEmployeeData(employeeId: string) {
+    console.log('🔄 Switching to employee:', employeeId);
     setLoading(true);
+    
+    // Clear previous employee's data immediately to prevent stale data
+    setPayPeriodsData([]);
+    setSelectedPeriodIndex(0);
     
     try {
       console.log('🔍 Loading data for employee:', employeeId);
@@ -599,6 +604,13 @@ const EmployeeLERPage: React.FC = () => {
               >
                 <Users className="h-4 w-4" />
                 Edit Employee
+              </Button>
+              <Button 
+                onClick={() => setShowEmployeeSetup(true)}
+                className="bg-accent hover:bg-accent/90 gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Add Employee
               </Button>
               <Button variant="outline" className="gap-2">
                 <Download className="h-4 w-4" />
