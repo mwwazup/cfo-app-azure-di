@@ -26,10 +26,7 @@ export interface DailyRecord {
   called_out: boolean;
   number_of_jobs: number;
   job_types: {
-    grill: number;
-    oven: number;
-    range: number;
-    ventHood: number;
+    [serviceName: string]: number;
   };
   total_job_revenue: number;
   total_hours_worked: number;

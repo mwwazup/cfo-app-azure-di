@@ -19,7 +19,6 @@ import { AddPayPeriodDialog } from '../components/employee/AddPayPeriodDialog';
 import { EditPayPeriodDialog } from '../components/employee/EditPayPeriodDialog';
 import { EditEmployeeDialog } from '../components/employee/EditEmployeeDialog';
 import { AddDailyRecordDialogDynamic } from '../components/employee/AddDailyRecordDialogDynamic';
-import { COGSSettingsDialog } from '../components/employee/COGSSettingsDialog';
 import { CompanySettingsDialog } from '../components/employee/CompanySettingsDialog';
 import { EmployeeSetupDialog } from '../components/employee/EmployeeSetupDialog';
 import { COMPANY_SETTINGS } from '../components/employee/AddDailyRecordDialogDynamic';
@@ -87,6 +86,12 @@ interface EmployeeInfo {
   name: string;
   position: string;
   currentBaseRate: number;
+}
+
+// Utility function to parse date strings locally (timezone-safe)
+function parseLocalDate(dateString: string): Date {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
 }
 
 const EmployeeLERPage: React.FC = () => {
@@ -303,7 +308,7 @@ const EmployeeLERPage: React.FC = () => {
     // Aggregate all daily records from all pay periods in current year, up to today
     const ytdRecords = payPeriods.flatMap(period => 
       period.dailyRecords.filter(record => {
-        const recordDate = new Date(record.date);
+        const recordDate = parseLocalDate(record.date);
         return recordDate.getFullYear() === currentYear && recordDate <= today;
       })
     );
@@ -361,41 +366,63 @@ const EmployeeLERPage: React.FC = () => {
     return 'destructive';
   };
 
-  // Chart data - YTD LER Trend (all periods)
+  // Chart data - YTD LER Trend (current year only, aggregated by month)
   const lerTrendData = useMemo(() => {
-    const allRecords: any[] = [];
+    const monthlyData: { [key: string]: { totalLER: number; count: number; revenue: number } } = {};
+    const currentYear = new Date().getFullYear();
+    const today = new Date();
     
-    // Collect all daily records from all pay periods
+    // Collect all daily records from all pay periods in current year, up to today
     payPeriodsData.forEach(period => {
       period.dailyRecords.forEach(record => {
         if (!record.calledOut && record.numberOfJobs > 0) {
-          allRecords.push({
-            date: new Date(record.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            ler: record.ler,
-            revenue: record.totalJobRevenue
-          });
+          const recordDate = parseLocalDate(record.date);
+          if (recordDate.getFullYear() === currentYear && recordDate <= today) {
+            const monthKey = recordDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+            
+            if (!monthlyData[monthKey]) {
+              monthlyData[monthKey] = { totalLER: 0, count: 0, revenue: 0 };
+            }
+            
+            monthlyData[monthKey].totalLER += record.ler;
+            monthlyData[monthKey].count += 1;
+            monthlyData[monthKey].revenue += record.totalJobRevenue;
+          }
         }
       });
     });
     
-    // Sort by date
-    return allRecords.sort((a, b) => {
-      const dateA = new Date(a.date);
-      const dateB = new Date(b.date);
-      return dateA.getTime() - dateB.getTime();
-    });
+    // Convert to array and calculate averages
+    return Object.entries(monthlyData)
+      .map(([month, data]) => ({
+        month: month.replace(/\s\d{4}/, ''), // Remove year from display (e.g., "Jan 2025" -> "Jan")
+        ler: data.totalLER / data.count, // Average LER for the month
+        revenue: data.revenue,
+        days: data.count
+      }))
+      .sort((a, b) => {
+        // Sort by month chronologically
+        const monthA = new Date(a.month + ' 1, ' + currentYear);
+        const monthB = new Date(b.month + ' 1, ' + currentYear);
+        return monthA.getTime() - monthB.getTime();
+      });
   }, [payPeriodsData]);
 
-  // Job Type Distribution - YTD (all periods, dynamic services)
+  // Job Type Distribution - YTD (current year only, dynamic services)
   const jobTypeData = useMemo(() => {
     const totals: { [key: string]: number } = {};
+    const currentYear = new Date().getFullYear();
+    const today = new Date();
     
-    // Collect all job types from all pay periods
+    // Collect all job types from all pay periods in current year, up to today
     payPeriodsData.forEach(period => {
       period.dailyRecords.forEach(record => {
-        Object.entries(record.jobTypes).forEach(([serviceName, count]) => {
-          totals[serviceName] = (totals[serviceName] || 0) + count;
-        });
+        const recordDate = parseLocalDate(record.date);
+        if (recordDate.getFullYear() === currentYear && recordDate <= today) {
+          Object.entries(record.jobTypes).forEach(([serviceName, count]) => {
+            totals[serviceName] = (totals[serviceName] || 0) + count;
+          });
+        }
       });
     });
     
@@ -652,7 +679,7 @@ const EmployeeLERPage: React.FC = () => {
               </div>
               <div className="flex-1">
                 <p className="text-sm text-muted-foreground">Profit Margin (YTD)</p>
-                <div className="text-2xl font-bold text-foreground mt-1">
+                <div className={`text-2xl font-bold mt-1 ${kpis.profitMargin >= 25 ? 'text-green-600' : 'text-red-600'}`}>
                   {kpis.profitMargin.toFixed(1)}%
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -669,20 +696,30 @@ const EmployeeLERPage: React.FC = () => {
         {/* LER Trend Chart */}
           <Card className="bg-muted/30 border-accent/50">
             <CardHeader>
-              <CardTitle className="text-foreground">LER Trend (YTD)</CardTitle>
+              <CardTitle className="text-foreground">
+                LER Trend (YTD) - {lerTrendData.reduce((sum, m) => sum + m.days, 0)} days across {lerTrendData.length} months
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={lerTrendData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="date" stroke="#9ca3af" />
+                  <XAxis dataKey="month" stroke="#9ca3af" />
                   <YAxis stroke="#9ca3af" />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151' }}
                     labelStyle={{ color: '#fff' }}
+                    formatter={(value: any, name: string) => {
+                      if (name === 'ler') return [value.toFixed(2), 'Avg LER'];
+                      return [value, name];
+                    }}
+                    labelFormatter={(label: string) => {
+                      const monthData = lerTrendData.find(m => m.month === label);
+                      return `${label} (${monthData?.days || 0} days)`;
+                    }}
                   />
                   <Legend />
-                  <Line type="monotone" dataKey="ler" stroke="#3b82f6" strokeWidth={2} name="LER" />
+                  <Line type="monotone" dataKey="ler" stroke="#3b82f6" strokeWidth={2} name="Avg LER" />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>
@@ -691,7 +728,9 @@ const EmployeeLERPage: React.FC = () => {
           {/* Job Type Distribution */}
           <Card className="bg-muted/30">
             <CardHeader>
-              <CardTitle className="text-foreground">Job Type Distribution (YTD)</CardTitle>
+              <CardTitle className="text-foreground">
+                Job Type Distribution (YTD) - {jobTypeData.reduce((sum, item) => sum + item.value, 0)} total jobs
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
@@ -757,7 +796,7 @@ const EmployeeLERPage: React.FC = () => {
                       <td className="py-3 px-4 text-foreground">
                         <div className="font-medium">{record.workDay}</div>
                         <div className="text-xs text-gray-500">
-                          {new Date(record.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {parseLocalDate(record.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </div>
                       </td>
                       <td className="py-3 px-4 text-foreground">
@@ -769,7 +808,10 @@ const EmployeeLERPage: React.FC = () => {
                           <div>
                             <div className="font-medium">{record.numberOfJobs}</div>
                             <div className="text-xs text-gray-500">
-                              G:{record.jobTypes.grill} O:{record.jobTypes.oven} R:{record.jobTypes.range} V:{record.jobTypes.ventHood}
+                              {Object.entries(record.jobTypes)
+                                .filter(([_, count]) => count > 0)
+                                .map(([service, count]) => `${service.substring(0, 1).toUpperCase()}: ${count}`)
+                                .join(' ')}
                             </div>
                           </div>
                         )}
@@ -1078,11 +1120,23 @@ const EmployeeLERPage: React.FC = () => {
         editingRecord={editingRecord?.record || null}
         onUpdate={async (record) => {
           if (editingRecord) {
-            const recordToUpdate = payPeriodsData[selectedPeriodIndex].dailyRecords[editingRecord.index];
+            const currentPeriod = payPeriodsData[selectedPeriodIndex];
+            const recordToUpdate = currentPeriod.dailyRecords[editingRecord.index];
             
             if (!recordToUpdate.id) {
               alert('Error: Record ID not found');
               return;
+            }
+            
+            // Check if date was changed and if the new date already exists (excluding current record)
+            if (record.date !== recordToUpdate.date) {
+              const dateExists = currentPeriod.dailyRecords.some((r, idx) => 
+                idx !== editingRecord.index && r.date === record.date
+              );
+              if (dateExists) {
+                alert(`A record for ${new Date(record.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} already exists in this pay period. Please choose a different date.`);
+                return;
+              }
             }
             
             const supabaseRecord = convertToSupabaseFormat(record);
@@ -1101,6 +1155,13 @@ const EmployeeLERPage: React.FC = () => {
           const currentPeriod = payPeriodsData[selectedPeriodIndex];
           if (!currentPeriod.periodId) {
             alert('Error: No pay period selected');
+            return;
+          }
+          
+          // Check if date already exists in this pay period
+          const dateExists = currentPeriod.dailyRecords.some(r => r.date === record.date);
+          if (dateExists) {
+            alert(`A record for ${new Date(record.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} already exists in this pay period. Please edit the existing record or choose a different date.`);
             return;
           }
           
