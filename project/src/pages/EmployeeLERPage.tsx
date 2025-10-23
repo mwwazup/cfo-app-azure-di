@@ -13,7 +13,12 @@ import {
   Users,
   Calendar,
   Download,
-  Plus
+  Plus,
+  AlertCircle,
+  CheckCircle,
+  Lightbulb,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AddPayPeriodDialog } from '../components/employee/AddPayPeriodDialog';
@@ -117,6 +122,10 @@ const EmployeeLERPage: React.FC = () => {
 
   const [selectedPeriodIndex, setSelectedPeriodIndex] = useState(0);
   const [payPeriodsData, setPayPeriodsData] = useState<PayPeriod[]>([]);
+  
+  // Insights panel state
+  const [insightsViewMode, setInsightsViewMode] = useState<'period' | 'ytd'>('period');
+  const [insightsExpanded, setInsightsExpanded] = useState(true);
   const [loading, setLoading] = useState(true);
   
   // Dialog state
@@ -203,6 +212,19 @@ const EmployeeLERPage: React.FC = () => {
     } catch (error) {
       console.error('Error loading employees:', error);
       setLoading(false);
+    }
+  }
+
+  // Refresh services from Service Mix
+  async function refreshServices() {
+    if (!dbUserId) return;
+    
+    try {
+      const services = await employeeLERService.getServicesWithCOGS(dbUserId);
+      console.log('🔄 Services refreshed:', services);
+      setServicesWithCOGS(services);
+    } catch (error) {
+      console.error('Error refreshing services:', error);
     }
   }
 
@@ -316,11 +338,11 @@ const EmployeeLERPage: React.FC = () => {
       }
       
       // Load services with COGS costs
-      const services = await employeeLERService.getServicesWithCOGS(dbUserId);
+      const services = await employeeLERService.getServicesWithCOGS(dbUserId!);
       console.log('📦 Services with COGS loaded:', services);
       setServicesWithCOGS(services);
       
-      const companySettings = await employeeLERService.getCompanySettings(dbUserId);
+      const companySettings = await employeeLERService.getCompanySettings(dbUserId!);
       setCompanySettings(companySettings);
       Object.assign(COMPANY_SETTINGS, companySettings);
       
@@ -400,6 +422,94 @@ const EmployeeLERPage: React.FC = () => {
       totalGrossProfit
     };
   }, [payPeriods]);
+
+  // Calculate employee insights based on view mode
+  const employeeInsights = useMemo(() => {
+    const insights: Array<{ type: 'success' | 'warning' | 'info' | 'tip'; title: string; message: string; }> = [];
+    
+    const records = insightsViewMode === 'period' 
+      ? payPeriods[selectedPeriodIndex]?.dailyRecords || []
+      : payPeriods.flatMap(p => p.dailyRecords);
+    
+    const workingRecords = records.filter(r => !r.calledOut && r.numberOfJobs > 0);
+    
+    if (workingRecords.length === 0) {
+      insights.push({ type: 'info', title: 'No Data Yet', message: `No working days recorded for ${insightsViewMode === 'period' ? 'this pay period' : 'this year'}.` });
+      return insights;
+    }
+
+    const avgLER = workingRecords.reduce((sum, r) => sum + r.ler, 0) / workingRecords.length;
+    const avgProfit = workingRecords.reduce((sum, r) => sum + r.grossProfitBeforeBonusPercent, 0) / workingRecords.length;
+    const totalRevenue = workingRecords.reduce((sum, r) => sum + r.totalJobRevenue, 0);
+    const totalJobs = workingRecords.reduce((sum, r) => sum + r.numberOfJobs, 0);
+    const totalBonuses = workingRecords.reduce((sum, r) => sum + r.appointmentBasedBonus, 0);
+    const avgJobsPerDay = totalJobs / workingRecords.length;
+    const avgRevenuePerJob = totalRevenue / totalJobs;
+    const lerVariance = workingRecords.reduce((sum, r) => sum + Math.pow(r.ler - avgLER, 2), 0) / workingRecords.length;
+    const lerStdDev = Math.sqrt(lerVariance);
+    const sortedByLER = [...workingRecords].sort((a, b) => b.ler - a.ler);
+    const bestDay = sortedByLER[0];
+    
+    const serviceCount: { [key: string]: number } = {};
+    workingRecords.forEach(record => {
+      Object.entries(record.jobTypes).forEach(([service, count]) => {
+        serviceCount[service] = (serviceCount[service] || 0) + count;
+      });
+    });
+    const topService = Object.entries(serviceCount).sort((a, b) => b[1] - a[1])[0];
+
+    // Generate insights
+    if (avgLER >= 1.5) {
+      insights.push({ type: 'success', title: 'Excellent Performance', message: `${employeeInfo.name} is performing exceptionally with an average LER of ${avgLER.toFixed(2)}. Keep up the great work!` });
+    } else if (avgLER >= 1.0) {
+      insights.push({ type: 'success', title: 'Strong Performance', message: `${employeeInfo.name} is meeting targets with an average LER of ${avgLER.toFixed(2)}. Solid contribution to profitability.` });
+    } else if (avgLER >= 0.7) {
+      insights.push({ type: 'warning', title: 'Approaching Target', message: `${employeeInfo.name}'s LER of ${avgLER.toFixed(2)} is approaching the 1.0 target. Focus on efficiency to reach profitability goals.` });
+    } else {
+      insights.push({ type: 'warning', title: 'Below Target', message: `${employeeInfo.name}'s LER of ${avgLER.toFixed(2)} is below target. Consider reviewing job efficiency and time management.` });
+    }
+
+    if (lerStdDev < 0.3) {
+      insights.push({ type: 'success', title: 'Highly Consistent', message: `${employeeInfo.name} shows excellent consistency with minimal performance variation. Reliable day-to-day execution.` });
+    } else if (lerStdDev > 0.6) {
+      insights.push({ type: 'info', title: 'Variable Performance', message: `Performance varies significantly between days. Best day: ${bestDay.ler.toFixed(2)} LER.` });
+    }
+
+    if (avgProfit >= 40) {
+      insights.push({ type: 'success', title: 'High Profit Margin', message: `Excellent ${avgProfit.toFixed(1)}% average profit margin. ${employeeInfo.name} is maximizing profitability per job.` });
+    } else if (avgProfit < 30) {
+      insights.push({ type: 'warning', title: 'Low Profit Margin', message: `Profit margin of ${avgProfit.toFixed(1)}% is below optimal. Review pricing or reduce job time to improve margins.` });
+    }
+
+    if (avgJobsPerDay >= 5) {
+      insights.push({ type: 'success', title: 'High Productivity', message: `Averaging ${avgJobsPerDay.toFixed(1)} jobs per day. ${employeeInfo.name} is maintaining excellent throughput.` });
+    } else if (avgJobsPerDay < 3) {
+      insights.push({ type: 'tip', title: 'Opportunity for Growth', message: `Currently averaging ${avgJobsPerDay.toFixed(1)} jobs per day. Consider scheduling optimization to increase volume.` });
+    }
+
+    if (avgRevenuePerJob >= 250) {
+      insights.push({ type: 'success', title: 'Strong Revenue Per Job', message: `Average of $${avgRevenuePerJob.toFixed(0)} per job. ${employeeInfo.name} is securing high-value work.` });
+    }
+
+    if (totalBonuses > 0) {
+      const bonusPercentOfRevenue = (totalBonuses / totalRevenue) * 100;
+      insights.push({ type: 'info', title: 'Bonus Earnings', message: `Earned $${totalBonuses.toFixed(2)} in bonuses (${bonusPercentOfRevenue.toFixed(1)}% of revenue). Great performance-based compensation!` });
+    }
+
+    if (topService) {
+      const topServicePercent = (topService[1] / totalJobs) * 100;
+      if (topServicePercent > 60) {
+        insights.push({ type: 'info', title: 'Service Specialization', message: `${topService[0]} represents ${topServicePercent.toFixed(0)}% of jobs. ${employeeInfo.name} has strong specialization in this service.` });
+      }
+    }
+
+    if (bestDay.ler >= 2.0) {
+      const bestDayDate = parseLocalDate(bestDay.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      insights.push({ type: 'success', title: 'Outstanding Day', message: `${bestDayDate} was exceptional with ${bestDay.ler.toFixed(2)} LER and $${bestDay.totalJobRevenue.toFixed(0)} revenue. Replicate this success!` });
+    }
+
+    return insights;
+  }, [employeeInfo.name, payPeriods, selectedPeriodIndex, insightsViewMode]);
 
   // LER color coding
   const getLERColor = (ler: number): string => {
@@ -671,7 +781,7 @@ const EmployeeLERPage: React.FC = () => {
                   if (confirm(`Are you sure you want to delete "${selectedPeriod.periodName}"?`)) {
                     const success = await employeeLERService.deletePayPeriod(selectedPeriod.periodId);
                     if (success) {
-                      await loadEmployeeData();
+                      await loadEmployeeData(selectedEmployeeId);
                       setSelectedPeriodIndex(0);
                     } else {
                       alert('Error deleting pay period. Please try again.');
@@ -850,7 +960,11 @@ const EmployeeLERPage: React.FC = () => {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-foreground">Daily Performance Records</CardTitle>
             <Button 
-              onClick={() => setShowAddDay(true)} 
+              onClick={() => {
+                // Auto-refresh services when opening Add Day dialog
+                refreshServices();
+                setShowAddDay(true);
+              }} 
               className="bg-accent hover:bg-accent/90 text-background"
               size="sm"
             >
@@ -980,7 +1094,7 @@ const EmployeeLERPage: React.FC = () => {
                                 const success = await employeeLERService.deleteDailyRecord(recordToDelete.id);
                                 
                                 if (success) {
-                                  await loadEmployeeData();
+                                  await loadEmployeeData(selectedEmployeeId);
                                 } else {
                                   alert('Error deleting record. Please try again.');
                                 }
@@ -1043,6 +1157,132 @@ const EmployeeLERPage: React.FC = () => {
               </div>
             </div>
           </CardContent>
+        </Card>
+
+        {/* Employee Insights Panel */}
+        <Card className="bg-muted/30">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-accent/20">
+                  <Lightbulb className="h-5 w-5 text-accent" />
+                </div>
+                <CardTitle className="text-foreground">Performance Insights - {employeeInfo.name}</CardTitle>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1 bg-muted/50 rounded-md p-1">
+                  <button
+                    onClick={() => setInsightsViewMode('period')}
+                    className={`px-3 py-1 text-sm rounded transition-colors ${
+                      insightsViewMode === 'period'
+                        ? 'bg-accent text-white'
+                        : 'text-muted-foreground hover:bg-muted/30'
+                    }`}
+                  >
+                    Pay Period
+                  </button>
+                  <button
+                    onClick={() => setInsightsViewMode('ytd')}
+                    className={`px-3 py-1 text-sm rounded transition-colors ${
+                      insightsViewMode === 'ytd'
+                        ? 'bg-accent text-white'
+                        : 'text-muted-foreground hover:bg-muted/30'
+                    }`}
+                  >
+                    YTD
+                  </button>
+                </div>
+                <button
+                  onClick={() => setInsightsExpanded(!insightsExpanded)}
+                  className="p-1 hover:bg-muted/20 rounded transition-colors"
+                >
+                  {insightsExpanded ? (
+                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </CardHeader>
+          
+          {insightsExpanded && (
+            <CardContent>
+              <div className="space-y-3">
+                {employeeInsights.map((insight, index) => {
+                  const getIconBg = (type: string) => {
+                    switch (type) {
+                      case 'success': return 'bg-green-500/20';
+                      case 'warning': return 'bg-yellow-500/20';
+                      case 'info': return 'bg-accent/20';
+                      case 'tip': return 'bg-accent/10';
+                      default: return 'bg-muted/30';
+                    }
+                  };
+
+                  const getIconColor = (type: string) => {
+                    switch (type) {
+                      case 'success': return 'text-green-500';
+                      case 'warning': return 'text-yellow-500';
+                      case 'info': return 'text-accent';
+                      case 'tip': return 'text-accent';
+                      default: return 'text-muted-foreground';
+                    }
+                  };
+
+                  const getBadgeStyle = (type: string) => {
+                    switch (type) {
+                      case 'success': return 'bg-green-500/20 text-green-500 border-green-500/30';
+                      case 'warning': return 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30';
+                      case 'info': return 'bg-accent/20 text-accent border-accent/30';
+                      case 'tip': return 'bg-accent/10 text-accent border-accent/20';
+                      default: return 'bg-muted/30 text-muted-foreground border-border';
+                    }
+                  };
+
+                  const getIcon = (type: string) => {
+                    switch (type) {
+                      case 'success': return <CheckCircle className="h-4 w-4" />;
+                      case 'warning': return <AlertCircle className="h-4 w-4" />;
+                      case 'info': return <TrendingUp className="h-4 w-4" />;
+                      case 'tip': return <Lightbulb className="h-4 w-4" />;
+                      default: return <AlertCircle className="h-4 w-4" />;
+                    }
+                  };
+
+                  return (
+                    <div
+                      key={index}
+                      className="flex items-start gap-3 p-3 bg-muted/20 rounded-lg border border-border hover:bg-muted/30 transition-colors"
+                    >
+                      <div className={`p-2 rounded-lg ${getIconBg(insight.type)}`}>
+                        <div className={getIconColor(insight.type)}>
+                          {getIcon(insight.type)}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-semibold text-sm text-foreground">{insight.title}</h4>
+                          <span className={`text-xs px-2 py-0.5 rounded-md border ${getBadgeStyle(insight.type)}`}>
+                            {insight.type}
+                          </span>
+                        </div>
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          {insight.message}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              <div className="mt-4 pt-3 border-t border-accent/50">
+                <p className="text-xs text-muted-foreground text-center">
+                  Viewing {insightsViewMode === 'period' ? 'current pay period' : 'year-to-date'} data • {employeeInsights.length} insights generated
+                </p>
+              </div>
+            </CardContent>
+          )}
         </Card>
 
         {/* LER Explanation Card */}

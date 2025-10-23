@@ -52,8 +52,11 @@ export class RevenueKPIGenerator {
   /**
    * Generate all historical KPIs for a user using backend APIs
    * Optimized to only process current and previous year unless 'all' period is selected
+   * @param userId - User ID
+   * @param includeAllYears - If true, processes all years. If false, only current year
+   * @param currentMonthOnly - If true, only processes current month (fastest)
    */
-  static async generateAllKPIs(userId: string, includeAllYears: boolean = false): Promise<void> {
+  static async generateAllKPIs(userId: string, includeAllYears: boolean = false, currentMonthOnly: boolean = true): Promise<void> {
     // Prevent concurrent executions
     if (this.isGenerating) {
       console.warn('⚠️ KPI generation already in progress. Skipping duplicate request.');
@@ -69,7 +72,7 @@ export class RevenueKPIGenerator {
       const currentYear = new Date().getFullYear();
       const years = includeAllYears 
         ? [currentYear - 2, currentYear - 1, currentYear, currentYear + 1]
-        : [currentYear - 1, currentYear]; // Only current and previous year by default
+        : [currentYear]; // Only current year by default to avoid processing dummy data
       
       console.log(`📅 Processing ${years.length} years: ${years.join(', ')}`);
       
@@ -77,6 +80,18 @@ export class RevenueKPIGenerator {
       let yearsWithData = 0;
       
       for (const year of years) {
+        // Check if generation was stopped
+        if (!this.isGenerating) {
+          console.log('🛑 Generation stopped by user');
+          break;
+        }
+        
+        // Skip years before 2024 - they contain dummy data not in Supabase
+        if (year < 2024) {
+          console.log(`⏭️ Skipping year ${year} (dummy data, not in Supabase)`);
+          continue;
+        }
+        
         console.log(`📊 Checking year ${year}...`);
         const result = await getRevenueEntries(userId, year);
         const revenueData = result.rows || [];
@@ -93,10 +108,24 @@ export class RevenueKPIGenerator {
           console.log(`✅ Found ${realRevenueData.length} real revenue entries for ${year}`);
           
           // Only process months that have actual data
-          const monthsWithData = realRevenueData.map(entry => entry.month);
+          let monthsWithData = realRevenueData.map(entry => entry.month);
+          
+          // If currentMonthOnly is true, only process the current month
+          if (currentMonthOnly) {
+            const currentMonth = new Date().getMonth() + 1;
+            monthsWithData = monthsWithData.filter(m => m === currentMonth);
+            console.log(`   ⚡ Fast mode: Only processing current month ${currentMonth}`);
+          }
+          
           console.log(`   Processing months: ${monthsWithData.join(', ')}`);
           
           for (const month of monthsWithData) {
+            // Check if generation was stopped
+            if (!this.isGenerating) {
+              console.log('🛑 Generation stopped by user');
+              break;
+            }
+            
             console.log(`   ⚙️ Generating KPIs for ${year}-${month.toString().padStart(2, '0')}`);
             await this.generateMonthlyRevenueKPI(userId, revenueData, year, month);
             await this.generateYTDKPI(userId, revenueData, year, month);

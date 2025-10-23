@@ -33,12 +33,30 @@ export function useKPIRefresh() {
   } | null>(null);
 
   const refreshKPIs = useCallback(async () => {
-    if (!dbUserId) return;
+    if (!dbUserId) {
+      console.warn('⚠️ Cannot refresh KPIs: No user ID available');
+      setState(prev => ({ ...prev, isRefreshing: false }));
+      return;
+    }
 
+    console.log('🔄 Starting KPI refresh for user:', dbUserId);
     setState(prev => ({ ...prev, isRefreshing: true }));
 
+    // Add a 15-second timeout
+    const timeoutId = setTimeout(() => {
+      console.error('⏱️ KPI refresh timed out after 15 seconds');
+      RevenueKPIGenerator.emergencyStop(); // Stop generation FIRST
+      setState(prev => ({ ...prev, isRefreshing: false }));
+      alert('KPI refresh is taking too long and has been stopped. The page will reload.');
+      setTimeout(() => window.location.reload(), 1000); // Reload after 1 second
+    }, 15000);
+
     try {
-      await RevenueKPIGenerator.generateAllKPIs(dbUserId);
+      // Only generate KPIs for current year to avoid processing dummy data from 2023
+      await RevenueKPIGenerator.generateAllKPIs(dbUserId, false);
+      
+      clearTimeout(timeoutId); // Clear timeout if successful
+      console.log('✅ KPI refresh completed successfully');
       
       // Close dialog after successful refresh
       setState(prev => ({ 
@@ -51,14 +69,14 @@ export function useKPIRefresh() {
       // Clear pending changes
       pendingChangesRef.current = null;
 
-      // Trigger custom event to notify KPI dashboard to refresh
-      console.log('KPIs refreshed successfully - notifying dashboard to refresh');
-      window.dispatchEvent(new CustomEvent('kpiRefreshComplete'));
+      // Note: Removed kpiRefreshComplete event dispatch to prevent infinite loops
+      // KPI Dashboard will refresh on its own schedule or user can manually refresh
       
     } catch (error) {
-      console.error('Failed to refresh KPIs:', error);
+      clearTimeout(timeoutId); // Clear timeout on error
+      console.error('❌ Failed to refresh KPIs:', error);
       setState(prev => ({ ...prev, isRefreshing: false }));
-      // Optional: Show error notification
+      alert('Failed to refresh KPIs. Check console for details.');
     }
   }, [dbUserId]);
 
@@ -84,7 +102,7 @@ export function useKPIRefresh() {
       clearTimeout(debounceTimerRef.current);
     }
 
-    // Set new timer - only show dialog after user stops making changes for 3 seconds
+    // Set new timer - only show dialog after user stops making changes for 10 seconds
     debounceTimerRef.current = setTimeout(() => {
       if (pendingChangesRef.current) {
         setState(prev => ({
@@ -95,7 +113,7 @@ export function useKPIRefresh() {
           affectedKPIs: pendingChangesRef.current!.affectedKPIs
         }));
       }
-    }, 3000); // 3 second delay
+    }, 10000); // 10 second delay
   }, [dbUserId, refreshKPIs]);
 
   const closeDialog = useCallback(() => {
@@ -138,8 +156,11 @@ export function useKPIRefresh() {
     }
   }, [state.hasPendingChanges]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount and ensure clean state on mount
   useEffect(() => {
+    // Reset state on mount to prevent stuck states
+    setState(prev => ({ ...prev, isRefreshing: false, isDialogOpen: false }));
+    
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);

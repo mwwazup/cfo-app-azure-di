@@ -362,3 +362,52 @@ export const weeklyBudgetTrackingRelations = relations(weeklyBudgetTracking, ({ 
 
 export type WeeklyBudgetTracking = typeof weeklyBudgetTracking.$inferSelect;
 
+// -------- Video Tutorials System --------
+export const videoTutorials = pgTable("video_tutorials", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  pageRoute: text("page_route").notNull(),
+  sectionKey: text("section_key"),
+  title: text("title").notNull(),
+  description: text("description"),
+  videoUrl: text("video_url").notNull(),
+  thumbnailUrl: text("thumbnail_url"),
+  durationSeconds: integer("duration_seconds"),
+  displayOrder: integer("display_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  pageIdx: index("idx_video_tutorials_page").on(t.pageRoute),
+  activeIdx: index("idx_video_tutorials_active").on(t.isActive),
+  uniqPageSection: uniqueIndex("uq_video_tutorials_page_section").on(t.pageRoute, t.sectionKey),
+}));
+
+export const userVideoProgress = pgTable("user_video_progress", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(),
+  videoId: uuid("video_id").notNull()
+    .references(() => videoTutorials.id, { onDelete: "cascade" }),
+  watchedSeconds: integer("watched_seconds").default(0),
+  completed: boolean("completed").default(false),
+  lastWatchedAt: timestamp("last_watched_at", { withTimezone: true }).defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  userIdx: index("idx_user_video_progress_user").on(t.userId),
+  videoIdx: index("idx_user_video_progress_video").on(t.videoId),
+  uniqUserVideo: uniqueIndex("uq_user_video_progress").on(t.userId, t.videoId),
+}));
+
+export const videoTutorialsRelations = relations(videoTutorials, ({ many }) => ({
+  progress: many(userVideoProgress),
+}));
+
+export const userVideoProgressRelations = relations(userVideoProgress, ({ one }) => ({
+  video: one(videoTutorials, {
+    fields: [userVideoProgress.videoId],
+    references: [videoTutorials.id],
+  }),
+}));
+
+export type VideoTutorial = typeof videoTutorials.$inferSelect;
+export type UserVideoProgress = typeof userVideoProgress.$inferSelect;
+

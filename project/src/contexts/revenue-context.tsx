@@ -29,6 +29,7 @@ interface RevenueContextType {
   historicalYears: YearData[];
   updateMonthlyRevenue: (month: string, revenue: number) => void;
   updateTargets: (targetRevenue: number, profitMargin: number) => void;
+  updateProfitMargin: (profitMargin: number) => void;
   saveAndLockYear: () => void;
   createNewYear: () => void;
   selectYear: (year: number) => void;
@@ -395,9 +396,20 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
     const yearData = getCurrentYearData();
     if (yearData.isLocked || yearData.isHistorical) return;
     
+    console.log('🎯 updateTargets called:', { 
+      targetRevenue, 
+      profitMargin, 
+      selectedYear, 
+      dbUserId,
+      yearDataBefore: yearData.targetRevenue 
+    });
+    
     // Recalculate monthly FIR targets based on new target revenue
     const previousYearData = allYearsData.get(selectedYear - 1);
     const newMonthlyFIRTargets = calculateMonthlyFIRTargets(targetRevenue, previousYearData, yearData);
+    
+    console.log('📊 New monthly FIR targets:', newMonthlyFIRTargets);
+    console.log('📊 Sum of monthly targets:', newMonthlyFIRTargets.reduce((a, b) => a + b, 0));
     
     // Use intelligent monthly FIR targets instead of flat distribution
     const updatedData = {
@@ -419,6 +431,7 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
 
     // Persist to Supabase
     if (dbUserId) {
+      console.log('💾 Persisting to Supabase with user ID:', dbUserId);
       try {
         const res = await RevenueDataService.updateYearTargets(
           dbUserId,
@@ -428,10 +441,45 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
           newMonthlyFIRTargets // Pass intelligent monthly FIR targets
         );
         if (!res.success) {
-          console.error(res.error || 'Unknown error saving targets');
+          console.error('❌ Failed to save targets:', res.error || 'Unknown error');
+        } else {
+          console.log('✅ Targets saved successfully');
         }
       } catch (e) {
-        console.error('Failed to save targets:', e);
+        console.error('❌ Failed to save targets:', e);
+      }
+    } else {
+      console.warn('⚠️ No dbUserId - targets not persisted to database');
+    }
+  };
+
+  // Update ONLY profit margin without recalculating FIR targets
+  const updateProfitMargin = async (profitMargin: number) => {
+    const yearData = getCurrentYearData();
+    if (yearData.isLocked || yearData.isHistorical) return;
+    
+    // Only update profit margin, keep FIR targets unchanged
+    const updatedData = {
+      ...yearData,
+      profitMargin
+    };
+    setAllYearsData(prev => new Map(prev.set(selectedYear, updatedData)));
+
+    // Persist to Supabase
+    if (dbUserId) {
+      try {
+        const res = await RevenueDataService.updateYearTargets(
+          dbUserId,
+          selectedYear,
+          yearData.targetRevenue, // Keep existing target revenue
+          profitMargin,
+          yearData.monthlyFIRTargets // Keep existing FIR targets
+        );
+        if (!res.success) {
+          console.error(res.error || 'Unknown error saving profit margin');
+        }
+      } catch (e) {
+        console.error('Failed to save profit margin:', e);
       }
     }
   };
@@ -498,6 +546,7 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
       historicalYears,
       updateMonthlyRevenue,
       updateTargets,
+      updateProfitMargin,
       saveAndLockYear,
       createNewYear,
       selectYear,

@@ -2,12 +2,10 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { CurrencyInput } from '../ui/currency-input';
-import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Line } from 'react-chartjs-2';
 import { useRevenue } from '../../contexts/revenue-context';
 import { useKPIRefreshContext } from '../kpi/KPIRefreshProvider';
-import { getAffectedKPIs } from '../../hooks/useKPIRefresh';
 import { Button } from '../ui/button';
 import { 
   Lock, 
@@ -24,7 +22,9 @@ import {
   Gauge,
   Eye,
   EyeOff,
-  Unlock
+  Unlock,
+  DollarSign,
+  RefreshCw
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -62,7 +62,6 @@ export function MasterChart() {
   const [mounted, setMounted] = useState(false);
   const [activeMonthIndex, setActiveMonthIndex] = useState<number | null>(null);
   const [editingMonthIndex, setEditingMonthIndex] = useState<number | null>(null);
-  const [tempValue, setTempValue] = useState<number>(0);
   const [showMonthlyInputs, setShowMonthlyInputs] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const chartRef = useRef<any>(null);
@@ -73,7 +72,8 @@ export function MasterChart() {
     selectedYear,
     availableYears,
     updateMonthlyRevenue, 
-    updateTargets, 
+    updateTargets,
+    updateProfitMargin,
     saveAndLockYear,
     selectYear,
     getYearData,
@@ -81,7 +81,7 @@ export function MasterChart() {
     lockHistoricalYear
   } = useRevenue();
   
-  const { promptForKPIRefresh } = useKPIRefreshContext();
+  const { refreshKPIs, isRefreshing } = useKPIRefreshContext();
   
   const [timePeriod] = useState<TimePeriod>('yearly');
   const [annualFIRTarget, setAnnualFIRTarget] = useState(currentYear.targetRevenue);
@@ -130,27 +130,38 @@ export function MasterChart() {
     }
   }, [activeMonthIndex, editingMonthIndex]);
 
-  // Update targets when inputs change
+  // Debounce timer for FIR target changes
+  const firDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (firDebounceTimerRef.current) {
+        clearTimeout(firDebounceTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Update targets when inputs change (debounced to avoid saving on every keystroke)
   const handleFIRTargetChange = (value: number) => {
     setAnnualFIRTarget(value);
-    updateTargets(value, profitMargin);
     
-    // Prompt user to refresh KPIs after target update
-    promptForKPIRefresh({
-      changeDescription: `Updating annual revenue target to $${value.toLocaleString()}`,
-      affectedKPIs: getAffectedKPIs('target')
-    });
+    // Clear existing timer
+    if (firDebounceTimerRef.current) {
+      clearTimeout(firDebounceTimerRef.current);
+    }
+    
+    // Only save after user stops typing for 1 second
+    firDebounceTimerRef.current = setTimeout(() => {
+      console.log('💾 Saving FIR target after debounce:', value);
+      updateTargets(value, profitMargin);
+    }, 1000);
   };
 
   const handleProfitMarginChange = (value: number) => {
     setProfitMargin(value);
-    updateTargets(annualFIRTarget, value);
-    
-    // Prompt user to refresh KPIs after profit margin update
-    promptForKPIRefresh({
-      changeDescription: `Updating profit margin goal to ${value}%`,
-      affectedKPIs: getAffectedKPIs('profit_margin')
-    });
+    // Use updateProfitMargin instead of updateTargets to avoid recalculating FIR
+    updateProfitMargin(value);
   };
 
   if (!mounted) {
@@ -264,12 +275,6 @@ export function MasterChart() {
   const handleMonthlyRevenueChange = (index: number, value: number) => {
     const month = currentYear.data[index].month;
     updateMonthlyRevenue(month, value);
-    
-    // Prompt user to refresh KPIs after revenue update
-    promptForKPIRefresh({
-      changeDescription: `Updating ${month} revenue to $${value.toLocaleString()}`,
-      affectedKPIs: getAffectedKPIs('revenue')
-    });
   };
 
   const handleYearChange = (year: string) => {
@@ -287,7 +292,6 @@ export function MasterChart() {
       if (clickedMonthIndex >= 0 && clickedMonthIndex < months.length) {
         setActiveMonthIndex(clickedMonthIndex);
         setEditingMonthIndex(clickedMonthIndex);
-        setTempValue(monthlyRevenue[clickedMonthIndex]);
         
         // Auto-show monthly inputs when clicking chart
         if (!showMonthlyInputs) {
@@ -307,12 +311,26 @@ export function MasterChart() {
     }
   };
 
+  const handleQuickEditChange = (value: number) => {
+    if (editingMonthIndex !== null) {
+      // Update in real-time as user types
+      handleMonthlyRevenueChange(editingMonthIndex, value);
+    }
+  };
+
   const handleQuickEditKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && editingMonthIndex !== null) {
-      handleMonthlyRevenueChange(editingMonthIndex, tempValue);
-      setEditingMonthIndex(null);
-      setActiveMonthIndex(null);
+      closeQuickEdit();
+    } else if (e.key === 'Escape') {
+      closeQuickEdit();
     }
+  };
+
+  const closeQuickEdit = () => {
+    if (editingMonthIndex !== null) {
+      setActiveMonthIndex(editingMonthIndex); // Keep highlight for 3 seconds
+    }
+    setEditingMonthIndex(null);
   };
 
   const getFilteredData = () => {
@@ -716,7 +734,7 @@ export function MasterChart() {
                     <span className="text-xs font-medium text-accent">Future Inspired Revenue (FIR)</span>
                   </div>
                   <p className="text-xs text-gray-400">
-                    Your FIR line is based on your annual target of ${annualFIRTarget.toLocaleString()}, 
+                    Your FIR line is based on your annual target of ${Math.round(annualFIRTarget).toLocaleString()}, 
                     distributed using your previous year's seasonal pattern. This creates a stable benchmark 
                     that doesn't change when you update monthly actuals.
                   </p>
@@ -732,10 +750,43 @@ export function MasterChart() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
-              {isHistoricalYear ? <History className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
-              {isHistoricalYear ? `Historical Revenue - ${selectedYear}` : `Revenue Curve - ${selectedYear}`}
+              <Calendar className="h-5 w-5" />
+              Master Revenue Curve - {currentYear.year}
             </CardTitle>
             <div className="flex items-center gap-4">
+              {/* Manual KPI Refresh Button */}
+              {!isRefreshing ? (
+                <Button
+                  onClick={() => refreshKPIs()}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh KPIs
+                </Button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => {
+                      // Emergency stop
+                      const { RevenueKPIGenerator } = require('../../services/revenueKPIGenerator');
+                      RevenueKPIGenerator.emergencyStop();
+                      window.location.reload();
+                    }}
+                    variant="secondary"
+                    size="sm"
+                    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Cancel & Reload
+                  </Button>
+                  <span className="text-sm text-muted-foreground flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Generating KPIs...
+                  </span>
+                </div>
+              )}
               {currentYear.isLocked && (
                 <span className="text-sm text-amber-400 flex items-center gap-1">
                   <Lock className="h-4 w-4" />
@@ -846,36 +897,84 @@ export function MasterChart() {
 
             {/* Controls and Total Revenue Section */}
             <div className="flex flex-col items-center gap-6">
-              {/* Controls Row - Only for non-historical years */}
+              {/* Three Metric Cards Row - Only for non-historical years */}
               {!isHistoricalYear && (
-                <div className="flex items-center gap-12 w-full justify-center">
-                  <div className="flex flex-col items-center">
-                    <Label className="text-sm text-gray-400 mb-2">Annual FIR Target</Label>
-                    <CurrencyInput
-                      value={annualFIRTarget}
-                      onChange={handleFIRTargetChange}
-                      disabled={currentYear.isLocked}
-                      className="w-40 text-center"
-                    />
-                  </div>
-                  
-                  <div className="flex flex-col items-center">
-                    <div className="text-lg text-gray-400 mb-2">
-                      {isHistoricalYear ? 'Total Actual Revenue' : 'Total Current Revenue'}
-                    </div>
-                    <div className="text-3xl font-bold">${Math.round(totalRevenue).toLocaleString()}</div>
-                  </div>
-                  
-                  <div className="flex flex-col items-center">
-                    <Label className="text-sm text-gray-400 mb-2">Profit Margin (%)</Label>
-                    <Input
-                      type="number"
-                      value={profitMargin}
-                      onChange={(e) => handleProfitMarginChange(Number(e.target.value))}
-                      disabled={currentYear.isLocked}
-                      className="w-24 text-center"
-                    />
-                  </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
+                  {/* FIR Target Card */}
+                  <Card className="bg-muted/30">
+                    <CardContent className="pt-6">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 rounded-lg bg-accent/20">
+                            <Target className="h-5 w-5 text-accent" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-muted-foreground">Annual FIR Target</p>
+                            <CurrencyInput
+                              value={annualFIRTarget}
+                              onChange={handleFIRTargetChange}
+                              disabled={currentYear.isLocked}
+                              className="text-xl font-bold text-foreground mt-1"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Controls the gold FIR line on the graph
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Total Current Revenue Card */}
+                  <Card className="bg-muted/30">
+                    <CardContent className="pt-6">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 rounded-lg bg-accent/20">
+                            <DollarSign className="h-5 w-5 text-accent" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Total Current Revenue</p>
+                            <p className="text-2xl font-bold text-accent">${Math.round(totalRevenue).toLocaleString()}</p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Sum of all monthly actuals, update monthly!
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Profit Margin Goal Card */}
+                  <Card className="bg-muted/30">
+                    <CardContent className="pt-6">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 rounded-lg bg-accent/20">
+                            <Gauge className="h-5 w-5 text-accent" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-muted-foreground">Profit Margin Goal</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Input
+                                type="number"
+                                value={profitMargin}
+                                onChange={(e) => handleProfitMarginChange(Number(e.target.value))}
+                                disabled={currentYear.isLocked}
+                                className="w-20 text-xl font-bold text-foreground"
+                                min="0"
+                                max="100"
+                              />
+                              <span className="text-xl font-bold text-foreground">%</span>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          The percentage of revenue you want to keep as net profit (You want to keep {profitMargin} cents of every dollar = {profitMargin}%)
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               )}
 
@@ -895,15 +994,28 @@ export function MasterChart() {
                   <div className="flex items-center gap-2 mb-3">
                     <TrendingUp className="h-5 w-5 text-accent" />
                     <h4 className="font-medium text-accent">
-                      {months[editingMonthIndex]} Revenue
+                      Edit {months[editingMonthIndex]} Revenue
                     </h4>
                   </div>
                   <CurrencyInput
-                    value={tempValue}
-                    onChange={setTempValue}
+                    value={monthlyRevenue[editingMonthIndex]}
+                    onChange={handleQuickEditChange}
                     onKeyPress={handleQuickEditKeyPress}
-                    className="w-full"
+                    className="w-full mb-3"
+                    autoFocus
                   />
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={closeQuickEdit}
+                      className="flex-1 bg-accent hover:bg-accent/90"
+                      size="sm"
+                    >
+                      Done
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2 text-center">
+                    Updates live as you type • Press Enter or Escape to close
+                  </p>
                 </div>
               )}
             </div>

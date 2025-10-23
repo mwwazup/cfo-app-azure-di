@@ -237,22 +237,14 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
       setIsWindowFocused(false);
     };
     
-    // Listen for KPI refresh completion events
-    const handleKPIRefreshComplete = () => {
-      console.log('🔄 KPI refresh complete event received - refreshing dashboard');
-      loadKPIRecords(true); // Force reload when KPIs are refreshed
-    };
-    
     window.addEventListener('focus', handleFocus);
     window.addEventListener('blur', handleBlur);
-    window.addEventListener('kpiRefreshComplete', handleKPIRefreshComplete);
     
     return () => {
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('kpiRefreshComplete', handleKPIRefreshComplete);
     };
-  }, [loadKPIRecords]);
+  }, []); // No dependencies needed for focus/blur listeners
 
   // Load KPIs on filter changes (with throttling)
   useEffect(() => {

@@ -114,9 +114,13 @@ export class RevenueDataService {
       }
       
       // Update each month using the backend API
+      console.log(`📤 Updating ${months.length} months with FIR targets for user ${userId}`);
+      
       for (let i = 0; i < months.length; i++) {
         const month = months[i];
         const monthlyAmount = monthlyTargets[i];
+        
+        console.log(`  Month ${month}: $${monthlyAmount.toFixed(2)}`);
         
         await upsertMonthlyRevenue({
           userId: userId, // Let backend handle user ID conversion
@@ -126,6 +130,8 @@ export class RevenueDataService {
           profitMargin: profitMargin
         });
       }
+      
+      console.log(`✅ All ${months.length} months updated successfully`);
 
       return { success: true };
     } catch (error) {

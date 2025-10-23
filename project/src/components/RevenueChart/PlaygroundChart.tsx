@@ -608,7 +608,7 @@ export function PlaygroundChart() {
                   <span className="text-xs font-medium text-accent">Future Inspired Revenue (FIR)</span>
                 </div>
                 <p className="text-xs text-gray-400">
-                  Your FIR line is based on your annual target of ${annualFIRTarget.toLocaleString()}, 
+                  Your FIR line is based on your annual target of ${Math.round(annualFIRTarget).toLocaleString()}, 
                   distributed evenly across months. This creates a stable benchmark 
                   that doesn't change when you update monthly actuals.
                 </p>
