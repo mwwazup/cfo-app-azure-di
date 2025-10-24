@@ -238,8 +238,13 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
             };
           });
 
+          // Calculate targetRevenue by summing all 12 months' desired_revenue values
+          // (not multiplying first month by 12, since each month has different seasonal targets)
+          const targetRevenue = entries.reduce((sum, entry) => {
+            return sum + (entry.desired_revenue ?? entry.target_revenue ?? 0);
+          }, 0);
+          
           const sampleEntry = entries[0];
-          const targetRevenue = sampleEntry ? ((sampleEntry.desired_revenue ?? sampleEntry.target_revenue ?? 0) * 12) : 0;
           const profitMargin = sampleEntry ? (sampleEntry.profit_margin ?? 0) : 0;
 
           // Create temporary year data for FIR calculation

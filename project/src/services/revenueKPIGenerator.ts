@@ -223,7 +223,7 @@ export class RevenueKPIGenerator {
   }
 
   /**
-   * Generate Monthly Revenue KPI with Previous Year + Growth calculation
+   * Generate Monthly Revenue KPI using FIR targets
    */
   private static async generateMonthlyRevenueKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
     const monthData = revenueData.find(entry => entry.month === month);
@@ -232,14 +232,9 @@ export class RevenueKPIGenerator {
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
     const actualRevenue = monthData.actual_revenue || 0;
     
-    // Check if user has set a custom goal
-    const customGoal = await this.getExistingCustomGoal(userId, 'Monthly Revenue', period);
-    console.log('🎯 Monthly Revenue - Custom Goal Check:', { period, customGoal, userId });
-    
-    // Use custom goal if exists, otherwise calculate smart target
-    const targetRevenue = customGoal || await this.calculateSmartMonthlyTarget(userId, year, month, monthData);
-    const isCustomGoal = customGoal !== null;
-    console.log('🎯 Monthly Revenue - Using target:', { targetRevenue, isCustomGoal });
+    // Always use FIR target (desired_revenue) - custom goals removed
+    const targetRevenue = monthData.desired_revenue || monthData.target_revenue || 0;
+    console.log('🎯 Monthly Revenue - Using FIR target:', { targetRevenue, firTarget: monthData.desired_revenue });
     
     let status: 'good' | 'warning' | 'alert' = 'good';
     if (targetRevenue > 0) {
@@ -248,7 +243,6 @@ export class RevenueKPIGenerator {
       else if (performance < 0.95) status = 'warning';
     }
 
-    const goalLabel = isCustomGoal ? 'your goal' : 'smart target';
     const kpiData = {
       kpi_name: 'Monthly Revenue',
       kpi_value: actualRevenue,
@@ -257,54 +251,23 @@ export class RevenueKPIGenerator {
       goal_value: targetRevenue,
       status: status,
       display_format: 'currency',
-      plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${targetRevenue > 0 ? `vs ${goalLabel} of $${targetRevenue.toLocaleString()}` : ''}`,
-      action_suggestion: status === 'alert' ? 'Revenue is significantly below target. Focus on immediate revenue generation activities.' : status === 'warning' ? 'Revenue is below target. Review sales pipeline and marketing efforts.' : 'Great job hitting your revenue target! Look for opportunities to exceed it.'
+      plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${targetRevenue > 0 ? `vs FIR target of $${targetRevenue.toLocaleString()}` : ''}`,
+      action_suggestion: status === 'alert' ? 'Revenue is significantly below FIR target. Focus on immediate revenue generation activities.' : status === 'warning' ? 'Revenue is below FIR target. Review sales pipeline and marketing efforts.' : 'Great job hitting your FIR target! Look for opportunities to exceed it.'
     };
 
     await KPIRecordsService.upsertKPIRecord(userId, kpiData);
   }
 
   /**
-   * Calculate smart monthly target: Previous Year Same Month + Growth
-   * Formula: Previous Year's Month Revenue + (Previous Year's Month Revenue * Profit Margin Goal)
+   * DEPRECATED: This method is no longer used. All KPIs now use FIR targets directly.
+   * Kept for reference only - can be removed in future cleanup.
    */
-  private static async calculateSmartMonthlyTarget(userId: string, year: number, month: number, currentMonthData: any): Promise<number> {
-    try {
-      // Get previous year's data for the same month
-      const previousYear = year - 1;
-      const previousYearResult = await getRevenueEntries(userId, previousYear);
-      const previousYearData = previousYearResult.rows || [];
-      const previousMonthData = previousYearData.find(entry => entry.month === month);
-      
-      // If no previous year data, fall back to simple target
-      if (!previousMonthData || !previousMonthData.actual_revenue) {
-        console.log(`No previous year data for ${previousYear}-${month}, using fallback target`);
-        return currentMonthData.desired_revenue || currentMonthData.target_revenue || 0;
-      }
-      
-      const previousMonthRevenue = previousMonthData.actual_revenue;
-      const desiredGrowthRate = 0.15; // 15% default growth rate
-      
-      // Smart target = Previous Year Same Month + Growth
-      const smartTarget = previousMonthRevenue * (1 + desiredGrowthRate);
-      
-      console.log(`📊 Smart target calculation for ${year}-${month}:`, {
-        previousYearRevenue: previousMonthRevenue,
-        growthRate: `${(desiredGrowthRate * 100)}%`,
-        smartTarget: Math.round(smartTarget),
-        oldTarget: currentMonthData.desired_revenue || currentMonthData.target_revenue || 0
-      });
-      
-      return Math.round(smartTarget);
-    } catch (error) {
-      console.error('Error calculating smart target:', error);
-      // Fall back to existing target if calculation fails
-      return currentMonthData.desired_revenue || currentMonthData.target_revenue || 0;
-    }
-  }
+  // private static async calculateSmartMonthlyTarget(userId: string, year: number, month: number, currentMonthData: any): Promise<number> {
+  //   return currentMonthData.desired_revenue || currentMonthData.target_revenue || 0;
+  // }
 
   /**
-   * Generate Year-to-Date KPI with smart targets
+   * Generate Year-to-Date KPI using FIR targets
    */
   private static async generateYTDKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
     // Debug: Log YTD calculation details to identify discrepancy
@@ -321,22 +284,17 @@ export class RevenueKPIGenerator {
     
     console.log(`📊 YTD Revenue calculated: $${ytdRevenue.toLocaleString()}`);
 
-    // Calculate YTD target using smart targets for each month
-    let ytdTarget = 0;
-    for (let m = 1; m <= month; m++) {
-      const monthData = revenueData.find(entry => entry.month === m);
-      if (monthData) {
-        const smartTarget = await this.calculateSmartMonthlyTarget(userId, year, m, monthData);
-        ytdTarget += smartTarget;
-      }
-    }
+    // Calculate YTD target by summing FIR targets (desired_revenue) for each month
+    const ytdTarget = revenueData
+      .filter(entry => entry.month <= month)
+      .reduce((sum, entry) => sum + (entry.desired_revenue || entry.target_revenue || 0), 0);
+    
+    console.log(`🎯 YTD FIR Target calculated: $${ytdTarget.toLocaleString()}`);
 
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
     
-    // Check if user has set a custom goal
-    const customGoal = await this.getExistingCustomGoal(userId, 'YTD Revenue', period);
-    const finalTarget = customGoal || ytdTarget;
-    const isCustomGoal = customGoal !== null;
+    // Always use FIR target - custom goals removed
+    const finalTarget = ytdTarget;
     
     let status: 'good' | 'warning' | 'alert' = 'good';
     if (finalTarget > 0) {
@@ -345,7 +303,6 @@ export class RevenueKPIGenerator {
       else if (performance < 0.95) status = 'warning';
     }
 
-    const goalLabel = isCustomGoal ? 'your goal' : 'smart target';
     const kpiData = {
       kpi_name: 'YTD Revenue',
       kpi_value: ytdRevenue,
@@ -354,8 +311,8 @@ export class RevenueKPIGenerator {
       goal_value: finalTarget,
       status: status,
       display_format: 'currency',
-      plain_explanation: `Year-to-date revenue of $${ytdRevenue.toLocaleString()} ${finalTarget > 0 ? `vs ${goalLabel} of $${finalTarget.toLocaleString()}` : ''}`,
-      action_suggestion: status === 'alert' ? 'YTD revenue is significantly behind target. Implement aggressive revenue recovery strategies.' : status === 'warning' ? 'YTD revenue is below target. Focus on accelerating sales to catch up.' : 'Excellent YTD performance! You\'re on track to exceed your annual goals.'
+      plain_explanation: `Year-to-date revenue of $${ytdRevenue.toLocaleString()} ${finalTarget > 0 ? `vs FIR target of $${finalTarget.toLocaleString()}` : ''}`,
+      action_suggestion: status === 'alert' ? 'YTD revenue is significantly behind FIR target. Implement aggressive revenue recovery strategies.' : status === 'warning' ? 'YTD revenue is below FIR target. Focus on accelerating sales to catch up.' : 'Excellent YTD performance! You\'re on track to exceed your annual FIR goals.'
     };
 
     await KPIRecordsService.upsertKPIRecord(userId, kpiData);
@@ -443,7 +400,7 @@ export class RevenueKPIGenerator {
   }
 
   /**
-   * Generate Revenue Gap to Target KPI
+   * Generate Revenue Gap to FIR Target KPI
    */
   private static async generateRevenueGapKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
@@ -453,25 +410,15 @@ export class RevenueKPIGenerator {
       .filter(entry => entry.month <= month)
       .reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
 
-    // Calculate YTD target using smart targets
-    let ytdTarget = 0;
-    for (let m = 1; m <= month; m++) {
-      const monthData = revenueData.find(entry => entry.month === m);
-      if (monthData) {
-        const smartTarget = await this.calculateSmartMonthlyTarget(userId, year, m, monthData);
-        ytdTarget += smartTarget;
-      }
-    }
+    // Calculate YTD FIR target by summing desired_revenue for months 1-current
+    const ytdTarget = revenueData
+      .filter(entry => entry.month <= month)
+      .reduce((sum, entry) => sum + (entry.desired_revenue || entry.target_revenue || 0), 0);
 
-    // Calculate remaining months target
-    let remainingTarget = 0;
-    for (let m = month + 1; m <= 12; m++) {
-      const monthData = revenueData.find(entry => entry.month === m);
-      if (monthData) {
-        const smartTarget = await this.calculateSmartMonthlyTarget(userId, year, m, monthData);
-        remainingTarget += smartTarget;
-      }
-    }
+    // Calculate remaining months FIR target
+    const remainingTarget = revenueData
+      .filter(entry => entry.month > month)
+      .reduce((sum, entry) => sum + (entry.desired_revenue || entry.target_revenue || 0), 0);
 
     const annualTarget = ytdTarget + remainingTarget;
     const revenueGap = annualTarget - ytdRevenue;
@@ -489,7 +436,7 @@ export class RevenueKPIGenerator {
 
     // Create clear explanation based on whether ahead or behind
     const explanation = isAheadOfTarget
-      ? `Great news! You're ahead of your annual target by $${absGap.toLocaleString()}. You've earned $${ytdRevenue.toLocaleString()} YTD against a target of $${annualTarget.toLocaleString()} for the full year. Keep up the momentum!`
+      ? `Great news! You're ahead of your annual FIR target by $${absGap.toLocaleString()}. You've earned $${ytdRevenue.toLocaleString()} YTD against a FIR target of $${annualTarget.toLocaleString()} for the full year. Keep up the momentum!`
       : `You need $${absGap.toLocaleString()} more revenue to hit your annual target of $${annualTarget.toLocaleString()}. You've earned $${ytdRevenue.toLocaleString()} YTD. With ${12 - month} months remaining, that's about $${Math.round(revenueGap / Math.max(12 - month, 1)).toLocaleString()} per month needed.`;
     
     const actionSuggestion = isAheadOfTarget

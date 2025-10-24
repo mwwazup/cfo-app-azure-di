@@ -1,11 +1,11 @@
 import React, { createContext, useContext } from 'react';
 import { useKPIRefresh } from '../../hooks/useKPIRefresh';
-import { KPIRefreshDialog } from '../ui/kpi-refresh-dialog';
 
 interface KPIRefreshContextType {
   promptForKPIRefresh: (options?: any) => void;
   refreshKPIs: () => Promise<void>;
   showPendingChangesDialog: () => void;
+  cancelRefresh: () => void;
   isDialogOpen: boolean;
   isRefreshing: boolean;
   hasPendingChanges: boolean;
@@ -23,13 +23,10 @@ export function KPIRefreshProvider({ children }: KPIRefreshProviderProps) {
   const {
     isDialogOpen,
     isRefreshing,
-    changeDescription,
-    affectedKPIs,
     hasPendingChanges,
     promptForKPIRefresh,
     refreshKPIs,
     showPendingChangesDialog,
-    closeDialog,
     cancelRefresh
   } = kpiRefreshHook;
 
@@ -38,21 +35,12 @@ export function KPIRefreshProvider({ children }: KPIRefreshProviderProps) {
       promptForKPIRefresh,
       refreshKPIs,
       showPendingChangesDialog,
+      cancelRefresh,
       isDialogOpen,
       isRefreshing,
       hasPendingChanges
     }}>
       {children}
-      
-      <KPIRefreshDialog
-        isOpen={isDialogOpen}
-        onClose={closeDialog}
-        onConfirm={refreshKPIs}
-        onCancel={cancelRefresh}
-        isRefreshing={isRefreshing}
-        changeDescription={changeDescription}
-        affectedKPIs={affectedKPIs}
-      />
     </KPIRefreshContext.Provider>
   );
 }

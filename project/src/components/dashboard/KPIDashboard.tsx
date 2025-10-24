@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { useAuthContext } from '../../contexts/auth-context';
 import { KPIRecordsService, KPIRecord } from '../../services/kpiRecordsService';
 import { RevenueKPIGenerator } from '../../services/revenueKPIGenerator';
 import { 
   Loader2, 
-  Edit3, 
   BarChart3, 
   PieChart, 
   Clock, 
@@ -18,7 +16,8 @@ import {
   Check,
   X,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Info
 } from 'lucide-react';
 
 import { Button } from '../ui/button';
@@ -51,7 +50,6 @@ const getKPIIcon = (kpiName: string) => {
 
 
 export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
-  const queryClient = useQueryClient();
   const { dbUserId } = useAuthContext();
   const [kpiRecords, setKpiRecords] = useState<KPIRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,31 +193,17 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     
     setGenerating(true);
     try {
-      await RevenueKPIGenerator.generateKPIsForPeriod(dbUserId, 'current');
+      console.log('🔄 Refreshing all KPIs...');
+      // Generate all KPIs (not just current period)
+      await RevenueKPIGenerator.generateAllKPIs(dbUserId, false);
+      console.log('✅ KPI generation complete, reloading...');
       await loadKPIRecords(true); // Force reload after generation
     } catch (error) {
-      console.error('Error refreshing KPIs:', error);
+      console.error('❌ Error refreshing KPIs:', error);
+      alert('Failed to refresh KPIs. Check console for details.');
     } finally {
       setGenerating(false);
     }
-  };
-
-  const refreshData = async () => {
-    console.log('🔄 Manual refresh - AGGRESSIVE cache clear');
-    
-    // Clear ALL React Query caches
-    queryClient.clear();
-    
-    // Reset last load time to force reload
-    lastLoadTime.current = 0;
-    
-    // Add small delay to ensure cache is cleared
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // Force reload with timestamp to bypass any HTTP caching
-    await loadKPIRecords(true);
-    
-    console.log('✅ Refresh complete');
   };
 
   // Log window focus status for debugging alt-tab refresh prevention
@@ -275,12 +259,6 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     } finally {
       setGenerating(false);
     }
-  };
-
-  const handleEditGoal = (kpiId: string, currentGoal: number) => {
-    console.log('handleEditGoal called with:', { kpiId, currentGoal });
-    setEditingGoal(kpiId);
-    setGoalValue(currentGoal.toString());
   };
 
   const handleSaveGoal = async (kpiId: string) => {
@@ -437,10 +415,8 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
               <SelectItem value="2025-03">March 2025</SelectItem>
               <SelectItem value="2025-02">February 2025</SelectItem>
               <SelectItem value="2025-01">January 2025</SelectItem>
-              <SelectItem value="same_month_last_year">Same Month Last Year</SelectItem>
               <SelectItem value="last3months">Last 3 Months</SelectItem>
               <SelectItem value="ytd">Year to Date</SelectItem>
-              <SelectItem value="all">All Time</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -651,10 +627,9 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                           <div className="text-xs text-foreground">
                             {(kpi as any).comparison_value ? (
                               (() => {
-                                const dollarDifference = kpi.kpi_value - (kpi as any).comparison_value;
-                                const isPositive = dollarDifference >= 0;
                                 const currentValue = formatValue(kpi.kpi_value, kpi.display_format, kpi.kpi_name);
                                 const lastYearValue = formatValue((kpi as any).comparison_value, kpi.display_format, kpi.kpi_name);
+                                const isPositive = kpi.kpi_value >= (kpi as any).comparison_value;
                                 
                                 return `Your ${kpi.kpi_name.replace(/_/g, ' ').toLowerCase()} this year is ${currentValue} compared to ${lastYearValue} last year. ${isPositive ? 'Great Job!' : 'We need to improve in this area.'}`;
                               })()
@@ -663,6 +638,31 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                             )}
                           </div>
                         </div>
+                        
+                        {/* FIR Calculation Breakdown - Only for Monthly Revenue KPI */}
+                        {kpi.kpi_name === 'Monthly Revenue' && kpi.goal_value && (
+                          <details className="mt-2 text-xs">
+                            <summary className="cursor-pointer text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                              <Info className="h-3 w-3" />
+                              How was this target calculated?
+                            </summary>
+                            <div className="mt-2 p-2 bg-muted/30 rounded text-xs space-y-1">
+                              <p className="font-medium text-accent">FIR Calculation Breakdown:</p>
+                              <p className="text-muted-foreground">
+                                Your FIR target is based on your business's seasonal pattern from last year.
+                              </p>
+                              <div className="mt-2 space-y-0.5 font-mono text-[10px]">
+                                <p>1. Last year's revenue pattern analyzed</p>
+                                <p>2. This month's % of annual revenue calculated</p>
+                                <p>3. Applied to your annual FIR target</p>
+                                <p className="mt-1 text-accent">Result: ${formatValue(kpi.goal_value, 'currency', kpi.kpi_name)}</p>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground mt-2">
+                                💡 This ensures your monthly targets reflect your business's natural rhythm.
+                              </p>
+                            </div>
+                          </details>
+                        )}
                         
                         {/* Enhanced action suggestion for historical comparison */}
                         <div>
@@ -707,21 +707,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                       </div>
                     )}
                     
-                    {/* Edit Goal Button - Inside Card at Bottom */}
-                    {editingGoal !== kpi.id && !(kpi as any).comparison_value && (
-                      <div className="mt-4 pt-3 border-t border-border">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditGoal(kpi.id, kpi.goal_value || 0)}
-                          className="w-full flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground"
-                          title="Edit goal for this KPI"
-                        >
-                          <Edit3 className="h-4 w-4" />
-                          Edit Goal
-                        </Button>
-                      </div>
-                    )}
+                    {/* Edit Goal removed - KPIs now read-only, goals set via Master Revenue page FIR targets */}
                   </div>
                 </div>
               </div>

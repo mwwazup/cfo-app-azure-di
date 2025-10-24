@@ -216,7 +216,7 @@ export function BudgetVsActualPage() {
               <div className="flex-1">
                 <p className="text-sm text-muted-foreground">Monthly Budget</p>
                 <div className="text-2xl font-bold text-foreground mt-1">
-                  ${totalBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${Math.round(totalBudget).toLocaleString()}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">From FIR Target</p>
               </div>
@@ -252,7 +252,7 @@ export function BudgetVsActualPage() {
               <div className="flex-1">
                 <p className="text-sm text-muted-foreground">Variance</p>
                 <div className={`text-2xl font-bold mt-1 ${totalVariance >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {totalVariance >= 0 ? '+' : ''}${totalVariance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {totalVariance >= 0 ? '+' : ''}${Math.round(totalVariance).toLocaleString()}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {totalVariance >= 0 ? 'Above' : 'Below'} target

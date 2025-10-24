@@ -81,7 +81,7 @@ export function MasterChart() {
     lockHistoricalYear
   } = useRevenue();
   
-  const { refreshKPIs, isRefreshing } = useKPIRefreshContext();
+  const { refreshKPIs, isRefreshing, promptForKPIRefresh } = useKPIRefreshContext();
   
   const [timePeriod] = useState<TimePeriod>('yearly');
   const [annualFIRTarget, setAnnualFIRTarget] = useState(currentYear.targetRevenue);
@@ -155,6 +155,12 @@ export function MasterChart() {
     firDebounceTimerRef.current = setTimeout(() => {
       console.log('💾 Saving FIR target after debounce:', value);
       updateTargets(value, profitMargin);
+      
+      // Trigger KPI refresh prompt
+      promptForKPIRefresh({
+        changeDescription: 'FIR target updated',
+        affectedKPIs: ['All revenue and target KPIs']
+      });
     }, 1000);
   };
 
@@ -162,6 +168,12 @@ export function MasterChart() {
     setProfitMargin(value);
     // Use updateProfitMargin instead of updateTargets to avoid recalculating FIR
     updateProfitMargin(value);
+    
+    // Trigger KPI refresh prompt
+    promptForKPIRefresh({
+      changeDescription: 'Profit margin updated',
+      affectedKPIs: ['Profit Margin', 'Net Profit After Draws']
+    });
   };
 
   if (!mounted) {
@@ -275,6 +287,12 @@ export function MasterChart() {
   const handleMonthlyRevenueChange = (index: number, value: number) => {
     const month = currentYear.data[index].month;
     updateMonthlyRevenue(month, value);
+    
+    // Trigger KPI refresh prompt (debounced)
+    promptForKPIRefresh({
+      changeDescription: 'Revenue data updated',
+      affectedKPIs: ['Monthly Revenue', 'YTD Revenue', 'Revenue Gap', 'Growth Rate']
+    });
   };
 
   const handleYearChange = (year: string) => {
@@ -450,11 +468,19 @@ export function MasterChart() {
         enabled: true,
         mode: 'index' as const,
         intersect: false,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        titleColor: textColor,
-        bodyColor: textColor,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        backgroundColor: 'rgba(42, 42, 42, 1)', // #666666 muted gray matching bg-muted/30
+        titleColor: '#ffffff', // text-foreground
+        bodyColor: 'rgba(255, 255, 255, 1)', // text-muted-foreground
+        borderColor: 'rgba(212, 175, 55, 0.3)', // border-accent/30 gold accent
         borderWidth: 1,
+        padding: 12,
+        titleFont: {
+          size: 14,
+          weight: 'bold' as const,
+        },
+        bodyFont: {
+          size: 13,
+        },
         callbacks: {
           beforeBody: function(tooltipItems: any) {
             if (isHistoricalYear) {
@@ -473,7 +499,13 @@ export function MasterChart() {
               // Show values in the requested order: Future Growth, GAP, Actual
               if (viewMode !== 'actual-only' && firData.length > 0) {
                 lines.push(`Future Growth: $${Math.round(firValue).toLocaleString()}`);
-                lines.push(`GAP: $${Math.round(gapValue).toLocaleString()}`);
+                
+                // GAP: Always show as positive number
+                // Original gapValue is FIR - Actual, so negative means ahead
+                const isAhead = gapValue < 0;
+                const gapAmount = Math.abs(gapValue);
+                const gapLabel = isAhead ? 'GAP (Ahead)' : 'GAP (Behind)';
+                lines.push(`${gapLabel}: $${Math.round(gapAmount).toLocaleString()}`);
               }
               lines.push(`Actual: $${Math.round(actualValue).toLocaleString()}`);
               
@@ -482,13 +514,30 @@ export function MasterChart() {
           },
           label: () => '',
           afterBody: function(tooltipItems: any) {
-            if (!isHistoricalYear && !currentYear.isLocked) {
-              const monthIndex = tooltipItems[0]?.dataIndex;
-              if (monthIndex !== undefined) {
-                return ['', `💡 Click to edit ${months[monthIndex]} revenue`];
-              }
+            const lines = [];
+            const monthIndex = tooltipItems[0]?.dataIndex;
+            
+            if (monthIndex !== undefined && viewMode !== 'actual-only' && firData.length > 0) {
+              // Get previous year's data for context
+              const previousYear = getYearData(selectedYear - 1);
+              const prevYearRevenue = previousYear.data[monthIndex]?.revenue || 0;
+              const prevYearTotal = previousYear.data.reduce((sum, item) => sum + item.revenue, 0);
+              const prevYearPercentage = prevYearTotal > 0 ? (prevYearRevenue / prevYearTotal * 100).toFixed(2) : '0';
+              
+              // Show the actual FIR value
+              const actualFIR = firData[monthIndex];
+              
+              lines.push('');
+              lines.push(`📊 ${months[monthIndex]} ${selectedYear - 1}: $${Math.round(prevYearRevenue).toLocaleString()} (${prevYearPercentage}% of year)`);
+              lines.push(`   ${months[monthIndex]} ${selectedYear} FIR: $${Math.round(actualFIR).toLocaleString()} (${prevYearPercentage}% × $${Math.round(annualFIRTarget).toLocaleString()})`);
             }
-            return [];
+            
+            if (!isHistoricalYear && !currentYear.isLocked && monthIndex !== undefined) {
+              lines.push('');
+              lines.push(`💡 Click to edit ${months[monthIndex]} revenue`);
+            }
+            
+            return lines;
           }
         },
       },
