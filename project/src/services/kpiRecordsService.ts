@@ -71,7 +71,16 @@ export class KPIRecordsService {
             break;
           case 'last_month':
             const lastMonth = new Date();
+            console.log('🔍 Last Month Debug - Before:', { 
+              currentMonth: lastMonth.getMonth(), 
+              currentMonthName: lastMonth.toLocaleDateString('en-US', { month: 'long' })
+            });
             lastMonth.setMonth(lastMonth.getMonth() - 1);
+            console.log('🔍 Last Month Debug - After setMonth:', { 
+              newMonth: lastMonth.getMonth(), 
+              newMonthName: lastMonth.toLocaleDateString('en-US', { month: 'long' }),
+              calculatedPeriod: `${lastMonth.getFullYear()}-${(lastMonth.getMonth() + 1).toString().padStart(2, '0')}-01`
+            });
             period = `${lastMonth.getFullYear()}-${(lastMonth.getMonth() + 1).toString().padStart(2, '0')}-01`;
             break;
           case 'same_month_last_year':
@@ -249,11 +258,11 @@ export class KPIRecordsService {
     const drawPercentage = netProfit > 0 ? Math.round((ownerDraws / netProfit) * 100) : 0;
     
     if (netProfitAfterDraws < 0) {
-      return `You drew $${ownerDraws.toLocaleString()} from $${netProfit.toLocaleString()} net profit, leaving a deficit of $${Math.abs(netProfitAfterDraws).toLocaleString()}. This means you're drawing more than your business earned, which undermines your Future Inspired Revenue goals.`;
+      return `You drew $${Math.round(ownerDraws).toLocaleString()} from $${Math.round(netProfit).toLocaleString()} net profit, leaving a deficit of $${Math.round(Math.abs(netProfitAfterDraws)).toLocaleString()}. This means you're drawing more than your business earned, which undermines your Future Inspired Revenue goals.`;
     } else if (netProfitAfterDraws === 0) {
-      return `You drew exactly your net profit of $${netProfit.toLocaleString()}, leaving $0 for business growth and reserves. Consider reducing draws to 80% of profit to fuel your Future Inspired Revenue targets.`;
+      return `You drew exactly your net profit of $${Math.round(netProfit).toLocaleString()}, leaving $0 for business growth and reserves. Consider reducing draws to 80% of profit to fuel your Future Inspired Revenue targets.`;
     } else {
-      return `From $${netProfit.toLocaleString()} net profit, you drew $${ownerDraws.toLocaleString()} (${drawPercentage}%), leaving $${netProfitAfterDraws.toLocaleString()} for business growth and reserves. This supports your Future Inspired Revenue strategy.`;
+      return `From $${Math.round(netProfit).toLocaleString()} net profit, you drew $${Math.round(ownerDraws).toLocaleString()} (${drawPercentage}%), leaving $${Math.round(netProfitAfterDraws).toLocaleString()} for business growth and reserves. This supports your Future Inspired Revenue strategy.`;
     }
   }
 

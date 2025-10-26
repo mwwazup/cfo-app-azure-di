@@ -23,6 +23,7 @@ import {
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Input } from '../ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { MoneyBreakdown } from './MoneyBreakdown';
 
 
@@ -63,6 +64,22 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [hasHistoricalData, setHasHistoricalData] = useState(false);
   const lastLoadTime = React.useRef<number>(0);
+  const [generatingMessage, setGeneratingMessage] = useState('Surfing');
+  
+  // Cycle through fun messages during generation
+  const generatingMessages = ['Surfing', 'Swimming', 'Riding', 'Wave', 'Floating', "Chill'n"];
+  
+  useEffect(() => {
+    if (!generating) return;
+    
+    let index = 0;
+    const interval = setInterval(() => {
+      index = (index + 1) % generatingMessages.length;
+      setGeneratingMessage(generatingMessages[index]);
+    }, 1500); // Change message every 1.5 seconds
+    
+    return () => clearInterval(interval);
+  }, [generating]);
 
   // Load KPI records with proper comparison data and throttling
   const loadKPIRecords = React.useCallback(async (forceLoad = false) => {
@@ -115,14 +132,15 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
           // Extract year and month from current period
           const currentPeriod = filteredRecords[0]?.period;
           if (currentPeriod) {
-            const currentDate = new Date(currentPeriod);
-            const currentYear = currentDate.getFullYear();
-            const currentMonth = currentDate.getMonth() + 1;
+            // Parse date string directly to avoid timezone issues
+            const [yearStr, monthStr] = currentPeriod.split('-');
+            const currentYear = parseInt(yearStr);
+            const currentMonth = parseInt(monthStr);
             
             // Calculate same month last year
             const lastYearPeriod = `${currentYear - 1}-${currentMonth.toString().padStart(2, '0')}-01`;
             
-            console.log(`Loading comparison data for ${lastYearPeriod}`);
+            console.log(`Loading comparison data for ${lastYearPeriod} (current period: ${currentPeriod})`);
             
             // Load last year's data for the same month
             const comparisonRecords = await KPIRecordsService.getKPIRecords(dbUserId, {
@@ -173,9 +191,50 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
         const filteredNewRecords = newRecords.filter(record => 
           record.kpi_name !== 'Revenue Target Based on Profit Margin'
         );
-        setKpiRecords(filteredNewRecords);
+        
+        // Sort in consistent order before setting
+        const kpiOrder = [
+          'Monthly Revenue',
+          'YTD Revenue',
+          'Revenue Gap to Target',
+          'Revenue Velocity',
+          'Profit Margin',
+          'Net Profit After Owner Draws',
+          'Monthly Revenue Contribution'
+        ];
+        
+        const sortedNewRecords = filteredNewRecords.sort((a, b) => {
+          const indexA = kpiOrder.indexOf(a.kpi_name);
+          const indexB = kpiOrder.indexOf(b.kpi_name);
+          if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+          if (indexA !== -1) return -1;
+          if (indexB !== -1) return 1;
+          return 0;
+        });
+        
+        setKpiRecords(sortedNewRecords);
       } else {
-        setKpiRecords(recordsWithComparison);
+        // Sort KPIs in a consistent story order
+        const kpiOrder = [
+          'Monthly Revenue',
+          'YTD Revenue',
+          'Revenue Gap to Target',
+          'Revenue Velocity',
+          'Profit Margin',
+          'Net Profit After Owner Draws',
+          'Monthly Revenue Contribution'
+        ];
+        
+        const sortedRecords = recordsWithComparison.sort((a, b) => {
+          const indexA = kpiOrder.indexOf(a.kpi_name);
+          const indexB = kpiOrder.indexOf(b.kpi_name);
+          if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+          if (indexA !== -1) return -1;
+          if (indexB !== -1) return 1;
+          return 0;
+        });
+        
+        setKpiRecords(sortedRecords);
       }
       
       console.log('📊 Final KPI records with comparison:', recordsWithComparison);
@@ -194,8 +253,8 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     setGenerating(true);
     try {
       console.log('🔄 Refreshing all KPIs...');
-      // Generate all KPIs (not just current period)
-      await RevenueKPIGenerator.generateAllKPIs(dbUserId, false);
+      // Generate all KPIs for all months in current year (not just current month)
+      await RevenueKPIGenerator.generateAllKPIs(dbUserId, false, false); // includeAllYears=false, currentMonthOnly=false
       console.log('✅ KPI generation complete, reloading...');
       await loadKPIRecords(true); // Force reload after generation
     } catch (error) {
@@ -304,7 +363,9 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     
     // Force format inference for known KPI types
     // IMPORTANT: Check percentage KPIs FIRST before generic keyword matching
-    if (kpiLower.includes('margin') || kpiLower.includes('rate') || kpiLower.includes('growth') || kpiLower.includes('velocity')) {
+    if (kpiLower.includes('contribution')) {
+      actualFormat = 'percentage'; // Monthly Revenue Contribution is a percentage
+    } else if (kpiLower.includes('margin') || kpiLower.includes('rate') || kpiLower.includes('growth') || kpiLower.includes('velocity')) {
       actualFormat = 'percentage';
     } else if (kpiLower.includes('revenue') || kpiLower.includes('profit') || kpiLower.includes('gap')) {
       actualFormat = 'currency';
@@ -344,18 +405,21 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   }
 
   return (
-    <div className={`w-full ${className}`}>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsCollapsed(!isCollapsed)}>
-          <h2 className="text-2xl font-bold">KPI Coaching Dashboard</h2>
-          {isCollapsed ? (
-            <ChevronDown className="h-5 w-5 text-gray-500" />
-          ) : (
-            <ChevronUp className="h-5 w-5 text-gray-500" />
-          )}
-        </div>
-        <div className="flex items-center gap-2">
+    <Card className={`w-full mt-8 ${className}`}>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsCollapsed(!isCollapsed)}>
+            <CardTitle className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <BarChart3 className="h-6 w-6 text-accent" />
+              Wins & Gaps
+            </CardTitle>
+            {isCollapsed ? (
+              <ChevronDown className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronUp className="h-5 w-5 text-gray-500" />
+            )}
+          </div>
+          <div className="flex items-center gap-2">
           {generating ? (
             <Button 
               onClick={stopGeneration}
@@ -384,30 +448,73 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
             className="flex items-center gap-2"
           >
             <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
-            {generating ? 'Regenerating...' : 'Refresh KPIs'}
+            {generating ? `${generatingMessage}...` : 'Refresh KPIs'}
           </Button>
+          </div>
         </div>
-      </div>
+      </CardHeader>
 
       {/* Collapsible Content */}
       {!isCollapsed && (
-        <>
+        <CardContent>
+          <>
           {/* Subtitle */}
-          <div className="text-sm text-gray-600 mb-4">
-            <span>AI-powered KPI insights with coaching recommendations</span>
+          <div className="text-sm text-muted-foreground mb-4">
+            <span>Find the wins. Fill the gaps. Ride the Wave</span>
+          </div>
+
+          {/* Active Filters Display */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <span className="text-xs text-muted-foreground">Viewing:</span>
+            <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
+              {(() => {
+                const now = new Date();
+                if (filterPeriod === 'current_month') {
+                  return now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                } else if (filterPeriod === 'last_month') {
+                  const lastMonth = new Date();
+                  lastMonth.setMonth(lastMonth.getMonth() - 1);
+                  return lastMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                } else if (filterPeriod === 'ytd') {
+                  return `Year to Date ${now.getFullYear()}`;
+                } else if (filterPeriod === 'last3months') {
+                  return 'Last 3 Months';
+                } else if (filterPeriod.includes('-')) {
+                  // Parse period string to avoid timezone issues
+                  const [yearStr, monthStr] = filterPeriod.split('-');
+                  const year = parseInt(yearStr);
+                  const month = parseInt(monthStr);
+                  const periodDate = new Date(year, month - 1, 15); // Use 15th to avoid timezone edge cases
+                  return periodDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                } else {
+                  return filterPeriod;
+                }
+              })()}
+            </div>
+            {filterCategory !== 'all' && (
+              <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
+                {filterCategory}
+              </div>
+            )}
+            {filterStatus !== 'all' && (
+              <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent capitalize">
+                {filterStatus}
+              </div>
+            )}
           </div>
 
           {/* Filters */}
       <div className="flex flex-wrap items-center gap-4 mb-6">
         <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-gray-500" />
+          <Calendar className="h-4 w-4 text-accent" />
           <Select value={filterPeriod} onValueChange={(value) => setFilterPeriod(value as FilterPeriod)}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Period" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="current_month">Current Month</SelectItem>
-              <SelectItem value="last_month">Last Month</SelectItem>
+              <SelectItem value="current_month">October 2025</SelectItem>
+              <SelectItem value="last_month">September 2025</SelectItem>
+              <SelectItem value="2025-08">August 2025</SelectItem>
               <SelectItem value="2025-07">July 2025</SelectItem>
               <SelectItem value="2025-06">June 2025</SelectItem>
               <SelectItem value="2025-05">May 2025</SelectItem>
@@ -422,7 +529,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-gray-500" />
+          <Filter className="h-4 w-4 text-accent" />
           <Select value={filterCategory} onValueChange={setFilterCategory}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Category" />
@@ -493,7 +600,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
             return (
               <div key={kpi.id} className="h-full flex flex-col">
                 {/* KPI Card */}
-                <div className="bg-card rounded-lg shadow-sm border border-border h-full flex flex-col">
+                <div className="bg-muted/30 rounded-lg shadow-sm border border-border h-full flex flex-col">
                   <div className="px-6 py-4 pt-6 flex-1 flex flex-col">
                     <div className="flex items-center justify-between">
                       <div>
@@ -631,10 +738,59 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                                 const lastYearValue = formatValue((kpi as any).comparison_value, kpi.display_format, kpi.kpi_name);
                                 const isPositive = kpi.kpi_value >= (kpi as any).comparison_value;
                                 
-                                return `Your ${kpi.kpi_name.replace(/_/g, ' ').toLowerCase()} this year is ${currentValue} compared to ${lastYearValue} last year. ${isPositive ? 'Great Job!' : 'We need to improve in this area.'}`;
+                                // Parse period to avoid timezone issues
+                                const [yearStr, monthStr] = kpi.period.split('-');
+                                const periodYear = parseInt(yearStr);
+                                const periodMonth = parseInt(monthStr);
+                                
+                                const currentDate = new Date();
+                                const currentYear = currentDate.getFullYear();
+                                const currentMonth = currentDate.getMonth() + 1;
+                                const isHistorical = periodYear < currentYear || (periodYear === currentYear && periodMonth < currentMonth);
+                                
+                                // Get month/year for historical context (use 15th to avoid timezone issues)
+                                const kpiDate = new Date(periodYear, periodMonth - 1, 15);
+                                const monthYear = kpiDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                                const lastYearDate = new Date(periodYear - 1, periodMonth - 1, 15);
+                                const lastYearPeriod = lastYearDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                                
+                                if (isHistorical) {
+                                  return `Your ${kpi.kpi_name.replace(/_/g, ' ').toLowerCase()} in ${monthYear} was ${currentValue} compared to ${lastYearValue} in ${lastYearPeriod}. ${isPositive ? 'Great Job!' : 'This area needed improvement.'}`;
+                                } else {
+                                  return `Your ${kpi.kpi_name.replace(/_/g, ' ').toLowerCase()} this year is ${currentValue} compared to ${lastYearValue} last year. ${isPositive ? 'Great Job!' : 'We need to improve in this area.'}`;
+                                }
                               })()
                             ) : (
-                              kpi.plain_explanation || `Current ${kpi.kpi_name.replace(/_/g, ' ').toLowerCase()} performance.`
+                              (() => {
+                                // Parse period to avoid timezone issues
+                                const [yearStr, monthStr] = kpi.period.split('-');
+                                const periodYear = parseInt(yearStr);
+                                const periodMonth = parseInt(monthStr);
+                                
+                                const currentDate = new Date();
+                                const currentYear = currentDate.getFullYear();
+                                const currentMonth = currentDate.getMonth() + 1;
+                                
+                                const isHistorical = periodYear < currentYear || (periodYear === currentYear && periodMonth < currentMonth);
+                                
+                                if (kpi.plain_explanation && isHistorical) {
+                                  // Get the actual month name from the period
+                                  const periodDate = new Date(periodYear, periodMonth - 1, 15); // Use 15th to avoid timezone issues
+                                  const monthName = periodDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                                  
+                                  // Convert present tense to past tense and update month references
+                                  return kpi.plain_explanation
+                                    .replace(/is accelerating/g, 'was accelerating')
+                                    .replace(/This month you earned/g, `In ${monthName} you earned`)
+                                    .replace(/you made/g, 'you made')
+                                    .replace(/This "velocity" shows/g, 'This "velocity" showed')
+                                    .replace(/your business is growing/g, 'your business was growing')
+                                    .replace(/which is critical/g, 'which was critical')
+                                    .replace(/\b(January|February|March|April|May|June|July|August|September|October|November|December) \d{4}\b/g, monthName);
+                                } else {
+                                  return kpi.plain_explanation || `Current ${kpi.kpi_name.replace(/_/g, ' ').toLowerCase()} performance.`;
+                                }
+                              })()
                             )}
                           </div>
                         </div>
@@ -655,7 +811,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                                 <p>1. Last year's revenue pattern analyzed</p>
                                 <p>2. This month's % of annual revenue calculated</p>
                                 <p>3. Applied to your annual FIR target</p>
-                                <p className="mt-1 text-accent">Result: ${formatValue(kpi.goal_value, 'currency', kpi.kpi_name)}</p>
+                                <p className="mt-1 text-accent">Result: {formatValue(kpi.goal_value, 'currency', kpi.kpi_name)}</p>
                               </div>
                               <p className="text-[10px] text-muted-foreground mt-2">
                                 💡 This ensures your monthly targets reflect your business's natural rhythm.
@@ -674,26 +830,69 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                                 const isPositive = dollarDifference >= 0;
                                 const percentChange = (kpi as any).year_over_year_change;
                                 
-                                if (isPositive) {
-                                  if (percentChange > 20) {
-                                    return `Excellent growth! You've built serious momentum. Let's consider analyzing what drove this success and build more momentum for those strategies.`;
-                                  } else if (percentChange > 5) {
-                                    return `Good progress with solid improvement. Let's look for opportunities to accelerate this positive trend.`;
+                                // Determine if viewing historical data
+                                const kpiDate = new Date(kpi.period);
+                                const currentDate = new Date();
+                                const isHistorical = kpiDate < new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+                                
+                                if (isHistorical) {
+                                  // Past tense for historical months
+                                  if (isPositive) {
+                                    if (percentChange > 20) {
+                                      return `Excellent growth during this period! Analyze what drove this success to replicate these strategies going forward.`;
+                                    } else if (percentChange > 5) {
+                                      return `Good progress with solid improvement. Consider what worked well during this period.`;
+                                    } else {
+                                      return `Modest growth was shown. Review what profit-producing strategies could have boosted performance.`;
+                                    }
                                   } else {
-                                    return `You're showing modest growth. Let's consider some profit producing strategies to boost performance in this area.`;
+                                    if (Math.abs(percentChange) > 20) {
+                                      return `Significant decline occurred. Review what caused this drop to prevent similar issues in the future.`;
+                                    } else if (Math.abs(percentChange) > 5) {
+                                      return `A decline occurred. Review what impacted this number to avoid similar situations.`;
+                                    } else {
+                                      return `Minor decline was shown. Consider what adjustments could have prevented this.`;
+                                    }
                                   }
                                 } else {
-                                  if (Math.abs(percentChange) > 20) {
-                                    return `Uh, oh! You're showing a significant decline. Let's take immediate action to identify and address the root cause(s).`;
-                                  } else if (Math.abs(percentChange) > 5) {
-                                    return `You're showing a decline. It's somewhat concerning now but let's review recent changes to see what impacted this number and implement a plan to get you back on track.`;
+                                  // Present tense for current month
+                                  if (isPositive) {
+                                    if (percentChange > 20) {
+                                      return `Excellent growth! You've built serious momentum. Let's consider analyzing what drove this success and build more momentum for those strategies.`;
+                                    } else if (percentChange > 5) {
+                                      return `Good progress with solid improvement. Let's look for opportunities to accelerate this positive trend.`;
+                                    } else {
+                                      return `You're showing modest growth. Let's consider some profit producing strategies to boost performance in this area.`;
+                                    }
                                   } else {
-                                    return `You're showing a decline. While only minor now, let's keep an eye on this and consider proactive actions to get back on track.`;
+                                    if (Math.abs(percentChange) > 20) {
+                                      return `Uh, oh! You're showing a significant decline. Let's take immediate action to identify and address the root cause(s).`;
+                                    } else if (Math.abs(percentChange) > 5) {
+                                      return `You're showing a decline. It's somewhat concerning now but let's review recent changes to see what impacted this number and implement a plan to get you back on track.`;
+                                    } else {
+                                      return `You're showing a decline. While only minor now, let's keep an eye on this and consider proactive actions to get back on track.`;
+                                    }
                                   }
                                 }
                               })()
                             ) : (
-                              kpi.action_suggestion || 'We will continue to monitor this KPI and compare it with your historical numbers or industry benchmarks.'
+                              (() => {
+                                // Check if viewing historical data for action_suggestion too
+                                const kpiDate = new Date(kpi.period);
+                                const currentDate = new Date();
+                                const isHistorical = kpiDate < new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+                                
+                                if (kpi.action_suggestion && isHistorical) {
+                                  // Convert present tense to past tense for historical months
+                                  return kpi.action_suggestion
+                                    .replace(/You're exceeding/g, 'You exceeded')
+                                    .replace(/Keep this momentum/g, 'This momentum was strong')
+                                    .replace(/by doubling down/g, 'Consider replicating')
+                                    .replace(/what's working/g, 'what worked');
+                                } else {
+                                  return kpi.action_suggestion || 'We will continue to monitor this KPI and compare it with your historical numbers or industry benchmarks.';
+                                }
+                              })()
                             )}
                           </div>
                         </div>
@@ -715,8 +914,9 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
           })}
         </div>
       )}
-        </>
+          </>
+        </CardContent>
       )}
-    </div>
+    </Card>
   );
 }

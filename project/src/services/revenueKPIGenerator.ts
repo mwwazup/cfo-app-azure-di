@@ -37,7 +37,7 @@ export class RevenueKPIGenerator {
       // Generate all KPIs
       await this.generateMonthlyRevenueKPI(userId, revenueData, year, month);
       await this.generateYTDKPI(userId, revenueData, year, month);
-      await this.generateGrowthRateKPI(userId, revenueData, year, month);
+      await this.generateMonthlyRevenueContributionKPI(userId, revenueData, year, month);
       await this.generateProfitMarginKPI(userId, revenueData, year, month);
       await this.generateRevenueGapKPI(userId, revenueData, year, month);
       await this.generateRevenueVelocityKPI(userId, revenueData, year, month);
@@ -129,7 +129,7 @@ export class RevenueKPIGenerator {
             console.log(`   ⚙️ Generating KPIs for ${year}-${month.toString().padStart(2, '0')}`);
             await this.generateMonthlyRevenueKPI(userId, revenueData, year, month);
             await this.generateYTDKPI(userId, revenueData, year, month);
-            await this.generateGrowthRateKPI(userId, revenueData, year, month);
+            await this.generateMonthlyRevenueContributionKPI(userId, revenueData, year, month);
             await this.generateProfitMarginKPI(userId, revenueData, year, month);
             await this.generateRevenueGapKPI(userId, revenueData, year, month);
             await this.generateRevenueVelocityKPI(userId, revenueData, year, month);
@@ -234,7 +234,15 @@ export class RevenueKPIGenerator {
     
     // Always use FIR target (desired_revenue) - custom goals removed
     const targetRevenue = monthData.desired_revenue || monthData.target_revenue || 0;
-    console.log('🎯 Monthly Revenue - Using FIR target:', { targetRevenue, firTarget: monthData.desired_revenue });
+    console.log('🎯 Monthly Revenue KPI Generation:', { 
+      year, 
+      month, 
+      actualRevenue, 
+      targetRevenue, 
+      desired_revenue: monthData.desired_revenue,
+      target_revenue: monthData.target_revenue,
+      fullMonthData: monthData 
+    });
     
     let status: 'good' | 'warning' | 'alert' = 'good';
     if (targetRevenue > 0) {
@@ -251,7 +259,7 @@ export class RevenueKPIGenerator {
       goal_value: targetRevenue,
       status: status,
       display_format: 'currency',
-      plain_explanation: `Monthly revenue of $${actualRevenue.toLocaleString()} ${targetRevenue > 0 ? `vs FIR target of $${targetRevenue.toLocaleString()}` : ''}`,
+      plain_explanation: `Monthly revenue of $${Math.round(actualRevenue).toLocaleString()} ${targetRevenue > 0 ? `vs FIR target of $${Math.round(targetRevenue).toLocaleString()}` : ''}`,
       action_suggestion: status === 'alert' ? 'Revenue is significantly below FIR target. Focus on immediate revenue generation activities.' : status === 'warning' ? 'Revenue is below FIR target. Review sales pipeline and marketing efforts.' : 'Great job hitting your FIR target! Look for opportunities to exceed it.'
     };
 
@@ -311,7 +319,7 @@ export class RevenueKPIGenerator {
       goal_value: finalTarget,
       status: status,
       display_format: 'currency',
-      plain_explanation: `Year-to-date revenue of $${ytdRevenue.toLocaleString()} ${finalTarget > 0 ? `vs FIR target of $${finalTarget.toLocaleString()}` : ''}`,
+      plain_explanation: `Year-to-date revenue of $${Math.round(ytdRevenue).toLocaleString()} ${finalTarget > 0 ? `vs FIR target of $${Math.round(finalTarget).toLocaleString()}` : ''}`,
       action_suggestion: status === 'alert' ? 'YTD revenue is significantly behind FIR target. Implement aggressive revenue recovery strategies.' : status === 'warning' ? 'YTD revenue is below FIR target. Focus on accelerating sales to catch up.' : 'Excellent YTD performance! You\'re on track to exceed your annual FIR goals.'
     };
 
@@ -319,43 +327,68 @@ export class RevenueKPIGenerator {
   }
 
   /**
-   * Generate Growth Rate KPI
+   * Generate Monthly Revenue Contribution KPI
+   * Shows what % of annual revenue this month represents vs last year
    */
-  private static async generateGrowthRateKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
+  private static async generateMonthlyRevenueContributionKPI(userId: string, revenueData: any[], year: number, month: number): Promise<void> {
     const currentMonth = revenueData.find(entry => entry.month === month);
-    const previousMonth = revenueData.find(entry => entry.month === month - 1);
-    
-    if (!currentMonth || !previousMonth) return;
+    if (!currentMonth) return;
 
     const currentRevenue = currentMonth.actual_revenue || 0;
-    const previousRevenue = previousMonth.actual_revenue || 0;
     
-    if (previousRevenue === 0) return;
+    // Calculate YTD revenue for current year
+    const ytdRevenue = revenueData
+      .filter(entry => entry.month <= month)
+      .reduce((sum, entry) => sum + (entry.actual_revenue || 0), 0);
+    
+    if (ytdRevenue === 0) return;
 
-    const growthRate = ((currentRevenue - previousRevenue) / previousRevenue) * 100;
+    // Calculate this month's contribution to YTD
+    const contributionPercent = (currentRevenue / ytdRevenue) * 100;
+    
+    // Get last year's data for comparison
+    const lastYearResult = await import('../config/supabaseClient').then(m => m.getRevenueEntries(userId, year - 1));
+    const lastYearData = lastYearResult.rows || [];
+    
+    const lastYearMonth = lastYearData.find((entry: any) => entry.month === month);
+    const lastYearYTD = lastYearData
+      .filter((entry: any) => entry.month <= month)
+      .reduce((sum: number, entry: any) => sum + (entry.actual_revenue || 0), 0);
+    
+    const lastYearContribution = lastYearYTD > 0 && lastYearMonth 
+      ? ((lastYearMonth.actual_revenue || 0) / lastYearYTD) * 100 
+      : 0;
+
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
     
+    // Status based on whether contribution is growing or shrinking
+    const contributionChange = contributionPercent - lastYearContribution;
     let status: 'good' | 'warning' | 'alert' = 'good';
-    if (growthRate < -10) status = 'alert';
-    else if (growthRate < 0) status = 'warning';
-
-    const roundedGrowthRate = Math.round(Math.abs(growthRate) * 10) / 10;
-    const growthExplanation = growthRate >= 0 
-      ? `Growth of ${roundedGrowthRate}% vs previous month. This can mean sales are up, changes in pricing, new customers, or operational improvements.`
-      : `Decline of ${roundedGrowthRate}% vs previous month. This can mean sales are down, changes in pricing, lost customers, or operational changes.`;
+    if (Math.abs(contributionChange) < 0.5) status = 'good'; // Stable is good
+    else if (contributionChange > 1) status = 'good'; // Growing contribution
+    else if (contributionChange < -1) status = 'warning'; // Shrinking contribution
     
-    console.log('🔧 UPDATED Growth Rate KPI:', { growthRate, roundedGrowthRate, explanation: growthExplanation });
+    const monthName = new Date(year, month - 1, 15).toLocaleDateString('en-US', { month: 'long' });
+    const explanation = lastYearContribution > 0
+      ? `${monthName} contributed ${contributionPercent.toFixed(1)}% of your year-to-date revenue, compared to ${lastYearContribution.toFixed(1)}% last year. This shows how important this month is to your annual revenue pattern.`
+      : `${monthName} contributed ${contributionPercent.toFixed(1)}% of your year-to-date revenue. This shows this month's importance to your annual revenue pattern.`;
+    
+    const actionSuggestion = contributionChange > 1
+      ? `${monthName} is becoming more important to your revenue mix. Consider what's driving this shift - is it seasonal demand, marketing efforts, or business changes?`
+      : contributionChange < -1
+      ? `${monthName}'s contribution is declining. Review if this is expected seasonality or if there are opportunities to strengthen this period.`
+      : `${monthName}'s contribution is stable year-over-year, showing consistent seasonal patterns.`;
     
     const kpiData = {
-      kpi_name: 'Monthly Growth Rate',
-      kpi_value: growthRate,
+      kpi_name: 'Monthly Revenue Contribution',
+      kpi_value: contributionPercent,
       period: period,
-      kpi_category: 'Growth',
-      goal_value: 15, // 15% target growth
+      kpi_category: 'Revenue Planning',
+      goal_value: lastYearContribution || contributionPercent, // Use last year as baseline
       status: status,
-      display_format: 'percentage',
-      plain_explanation: growthExplanation,
-      action_suggestion: growthRate < 0 ? 'Focus on strategies to reverse the decline and return to growth.' : growthRate < 15 ? 'Good progress! Look for opportunities to accelerate growth further.' : 'Excellent growth rate! Maintain this momentum.'
+      display_format: 'percent', // Use 'percent' not 'percentage' to match formatValue function
+      plain_explanation: explanation,
+      action_suggestion: actionSuggestion
     };
 
     await KPIRecordsService.upsertKPIRecord(userId, kpiData);
@@ -371,10 +404,9 @@ export class RevenueKPIGenerator {
     const period = `${year}-${month.toString().padStart(2, '0')}-01`;
     const profitMargin = monthData.profit_margin || 0;
     
-    // Check if user has set a custom goal, otherwise use 35% (industry standard)
-    const customGoal = await this.getExistingCustomGoal(userId, 'Profit Margin', period);
-    const goalProfitMargin = customGoal || 35;
-    const isCustomGoal = customGoal !== null;
+    // Use the user's target profit margin from their revenue entry, or fall back to their FIR target
+    // This respects the user's own goals instead of imposing arbitrary "industry standards"
+    const goalProfitMargin = monthData.target_profit_margin || profitMargin || 20; // Default to current or 20% if no target set
     
     let status: 'good' | 'warning' | 'alert' = 'good';
     if (profitMargin < goalProfitMargin * 0.8) status = 'alert';
@@ -436,13 +468,13 @@ export class RevenueKPIGenerator {
 
     // Create clear explanation based on whether ahead or behind
     const explanation = isAheadOfTarget
-      ? `Great news! You're ahead of your annual FIR target by $${absGap.toLocaleString()}. You've earned $${ytdRevenue.toLocaleString()} YTD against a FIR target of $${annualTarget.toLocaleString()} for the full year. Keep up the momentum!`
-      : `You need $${absGap.toLocaleString()} more revenue to hit your annual target of $${annualTarget.toLocaleString()}. You've earned $${ytdRevenue.toLocaleString()} YTD. With ${12 - month} months remaining, that's about $${Math.round(revenueGap / Math.max(12 - month, 1)).toLocaleString()} per month needed.`;
+      ? `Great news! You're ahead of your annual FIR target by $${Math.round(absGap).toLocaleString()}. You've earned $${Math.round(ytdRevenue).toLocaleString()} YTD against a FIR target of $${Math.round(annualTarget).toLocaleString()} for the full year. Keep up the momentum!`
+      : `You need $${Math.round(absGap).toLocaleString()} more revenue to hit your annual target of $${Math.round(annualTarget).toLocaleString()}. You've earned $${Math.round(ytdRevenue).toLocaleString()} YTD. With ${12 - month} months remaining, that's about $${Math.round(revenueGap / Math.max(12 - month, 1)).toLocaleString()} per month needed.`;
     
     const actionSuggestion = isAheadOfTarget
       ? `Outstanding! You're exceeding your annual target. Consider: (1) Setting a stretch goal for the remainder of the year, (2) Investing surplus in growth initiatives, or (3) Increasing owner distributions while maintaining business health.`
       : revenueGap > 0 && (12 - month) > 0
-      ? `To close the $${absGap.toLocaleString()} gap, focus on generating approximately $${Math.round(revenueGap / (12 - month)).toLocaleString()} additional monthly revenue. Consider: (1) Accelerating sales efforts, (2) Launching promotions, (3) Upselling existing customers, or (4) Introducing new revenue streams.`
+      ? `To close the $${Math.round(absGap).toLocaleString()} gap, focus on generating approximately $${Math.round(revenueGap / (12 - month)).toLocaleString()} additional monthly revenue. Consider: (1) Accelerating sales efforts, (2) Launching promotions, (3) Upselling existing customers, or (4) Introducing new revenue streams.`
       : `You're in the final stretch! Focus on maximizing revenue in the remaining time to hit or exceed your annual target.`;
 
     const kpiData = {
@@ -557,7 +589,7 @@ export class RevenueKPIGenerator {
       goal_value: goalNetProfitAfterDraws,
       status: status,
       display_format: 'currency',
-      plain_explanation: `From $${netProfit.toLocaleString()} profit, drew $${ownerDraws.toLocaleString()}, leaving $${netProfitAfterDraws.toLocaleString()} for business growth`,
+      plain_explanation: `From $${Math.round(netProfit).toLocaleString()} profit, drew $${Math.round(ownerDraws).toLocaleString()}, leaving $${Math.round(netProfitAfterDraws).toLocaleString()} for business growth`,
       action_suggestion: netProfitAfterDraws < 0 ? 'Reduce owner draws or increase profit margin to avoid depleting business funds.' : netProfitAfterDraws < goalNetProfitAfterDraws ? 'Consider reducing draws to 80% of profit to leave more for growth.' : 'Excellent financial discipline! You\'re leaving adequate funds for business growth.'
     };
 

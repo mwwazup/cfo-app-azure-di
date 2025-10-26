@@ -229,25 +229,26 @@ export function MasterChart() {
       case 'ahead':
         return {
           icon: CheckCircle,
-          color: 'text-green-400',
-          bgColor: 'bg-green-400/10',
-          borderColor: 'border-green-400/20',
+          iconColor: 'text-green-400',
+          textColor: 'text-white',
+          bgColor: 'bg-muted/30',
+          borderColor: 'border-accent/40',
           label: 'Ahead of Pace',
-          emoji: '🟢'
         };
       case 'on-track':
         return {
           icon: CheckCircle,
-          color: 'text-green-400',
-          bgColor: 'bg-green-400/10',
-          borderColor: 'border-green-400/20',
-          label: 'On Track',
-          emoji: '🟢'
+          iconColor: 'text-green-400',
+          textColor: 'text-white',
+          bgColor: 'bg-muted/30',
+          borderColor: 'border-accent/40',
+          label: 'On Track!',
         };
       case 'slightly-behind':
         return {
           icon: AlertTriangle,
-          color: 'text-yellow-400',
+          iconColor: 'text-yellow-400',
+          textColor: 'text-yellow-400',
           bgColor: 'bg-yellow-400/10',
           borderColor: 'border-yellow-400/20',
           label: 'Slightly Behind',
@@ -256,7 +257,8 @@ export function MasterChart() {
       case 'off-track':
         return {
           icon: XCircle,
-          color: 'text-red-400',
+          iconColor: 'text-red-400',
+          textColor: 'text-red-400',
           bgColor: 'bg-red-400/10',
           borderColor: 'border-red-400/20',
           label: 'Off Track',
@@ -271,16 +273,16 @@ export function MasterChart() {
     
     switch (status) {
       case 'ahead':
-        return `Excellent work! At your current pace, you're projected to reach $${Math.round(onPaceAnnual).toLocaleString()} by year-end—exceeding your $${targetAnnual.toLocaleString()} goal by $${Math.round(gapAmount).toLocaleString()}. Keep up the momentum!`;
+        return `Excellent work! At your current pace, you're projected to reach $${Math.round(onPaceAnnual).toLocaleString()} by year-end—exceeding your $${Math.round(targetAnnual).toLocaleString()} goal by $${Math.round(gapAmount).toLocaleString()}. Keep up the momentum!`;
       
       case 'on-track':
-        return `Great job staying on track! You're currently pacing toward $${Math.round(onPaceAnnual).toLocaleString()}, which puts you right on target to hit your $${targetAnnual.toLocaleString()} goal.`;
+        return `Great job staying on track! You're currently pacing toward $${Math.round(onPaceAnnual).toLocaleString()}, which puts you right on target to hit your $${Math.round(targetAnnual).toLocaleString()} goal.`;
       
       case 'slightly-behind':
-        return `You're currently pacing toward $${Math.round(onPaceAnnual).toLocaleString()}, which is $${Math.round(gapAmount).toLocaleString()} below your target of $${targetAnnual.toLocaleString()}. ${remainingMonths > 0 ? `Consider boosting monthly revenue to $${Math.round(requiredMonthlyAvg).toLocaleString()} to catch up.` : 'Focus on strong finish to close the gap.'}`;
+        return `You're currently pacing toward $${Math.round(onPaceAnnual).toLocaleString()}, which is $${Math.round(gapAmount).toLocaleString()} below your target of $${Math.round(targetAnnual).toLocaleString()}. ${remainingMonths > 0 ? `Consider boosting monthly revenue to $${Math.round(requiredMonthlyAvg).toLocaleString()} to catch up.` : 'Focus on strong finish to close the gap.'}`;
       
       case 'off-track':
-        return `Your current trajectory leads to $${Math.round(onPaceAnnual).toLocaleString()}, $${Math.round(gapAmount).toLocaleString()} short of your goal. ${remainingMonths > 0 ? `You'll need to increase average monthly revenue to $${Math.round(requiredMonthlyAvg).toLocaleString()} to close the gap.` : 'Consider adjusting your strategy for next year.'}`;
+        return `Your current trajectory leads to $${Math.round(onPaceAnnual).toLocaleString()}, $${Math.round(gapAmount).toLocaleString()} short of your $${Math.round(targetAnnual).toLocaleString()} goal. ${remainingMonths > 0 ? `You'll need to increase average monthly revenue to $${Math.round(requiredMonthlyAvg).toLocaleString()} to close the gap.` : 'Consider adjusting your strategy for next year.'}`;
     }
   };
 
@@ -618,19 +620,19 @@ export function MasterChart() {
           <CardHeader>
             <div className="flex items-center gap-3">
               {React.createElement(getStatusConfig(insights.status).icon, {
-                className: `h-6 w-6 ${getStatusConfig(insights.status).color}`
+                className: `h-6 w-6 ${getStatusConfig(insights.status).iconColor}`
               })}
               <div>
-                <CardTitle className={`${getStatusConfig(insights.status).color} text-xl`}>
+                <CardTitle className={`${getStatusConfig(insights.status).textColor} text-xl`}>
                   {getStatusConfig(insights.status).emoji} {getStatusConfig(insights.status).label}
                 </CardTitle>
-                <p className="text-sm text-gray-400 mt-1">Revenue Trajectory Analysis</p>
+                <p className="text-sm text-gray-400 mt-1">Riding the Wave...</p>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <p className={`text-lg leading-relaxed ${getStatusConfig(insights.status).color}`}>
+              <p className={`text-lg font-light leading-relaxed ${getStatusConfig(insights.status).textColor}`}>
                 {generateCoachingMessage(insights)}
               </p>
               

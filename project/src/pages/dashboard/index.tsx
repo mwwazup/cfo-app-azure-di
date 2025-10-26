@@ -2,16 +2,14 @@ import { useProfile } from '../../hooks/useProfile';
 import { useUser } from '@clerk/clerk-react';
 import { useRevenue } from '../../contexts/revenue-context';
 import { useCashflowSync } from '../../contexts/cashflow-sync-context';
-import { WhereDidTheMoneyGo } from '../../components/financial/WhereDidTheMoneyGo';
 import KPIDashboard from '../../components/dashboard/KPIDashboard';
 import ManualPLFormSimplified from '../../components/financial/ManualPLFormSimplified';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Card, CardContent } from '../../components/ui/card';
 import { TooltipTrigger } from '../../components/ui/tooltip';
 import { 
   TrendingUp, 
   DollarSign, 
   Target, 
-  BarChart3, 
   Calendar,
   Loader2,
   Info,
@@ -66,7 +64,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-8">
       {/* Welcome Header */}
-      <div className="bg-gradient-to-r from-accent/20 to-accent/10 rounded-lg p-8 border border-accent/20">
+      <div className="bg-background rounded-lg p-8 border border-accent/20">
         <h1 className="text-3xl font-bold text-foreground mb-2">
           Welcome back, {user?.firstName || profile?.first_name || 'there'}!
         </h1>
@@ -94,7 +92,7 @@ export function DashboardPage() {
       {/* Key Metrics Grid - Different for historical vs current years */}
       {currentYear.isHistorical ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -115,7 +113,7 @@ export function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -123,7 +121,7 @@ export function DashboardPage() {
                     Average Monthly
                   </p>
                   <div className="text-2xl font-bold text-foreground">
-                    ${averageMonthly.toLocaleString()}
+                    ${Math.round(averageMonthly).toLocaleString()}
                   </div>
                   <p className="text-xs text-muted">
                     Monthly average
@@ -136,7 +134,7 @@ export function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -159,7 +157,7 @@ export function DashboardPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -180,11 +178,11 @@ export function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6 relative">
               <div className="absolute top-2 right-2">
                 <TooltipTrigger 
-                  content={`Calculation: YTD Revenue ($${actualYTD.toLocaleString()}) ÷ ${monthsCompleted} months = $${averageMonthly.toLocaleString()} avg monthly × 12 months = $${projectedAnnual.toLocaleString()} projected annual`}
+                  content={`Calculation: YTD Revenue ($${Math.round(actualYTD).toLocaleString()}) ÷ ${monthsCompleted} months = $${Math.round(averageMonthly).toLocaleString()} avg monthly × 12 months = $${Math.round(projectedAnnual).toLocaleString()} projected annual`}
                   position="left"
                 />
               </div>
@@ -194,7 +192,7 @@ export function DashboardPage() {
                     Projected Annual
                   </p>
                   <div className="text-2xl font-bold text-foreground">
-                    ${projectedAnnual.toLocaleString()}
+                    ${Math.round(projectedAnnual).toLocaleString()}
                   </div>
                   <p className={`text-xs ${completionRate >= 100 ? 'text-green-400' : 'text-orange-400'}`}>
                     {completionRate.toFixed(1)}% of target
@@ -207,7 +205,7 @@ export function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6 relative">
               <div className="absolute top-2 right-2">
                 <TooltipTrigger 
@@ -234,7 +232,7 @@ export function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -242,7 +240,7 @@ export function DashboardPage() {
                     Gap to Target
                   </p>
                   <div className={`text-2xl font-bold ${gapToTarget < 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    ${Math.abs(gapToTarget).toLocaleString()}
+                    ${Math.round(Math.abs(gapToTarget)).toLocaleString()}
                   </div>
                   <p className="text-xs text-muted">
                     {gapToTarget < 0 ? 'Above target' : 'Below target'}
@@ -283,21 +281,6 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       */}
-
-
-      {/* Financial Analysis - Radial Charts - Now Full Width */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
-            Financial Analysis
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <WhereDidTheMoneyGo />
-        </CardContent>
-      </Card>
-
       <KPIDashboard className="w-full" />
 
       {/* Manual P&L Entry Modal */}

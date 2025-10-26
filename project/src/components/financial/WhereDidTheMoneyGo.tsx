@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { TrendingDown, TrendingUp, Loader2 } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
-import { formatCurrency } from '../dashboard/CashflowCalculator';
+import { formatCurrency } from '../../utils/formatters';
 
 interface WhereDidTheMoneyGoProps {
   // No props needed - component fetches its own data
@@ -51,7 +51,7 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
     <Card className="flex flex-col h-full">
       <CardHeader className="items-center pb-2">
         <CardTitle className="text-lg font-bold text-[#d5b274] mb-2">{title}</CardTitle>
-        <p className="text-xs text-muted-foreground mb-8 italic">{dateRange}</p>
+        <p className="text-md text-muted-foreground mb-8 italic">{dateRange}</p>
       </CardHeader>
 
       <CardContent className="flex-1 pb-2">
@@ -60,18 +60,18 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
             <RadialBarChart
               data={chartData}
               endAngle={dynamicEndAngle}
-              innerRadius={105}
-              outerRadius={170}
+              innerRadius="80%"
+              outerRadius="110%"
             >
               {/* Muted circle rendered first (underneath) as background track */}
               <circle
                 cx="50%"
                 cy="50%"
-                r={107.5}
+                r="42.5%"
                 fill="none"
                 stroke="rgb(156 163 175)"
-                strokeWidth={20}
-                opacity={0.2}
+                strokeWidth="5%"
+                opacity={0.1}
               />
               <RadialBar 
                 dataKey="value" 
@@ -85,7 +85,7 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
             <span className="text-lg font-bold text-foreground">
               {formatCurrency(value)}
             </span>
-            <span className="text-sm font-medium text-white">
+            <span className="text-md font-medium text-white">
               {cappedPercentage.toFixed(1)}%
             </span>
             {trendDirection !== 'neutral' && trendValue > 0 ? (
@@ -97,7 +97,7 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
               </div>
             ) : (
               <div className="flex items-center gap-1">
-                <span className="text-sm text-muted-foreground">
+                <span className="text-md text-muted-foreground">
                   No trend data
                 </span>
               </div>
@@ -107,7 +107,7 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
         
         {/* Summary text underneath the chart */}
         <div className="mt-4 px-2">
-          <p className="text-xs text-[#d5b274] leading-relaxed text-center">
+          <p className="text-sm text-[#d5b274] leading-relaxed text-center">
             {(() => {
               const valueText = formatCurrency(value);
               const percentageText = percentage.toFixed(1);
