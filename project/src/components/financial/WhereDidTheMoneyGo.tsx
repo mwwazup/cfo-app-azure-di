@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { TrendingDown, TrendingUp, Loader2 } from 'lucide-react';
+import { TrendingDown, TrendingUp, Loader2, Calendar, Filter } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
 import { formatCurrency } from '../../utils/formatters';
 
@@ -48,9 +48,9 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
                      trendDirection === 'down' ? 'text-red-400' : 'text-muted';
 
   return (
-    <Card className="flex flex-col h-full">
+    <Card className="flex flex-col h-full bg-background"> {/*card background color */}
       <CardHeader className="items-center pb-2">
-        <CardTitle className="text-lg font-bold text-[#d5b274] mb-2">{title}</CardTitle>
+        <CardTitle className="text-lg font-bold text-accent mb-2">{title}</CardTitle>
         <p className="text-md text-muted-foreground mb-8 italic">{dateRange}</p>
       </CardHeader>
 
@@ -61,7 +61,7 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
               data={chartData}
               endAngle={dynamicEndAngle}
               innerRadius="80%"
-              outerRadius="110%"
+              outerRadius="111%"
             >
               {/* Muted circle rendered first (underneath) as background track */}
               <circle
@@ -168,7 +168,11 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
 
 export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
   const { dbUserId } = useAuthContext();
+  const currentDate = new Date();
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('latest');
+  const [filterYear, setFilterYear] = useState<number>(currentDate.getFullYear());
+  const [filterMonth, setFilterMonth] = useState<number | 'all'>('all'); // Default to 'all' to show all documents
   const [documents, setDocuments] = useState<any[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
   const [docsError, setDocsError] = useState<Error | null>(null);
@@ -308,23 +312,6 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
     }
   }, [selectedDocumentId, documents]);
 
-  // Auto-select the most recent document when documents load
-  useEffect(() => {
-    if (!selectedDocumentId && documents && documents.length > 0) {
-      const sortedDocs = documents
-        .filter(doc => doc.start_date || (doc.analysis_result && doc.analysis_result.start_date))
-        .sort((a, b) => {
-          const aDate = a.start_date || (a.analysis_result && a.analysis_result.start_date) || '1970-01-01';
-          const bDate = b.start_date || (b.analysis_result && b.analysis_result.start_date) || '1970-01-01';
-          return new Date(bDate).getTime() - new Date(aDate).getTime();
-        });
-      if (sortedDocs.length > 0) {
-        console.log('🎯 Auto-selecting most recent document:', sortedDocs[0]);
-        setSelectedDocumentId(sortedDocs[0].id);
-      }
-    }
-  }, [documents, selectedDocumentId]);
-
   // Helper function to format period labels
   const formatPeriodLabel = (startDate: string, endDate: string): string => {
     const start = new Date(startDate + 'T00:00:00');
@@ -345,12 +332,41 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
   const availableDocuments = useMemo(() => {
     if (!documents || documents.length === 0) return [];
     
-    return documents
+    // Filter for P&L documents only
+    const pnlDocuments = documents.filter(doc => doc.document_type === 'pnl');
+    
+    return pnlDocuments
       .filter(doc => {
         // Check for dates in main doc or analysis_result
         const hasStartDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date);
         const hasEndDate = doc.end_date || (doc.analysis_result && doc.analysis_result.end_date);
-        return hasStartDate && hasEndDate;
+        if (!hasStartDate || !hasEndDate) return false;
+        
+        // Apply year and month filters
+        const startDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date);
+        // Add T00:00:00 to avoid timezone issues
+        const docDate = new Date(startDate + 'T00:00:00');
+        const docYear = docDate.getFullYear();
+        const docMonth = docDate.getMonth() + 1;
+        
+        console.log('📅 Document filter check:', {
+          docId: doc.id,
+          startDate,
+          docYear,
+          docMonth,
+          filterYear,
+          filterMonth,
+          yearMatch: docYear === filterYear,
+          monthMatch: filterMonth === 'all' || docMonth === filterMonth
+        });
+        
+        // Filter by year
+        if (docYear !== filterYear) return false;
+        
+        // Filter by month if not 'all'
+        if (filterMonth !== 'all' && docMonth !== filterMonth) return false;
+        
+        return true;
       })
       .map(doc => {
         // Get dates from main doc or analysis_result
@@ -359,15 +375,35 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
         
         return {
           id: doc.id,
-          label: `${doc.document_type === 'pnl' ? 'P&L' : doc.document_type === 'balance_sheet' ? 'Balance Sheet' : doc.document_type === 'cash_flow' ? 'Cash Flow' : 'Report'} - ${formatPeriodLabel(startDate, endDate)}`,
+          label: `P&L - ${formatPeriodLabel(startDate, endDate)}`,
           start_date: startDate,
           end_date: endDate,
           document: doc
         };
       })
       .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
-  }, [documents]);
+  }, [documents, filterYear, filterMonth]);
 
+  // Auto-select the most recent P&L document when documents load or filters change
+  useEffect(() => {
+    if (documents && documents.length > 0 && availableDocuments.length > 0) {
+      // Check if current selection is in the filtered list
+      const currentDocInList = selectedDocumentId 
+        ? availableDocuments.find(doc => doc.document.id === selectedDocumentId)
+        : null;
+      
+      if (!currentDocInList) {
+        console.log('🎯 Auto-selecting latest document from filtered list:', availableDocuments[0]);
+        setSelectedDocumentId(availableDocuments[0].document.id);
+        setSelectedPeriod('latest');
+      }
+    } else if (availableDocuments.length === 0 && selectedDocumentId) {
+      // No documents match the filter, clear selection
+      console.log('⚠️ No documents match filter, clearing selection');
+      setSelectedDocumentId('');
+      setSelectedPeriod('latest');
+    }
+  }, [availableDocuments, documents, selectedDocumentId]);
 
   // Helper function to find previous period document
   const findPreviousPeriodDocument = (currentDoc: any) => {
@@ -437,11 +473,11 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
     // Define colors based on the dashboard palette
     const colors = {
       revenue: '#d0b568', // Gold for revenue
-      cogs: '#993416', // Amber 800 for COGS
+      cogs: '#124a6b', // Blue 700 for COGS
       expenses: '#124a6b', // Blue 700 for expenses
-      totalExpenses: '#993416', // Amber 800 for total expenses
+      totalExpenses: '#124a6b', // Blue 700 for total expenses
       ownerDistributions: '#124a6b', // Blue 700 for owner distributions
-      cashLeft: cashLeft >= 0 ? '#10B981' : '#EF4444' // Green if positive, red if negative
+      cashLeft: cashLeft >= 0 ? '#124a6b' : '#EF4444' // Blue-700 if positive, red if negative
     };
     const dateRange = selectedDoc ? 
       formatPeriodLabel(selectedDoc.start_date || '', selectedDoc.end_date || '') : 
@@ -570,7 +606,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
       title: 'Cash Left for Growth',
       value: cashLeft,
       percentage: totalRevenue > 0 ? Math.abs(cashLeft / totalRevenue) * 100 : 0,
-      color: cashLeft >= 0 ? '#10B981' : '#EF4444', // Green if positive, red if negative
+      color: cashLeft >= 0 ? '#026b48ff' : '#EF4444', // Green if positive, red if negative
       trendDirection: cashLeftTrend.direction,
       trendValue: cashLeftTrend.percentage,
       dateRange
@@ -673,82 +709,126 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
           </div>
         </div>
         
-        {/* Document Selector */}
-        <div className="mt-4 space-y-2">
-          {/* Selected Document Display */}
-          {selectedDocumentId && availableDocuments.length > 0 && (() => {
-            const selectedDoc = availableDocuments.find(doc => doc.document.id === selectedDocumentId);
-            if (selectedDoc) {
-              const revenue = selectedDoc.document.summary_metrics?.totalRevenue 
-                ? selectedDoc.document.summary_metrics.totalRevenue
-                : selectedDoc.document.summary_metrics?.revenue 
-                  ? selectedDoc.document.summary_metrics.revenue
-                  : selectedDoc.document.raw_json?.revenue?.value
-                    ? selectedDoc.document.raw_json.revenue.value
-                    : 0;
-              const docType = selectedDoc.document.document_type === 'pnl' ? 'P&L Statement' : 
-                            selectedDoc.document.document_type === 'balance_sheet' ? 'Balance Sheet' : 
-                            selectedDoc.document.document_type === 'cash_flow' ? 'Cash Flow Statement' : 'Financial Report';
-              
-              return (
-                <div className="bg-accent/10 border border-accent/20 rounded-lg p-3 mb-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <div className="font-medium text-foreground text-sm">
-                        Currently Analyzing: {docType}
-                      </div>
-                      <div className="font-semibold text-accent">
-                        {formatPeriodLabel(selectedDoc.start_date, selectedDoc.end_date)}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {revenue > 0 ? `Revenue: $${revenue.toLocaleString()}` : 'No revenue data'} • 
-                        Status: {selectedDoc.document.status || 'pending'}
-                      </div>
+        {/* Period Filter and Active Viewing Display */}
+        <div className="mt-4 space-y-4">
+          {/* Filter Controls */}
+          <div className="flex flex-wrap items-center gap-4 p-3 bg-card border border-border rounded-lg">
+            {/* Year Filter */}
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-accent" />
+              <Select 
+                value={filterYear.toString()} 
+                onValueChange={(value) => {
+                  setFilterYear(Number(value));
+                  setSelectedPeriod('latest');
+                }}
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 5 }, (_, i) => currentDate.getFullYear() - i).map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Month Filter */}
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-accent" />
+              <Select 
+                value={filterMonth.toString()} 
+                onValueChange={(value) => {
+                  setFilterMonth(value === 'all' ? 'all' : Number(value));
+                  setSelectedPeriod('latest');
+                }}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Month" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Months</SelectItem>
+                  {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((month, idx) => (
+                    <SelectItem key={idx} value={(idx + 1).toString()}>
+                      {month}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Document Selector */}
+            <div className="flex items-center gap-2">
+              <Select 
+                value={selectedPeriod} 
+                onValueChange={(value) => {
+                  setSelectedPeriod(value);
+                  if (value === 'latest' && availableDocuments.length > 0) {
+                    setSelectedDocumentId(availableDocuments[0].document.id);
+                  } else if (value && value !== 'latest') {
+                    // Value is the document ID
+                    setSelectedDocumentId(value);
+                  }
+                }}
+              >
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Select Period" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="latest">Latest Available</SelectItem>
+                  {availableDocuments.length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      No documents for selected period
+                    </SelectItem>
+                  ) : (
+                    availableDocuments.map((doc) => {
+                      return (
+                        <SelectItem key={doc.document.id} value={doc.document.id}>
+                          {formatPeriodLabel(doc.start_date, doc.end_date)}
+                        </SelectItem>
+                      );
+                    })
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="flex items-center gap-2 ml-auto">
+              <span className="text-sm text-muted-foreground">P&L documents only</span>
+            </div>
+          </div>
+
+          {/* Active Viewing Display */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Viewing:</span>
+            <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
+              {filterYear}
+            </div>
+            <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
+              {filterMonth === 'all' 
+                ? 'All Months' 
+                : (['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][typeof filterMonth === 'number' ? filterMonth - 1 : 0] || 'Unknown')
+              }
+            </div>
+            {selectedDocumentId && (() => {
+              const selectedDoc = documents.find(doc => doc.id === selectedDocumentId);
+              if (selectedDoc) {
+                const startDate = selectedDoc.start_date || selectedDoc.analysis_result?.start_date || '';
+                const endDate = selectedDoc.end_date || selectedDoc.analysis_result?.end_date || '';
+                if (startDate && endDate) {
+                  return (
+                    <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
+                      P&L - {formatPeriodLabel(startDate, endDate)}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      Click dropdown to change
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-            return null;
-          })()}
-          
-          <Select value={selectedDocumentId} onValueChange={setSelectedDocumentId}>
-            <SelectTrigger className="w-[400px]">
-              <SelectValue placeholder="Select a financial report to analyze" />
-            </SelectTrigger>
-            <SelectContent>
-              {availableDocuments.map((doc) => {
-                // Get revenue using the same logic as FinancialStatements component
-                const revenue = doc.document.summary_metrics?.totalRevenue 
-                  ? doc.document.summary_metrics.totalRevenue
-                  : doc.document.summary_metrics?.revenue 
-                    ? doc.document.summary_metrics.revenue
-                    : doc.document.raw_json?.revenue?.value
-                      ? doc.document.raw_json.revenue.value
-                      : 0;
-                const docType = doc.document.document_type === 'pnl' ? 'P&L Statement' : 
-                              doc.document.document_type === 'balance_sheet' ? 'Balance Sheet' : 
-                              doc.document.document_type === 'cash_flow' ? 'Cash Flow Statement' : 'Financial Report';
-                
-                return (
-                  <SelectItem key={doc.document.id} value={doc.document.id}>
-                    <div className="flex flex-col">
-                      <div className="font-medium">
-                        {docType} - {formatPeriodLabel(doc.start_date, doc.end_date)}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {revenue > 0 ? `Revenue: $${revenue.toLocaleString()}` : 'No revenue data'} • 
-                        Status: {doc.document.status || 'pending'}
-                      </div>
-                    </div>
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+                  );
+                }
+              }
+              return null;
+            })()}
+          </div>
         </div>
       </CardHeader>
 

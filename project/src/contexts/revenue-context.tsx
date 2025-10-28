@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuthContext } from './auth-context';
 import { RevenueDataService } from '../services/revenueDataService';
 import { KPIDataService, RevenueKPI } from '../services/kpiDataService';
+import { RevenueKPIGenerator } from '../services/revenueKPIGenerator';
 
 export interface MonthlyData {
   month: string;
@@ -274,6 +275,78 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
               firPattern: monthlyFIRTargets.map(val => Math.round(val)),
               isFlat: monthlyFIRTargets.every(val => Math.abs(val - monthlyFIRTargets[0]) < 1)
             });
+            
+            // Check if calculated FIR targets differ from database values
+            const needsSync = entries.some((entry, index) => {
+              const calculatedTarget = monthlyFIRTargets[index];
+              const storedTarget = entry.desired_revenue || 0;
+              // Allow 1 cent difference due to rounding
+              return Math.abs(calculatedTarget - storedTarget) > 0.01;
+            });
+            
+            if (needsSync && dbUserId) {
+              console.log('⚠️ FIR targets out of sync with database. Syncing...');
+              console.log('📊 Calculated targets:', monthlyFIRTargets.map(val => Math.round(val)));
+              console.log('📊 Database targets:', entries.map(e => Math.round(e.desired_revenue || 0)));
+              
+              // Sync asynchronously without blocking UI
+              RevenueDataService.updateYearTargets(
+                dbUserId,
+                year,
+                targetRevenue,
+                profitMargin,
+                monthlyFIRTargets
+              ).then(async res => {
+                if (res.success) {
+                  console.log('✅ FIR targets synced to database');
+                  console.log('🔄 Reloading data to refresh UI...');
+                  
+                  // Refetch the year's data from database to update UI
+                  const freshEntries = await RevenueDataService.getRevenueDataForYear(dbUserId, year);
+                  const monthlyData: MonthlyData[] = months.map((month, idx) => {
+                    const entry = freshEntries.find(e => e.month === idx + 1);
+                    return {
+                      month,
+                      revenue: entry ? (entry.actual_revenue ?? 0) : 0,
+                      target: entry ? (entry.desired_revenue ?? entry.target_revenue ?? undefined) : undefined
+                    };
+                  });
+                  
+                  // Update the state with fresh data
+                  setAllYearsData(prev => {
+                    const updated = new Map(prev);
+                    const existingYear = updated.get(year);
+                    if (existingYear) {
+                      updated.set(year, {
+                        ...existingYear,
+                        data: monthlyData,
+                        monthlyFIRTargets: monthlyFIRTargets
+                      });
+                    }
+                    return updated;
+                  });
+                  
+                  console.log('✅ UI refreshed with synced data');
+                  
+                  // Auto-regenerate KPIs for current month so they reflect new FIR targets
+                  const currentMonth = new Date().getMonth() + 1;
+                  const period = `${year}-${currentMonth.toString().padStart(2, '0')}`;
+                  console.log('🔄 Auto-regenerating KPIs for', period);
+                  
+                  await RevenueKPIGenerator.generateKPIsForPeriod(dbUserId, period);
+                  
+                  // Reload KPIs to update dashboard
+                  const freshKpis = await KPIDataService.getKpis(dbUserId, year);
+                  setCurrentYearKpis(freshKpis);
+                  
+                  console.log('✅ KPIs auto-regenerated and refreshed');
+                } else {
+                  console.error('❌ Failed to sync FIR targets:', res.error);
+                }
+              }).catch(err => {
+                console.error('❌ Error syncing FIR targets:', err);
+              });
+            }
           }
 
           newYearMap.set(year, {

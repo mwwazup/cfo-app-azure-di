@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { useServices, useServiceRevenueData } from '../../hooks/useServices';
 import { useRevenue } from '../../contexts/revenue-context';
-import { ChevronDown, ChevronUp, BarChart3 } from 'lucide-react';
+import { ChevronDown, ChevronUp, BarChart3, Calendar } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -34,19 +35,23 @@ const months = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ];
 
+const fullMonths = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+
 interface ServiceMixBarChartProps {
   year: number;
 }
 
 export function ServiceMixBarChart({ year }: ServiceMixBarChartProps) {
   const { services } = useServices();
+  const currentDate = new Date();
   const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
   const [filterYear, setFilterYear] = useState<number>(year);
-  const [filterPeriod, setFilterPeriod] = useState<'current' | 'previous'>('current');
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
   
-  // Calculate the actual year to fetch based on period filter
-  const actualYear = filterPeriod === 'current' ? filterYear : filterYear - 1;
-  const { revenueData } = useServiceRevenueData(actualYear);
+  const { revenueData } = useServiceRevenueData(filterYear);
   const { currentYear } = useRevenue();
   const [selectedServices, setSelectedServices] = useState<Set<string>>(new Set());
   const [showServiceMix, setShowServiceMix] = useState(true); // Open by default
@@ -241,43 +246,51 @@ export function ServiceMixBarChart({ year }: ServiceMixBarChartProps) {
 
       {showServiceMix && (
         <CardContent className="space-y-4">
-          {/* Period/Month/Year Filter */}
+          {/* Period Filter */}
           <div className="flex items-center gap-4 p-3 bg-card border border-border rounded-lg">
             <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">Period:</label>
-              <select
-                value={filterPeriod}
-                onChange={(e) => setFilterPeriod(e.target.value as 'current' | 'previous')}
-                className="px-3 py-1.5 text-sm border border-border rounded-md bg-background text-foreground"
+              <Calendar className="h-4 w-4 text-accent" />
+              <Select 
+                value={selectedPeriod} 
+                onValueChange={(value) => {
+                  setSelectedPeriod(value);
+                  if (value === 'all') {
+                    setFilterMonth('all');
+                    setFilterYear(currentDate.getFullYear());
+                  } else {
+                    const [year, month] = value.split('-').map(Number);
+                    setFilterYear(year);
+                    setFilterMonth(month);
+                  }
+                }}
               >
-                <option value="current">Current Year</option>
-                <option value="previous">Previous Year</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">Year:</label>
-              <select
-                value={filterYear}
-                onChange={(e) => setFilterYear(parseInt(e.target.value))}
-                className="px-3 py-1.5 text-sm border border-border rounded-md bg-background text-foreground"
-              >
-                {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">Month:</label>
-              <select
-                value={filterMonth}
-                onChange={(e) => setFilterMonth(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                className="px-3 py-1.5 text-sm border border-border rounded-md bg-background text-foreground"
-              >
-                <option value="all">All Months</option>
-                {months.map((month, idx) => (
-                  <option key={idx} value={idx + 1}>{month}</option>
-                ))}
-              </select>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Select Period" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const year = currentDate.getFullYear();
+                    const month = 12 - i;
+                    const value = `${year}-${String(month).padStart(2, '0')}`;
+                    return (
+                      <SelectItem key={value} value={value}>
+                        {fullMonths[month - 1]} {year}
+                      </SelectItem>
+                    );
+                  })}
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const year = currentDate.getFullYear() - 1;
+                    const month = 12 - i;
+                    const value = `${year}-${String(month).padStart(2, '0')}`;
+                    return (
+                      <SelectItem key={value} value={value}>
+                        {fullMonths[month - 1]} {year}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

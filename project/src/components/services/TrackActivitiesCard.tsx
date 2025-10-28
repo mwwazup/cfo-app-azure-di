@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { useServices, useServiceActivities } from '../../hooks/useServices';
@@ -17,10 +17,30 @@ const months = [
 export function TrackActivitiesCard({ year }: TrackActivitiesCardProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { services } = useServices();
-  const { createActivity } = useServiceActivities(year);
+  const { activities, createActivity } = useServiceActivities(year);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [activityData, setActivityData] = useState<Record<string, { appointments: number; revenue: number }>>({});
+
+  // Load existing activities when month/week changes
+  useEffect(() => {
+    const existingData: Record<string, { appointments: number; revenue: number }> = {};
+    
+    // Filter activities for selected month and week
+    const weekActivities = activities.filter(
+      activity => activity.month === selectedMonth && activity.weekOfMonth === selectedWeek
+    );
+    
+    // Populate activityData with existing values
+    weekActivities.forEach(activity => {
+      existingData[activity.serviceId] = {
+        appointments: activity.appointmentCount || 0,
+        revenue: Math.round(Number(activity.totalRevenue) || 0)
+      };
+    });
+    
+    setActivityData(existingData);
+  }, [activities, selectedMonth, selectedWeek]);
 
   const handleInputChange = (serviceId: string, field: 'appointments' | 'revenue', value: string) => {
     setActivityData(prev => ({
@@ -29,29 +49,52 @@ export function TrackActivitiesCard({ year }: TrackActivitiesCardProps) {
         ...prev[serviceId],
         appointments: prev[serviceId]?.appointments || 0,
         revenue: prev[serviceId]?.revenue || 0,
-        [field]: field === 'revenue' ? parseFloat(value) || 0 : parseInt(value) || 0
+        [field]: field === 'revenue' ? Math.round(parseFloat(value) || 0) : parseInt(value) || 0
       }
     }));
   };
 
   const handleSave = async () => {
-    const promises = Object.entries(activityData).map(([serviceId, data]) => {
-      if (data.appointments > 0 || data.revenue > 0) {
-        return createActivity({
-          service_id: serviceId,
-          year,
-          month: selectedMonth,
-          week_of_month: selectedWeek,
-          appointments: data.appointments,
-          total_revenue: data.revenue
-        });
-      }
-      return Promise.resolve();
-    });
+    try {
+      // Calculate week start and end dates
+      const firstDayOfMonth = new Date(year, selectedMonth - 1, 1);
+      const dayOfWeek = firstDayOfMonth.getDay();
+      const offset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Monday as start of week
+      
+      // Calculate start date of the selected week
+      const weekStartDay = 1 + (selectedWeek - 1) * 7 + offset;
+      const weekStart = new Date(year, selectedMonth - 1, weekStartDay);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      
+      // Format dates as YYYY-MM-DD
+      const formatDate = (date: Date) => date.toISOString().split('T')[0];
+      const weekStartDate = formatDate(weekStart);
+      const weekEndDate = formatDate(weekEnd);
 
-    await Promise.all(promises);
-    setActivityData({});
-    alert('Activities saved successfully!');
+      const promises = Object.entries(activityData).map(([serviceId, data]) => {
+        if (data.appointments > 0 || data.revenue > 0) {
+          return createActivity({
+            serviceId: serviceId,
+            year,
+            month: selectedMonth,
+            weekOfMonth: selectedWeek,
+            weekStartDate,
+            weekEndDate,
+            appointmentCount: data.appointments,
+            totalRevenue: data.revenue
+          });
+        }
+        return Promise.resolve();
+      });
+
+      await Promise.all(promises);
+      // Don't clear activityData - let it persist so users can see and edit
+      alert('Activities saved successfully! You can continue editing or select a different week.');
+    } catch (error) {
+      console.error('Error saving activities:', error);
+      alert('Failed to save activities. Please try again.');
+    }
   };
 
   if (services.length === 0) {
@@ -68,7 +111,7 @@ export function TrackActivitiesCard({ year }: TrackActivitiesCardProps) {
               Track Activities
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Record weekly appointments and revenue by service
+              Record weekly appointments and revenue by service. Previously saved data will load automatically for editing.
             </p>
           </div>
           <button
@@ -146,8 +189,8 @@ export function TrackActivitiesCard({ year }: TrackActivitiesCardProps) {
                       <Input
                         type="number"
                         min="0"
-                        step="0.01"
-                        placeholder="$0.00"
+                        step="1"
+                        placeholder="$0"
                         value={activityData[service.id]?.revenue || ''}
                         onChange={(e) => handleInputChange(service.id, 'revenue', e.target.value)}
                         className="w-32"
@@ -159,8 +202,15 @@ export function TrackActivitiesCard({ year }: TrackActivitiesCardProps) {
             </table>
           </div>
 
-          {/* Save Button */}
-          <div className="flex justify-end">
+          {/* Action Buttons */}
+          <div className="flex justify-end gap-2">
+            <Button 
+              onClick={() => setActivityData({})} 
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              Clear All
+            </Button>
             <Button onClick={handleSave} className="flex items-center gap-2">
               Save Activities
             </Button>

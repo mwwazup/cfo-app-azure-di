@@ -64,6 +64,7 @@ export function MasterChart() {
   const [editingMonthIndex, setEditingMonthIndex] = useState<number | null>(null);
   const [showMonthlyInputs, setShowMonthlyInputs] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('all');
+  const [show2024Line, setShow2024Line] = useState(false);
   const chartRef = useRef<any>(null);
   const monthlyInputsRef = useRef<HTMLDivElement>(null);
   
@@ -231,7 +232,7 @@ export function MasterChart() {
           icon: CheckCircle,
           iconColor: 'text-green-400',
           textColor: 'text-white',
-          bgColor: 'bg-muted/30',
+          bgColor: 'bg-background',
           borderColor: 'border-accent/40',
           label: 'Ahead of Pace',
         };
@@ -240,7 +241,7 @@ export function MasterChart() {
           icon: CheckCircle,
           iconColor: 'text-green-400',
           textColor: 'text-white',
-          bgColor: 'bg-muted/30',
+          bgColor: 'bg-background',
           borderColor: 'border-accent/40',
           label: 'On Track!',
         };
@@ -249,7 +250,7 @@ export function MasterChart() {
           icon: AlertTriangle,
           iconColor: 'text-yellow-400',
           textColor: 'text-yellow-400',
-          bgColor: 'bg-yellow-400/10',
+          bgColor: 'bg-background',
           borderColor: 'border-yellow-400/20',
           label: 'Slightly Behind',
           emoji: '🟡'
@@ -259,7 +260,7 @@ export function MasterChart() {
           icon: XCircle,
           iconColor: 'text-red-400',
           textColor: 'text-red-400',
-          bgColor: 'bg-red-400/10',
+          bgColor: 'bg-background',
           borderColor: 'border-red-400/20',
           label: 'Off Track',
           emoji: '🔴'
@@ -387,6 +388,9 @@ export function MasterChart() {
   const actualData = filteredData.revenue;
   const firData = getFIRData;
   const gapData = calculateGapData;
+  
+  // Get previous year data for comparison line and YoY calculations
+  const previousYearData = getYearData(selectedYear - 1);
 
   // Create chart data based on view mode and whether it's historical or current year
   const createChartDatasets = () => {
@@ -408,6 +412,23 @@ export function MasterChart() {
     }
 
     const datasets = [];
+
+    // 2024 Actual (background comparison line - shown first so it renders behind)
+    if (show2024Line && previousYearData.data.length > 0) {
+      datasets.push({
+        label: `${selectedYear - 1} Actual`,
+        data: previousYearData.data.map(item => item.revenue),
+        borderColor: "rgba(156, 163, 175, 0.5)", // Muted gray
+        backgroundColor: "rgba(156, 163, 175, 0.05)",
+        fill: false,
+        tension: 0.4,
+        borderWidth: 2,
+        borderDash: [5, 5], // Dashed line
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        pointHitRadius: 10
+      });
+    }
 
     // Actual Revenue (always shown)
     datasets.push({
@@ -495,10 +516,11 @@ export function MasterChart() {
               const actualValue = actualData[monthIndex] || 0;
               const firValue = firData[monthIndex] || 0;
               const gapValue = gapData[monthIndex] || 0;
+              const prevYearValue = previousYearData.data[monthIndex]?.revenue || 0;
               
               const lines = [];
               
-              // Show values in the requested order: Future Growth, GAP, Actual
+              // Show values in the requested order: Future Growth, GAP, Actual, 2024 Actual
               if (viewMode !== 'actual-only' && firData.length > 0) {
                 lines.push(`Future Growth: $${Math.round(firValue).toLocaleString()}`);
                 
@@ -511,6 +533,11 @@ export function MasterChart() {
               }
               lines.push(`Actual: $${Math.round(actualValue).toLocaleString()}`);
               
+              // Show 2024 actual if the line is enabled
+              if (show2024Line && prevYearValue > 0) {
+                lines.push(`${selectedYear - 1} Actual: $${Math.round(prevYearValue).toLocaleString()}`);
+              }
+              
               return lines;
             }
           },
@@ -520,10 +547,9 @@ export function MasterChart() {
             const monthIndex = tooltipItems[0]?.dataIndex;
             
             if (monthIndex !== undefined && viewMode !== 'actual-only' && firData.length > 0) {
-              // Get previous year's data for context
-              const previousYear = getYearData(selectedYear - 1);
-              const prevYearRevenue = previousYear.data[monthIndex]?.revenue || 0;
-              const prevYearTotal = previousYear.data.reduce((sum, item) => sum + item.revenue, 0);
+              // Use already-defined previousYearData
+              const prevYearRevenue = previousYearData.data[monthIndex]?.revenue || 0;
+              const prevYearTotal = previousYearData.data.reduce((sum, item) => sum + item.revenue, 0);
               const prevYearPercentage = prevYearTotal > 0 ? (prevYearRevenue / prevYearTotal * 100).toFixed(2) : '0';
               
               // Show the actual FIR value
@@ -578,8 +604,7 @@ export function MasterChart() {
   const averageMonthly = Math.round(totalRevenue / 12);
 
   // Calculate year-over-year growth
-  const previousYear = getYearData(selectedYear - 1);
-  const previousYearTotal = previousYear.data.reduce((sum, item) => sum + item.revenue, 0);
+  const previousYearTotal = previousYearData.data.reduce((sum, item) => sum + item.revenue, 0);
   const yoyGrowth = previousYearTotal > 0 ? ((totalRevenue - previousYearTotal) / previousYearTotal) * 100 : 0;
 
   // Calculate KPI values based on current data
@@ -637,12 +662,12 @@ export function MasterChart() {
               </p>
               
               {/* Gap to Goal Tracker */}
-              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+              <div className="bg-muted/30 rounded-lg p-4 border border-gray-700">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="text-center">
                     <div className="flex items-center justify-center gap-2 mb-2">
-                      <Target className="h-4 w-4 text-gray-400" />
-                      <span className="text-sm font-medium text-gray-400">Gap to Goal</span>
+                      <Target className="h-4 w-4 text-accent" />
+                      <span className="text-sm font-medium text-accent">Gap to Goal</span>
                     </div>
                     <div className={`text-xl font-bold ${insights.gapAmount > 0 ? 'text-red-400' : 'text-green-400'}`}>
                       ${Math.round(insights.gapAmount).toLocaleString()}
@@ -652,10 +677,10 @@ export function MasterChart() {
                   {insights.remainingMonths > 0 && (
                     <div className="text-center">
                       <div className="flex items-center justify-center gap-2 mb-2">
-                        <Activity className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-400">Required Monthly Avg</span>
+                        <Activity className="h-4 w-4 text-accent" />
+                        <span className="text-sm font-medium text-accent">Required Monthly Avg</span>
                       </div>
-                      <div className="text-xl font-bold text-accent">
+                      <div className="text-xl font-bold text-white">
                         ${Math.round(insights.requiredMonthlyAvg).toLocaleString()}
                       </div>
                     </div>
@@ -663,8 +688,8 @@ export function MasterChart() {
                   
                   <div className="text-center">
                     <div className="flex items-center justify-center gap-2 mb-2">
-                      <Gauge className="h-4 w-4 text-gray-400" />
-                      <span className="text-sm font-medium text-gray-400">Performance vs Target</span>
+                      <Gauge className="h-4 w-4 text-accent" />
+                      <span className="text-sm font-medium text-accent">Performance vs Target</span>
                     </div>
                     <div className={`text-xl font-bold ${insights.percentageDiff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {insights.percentageDiff >= 0 ? '+' : ''}{insights.percentageDiff.toFixed(1)}%
@@ -680,7 +705,7 @@ export function MasterChart() {
       {/* KPI Section - Updated with corrected values */}
       {!isHistoricalYear && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="text-2xl font-bold text-accent">
                 ${onPaceAnnual.toLocaleString()}
@@ -690,7 +715,7 @@ export function MasterChart() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="text-2xl font-bold text-foreground">
                 ${firAnnual.toLocaleString()}
@@ -700,7 +725,7 @@ export function MasterChart() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="text-2xl font-bold text-red-400">
                 ${currentMonthlyGap.toLocaleString()}
@@ -710,7 +735,7 @@ export function MasterChart() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className={`text-2xl font-bold ${yearEndProjectedGap > 0 ? 'text-red-400' : 'text-green-400'}`}>
                 ${Math.abs(yearEndProjectedGap).toLocaleString()}
@@ -725,7 +750,7 @@ export function MasterChart() {
       {/* Historical KPIs */}
       {isHistoricalYear && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="text-2xl font-bold text-foreground">
                 ${Math.round(totalRevenue).toLocaleString()}
@@ -734,7 +759,7 @@ export function MasterChart() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className="text-2xl font-bold text-foreground">
                 ${averageMonthly.toLocaleString()}
@@ -743,7 +768,7 @@ export function MasterChart() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-muted/30">
             <CardContent className="pt-6">
               <div className={`text-2xl font-bold ${yoyGrowth >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {yoyGrowth >= 0 ? '+' : ''}{yoyGrowth.toFixed(1)}%
@@ -775,6 +800,17 @@ export function MasterChart() {
                     {option.label}
                   </Button>
                 ))}
+                
+                {/* 2024 Comparison Line Toggle */}
+                <Button
+                  variant={show2024Line ? 'primary' : 'outline'}
+                  size="sm"
+                  onClick={() => setShow2024Line(!show2024Line)}
+                  className="flex items-center gap-2"
+                >
+                  <History className="h-4 w-4" />
+                  {selectedYear - 1} Comparison
+                </Button>
               </div>
               
               {/* FIR Explanation moved here and aligned with buttons */}

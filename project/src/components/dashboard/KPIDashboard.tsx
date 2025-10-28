@@ -67,7 +67,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   const [generatingMessage, setGeneratingMessage] = useState('Surfing');
   
   // Cycle through fun messages during generation
-  const generatingMessages = ['Surfing', 'Swimming', 'Riding', 'Wave', 'Floating', "Chill'n"];
+  const generatingMessages = ['Surfing', 'Swimming', 'Riding', 'Wave', 'Floating', 'Relaxed', "Chill'n"];
   
   useEffect(() => {
     if (!generating) return;

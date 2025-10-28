@@ -1,20 +1,24 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { useWeeklyBudget } from '../hooks/useWeeklyBudget';
-import { Calendar, TrendingUp, TrendingDown, DollarSign, CheckCircle, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { Calendar, TrendingUp, TrendingDown, DollarSign, CheckCircle, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export function BudgetVsActualPage() {
   const currentDate = new Date();
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth() + 1);
+  const [selectedPeriod, setSelectedPeriod] = useState(`${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [localWeekData, setLocalWeekData] = useState<Record<string, { revenue: number; jobs: number; target: number }>>({});
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [monthlyFirTotal, setMonthlyFirTotal] = useState<number>(0);
+  const [isWeeklyBreakdownExpanded, setIsWeeklyBreakdownExpanded] = useState(true);
 
   const { weeklyData, loading, initializeMonthlyBudget, updateWeeklyActual, updateWeeklyBudgetTarget, syncFromServiceMix } = 
     useWeeklyBudget(selectedYear, selectedMonth);
@@ -26,11 +30,11 @@ export function BudgetVsActualPage() {
     weeklyData.forEach(week => {
       if (week.id) {
         newLocalData[week.id] = {
-          revenue: week.actualRevenue,
+          revenue: Math.round(week.actualRevenue),
           jobs: week.jobsCompleted,
-          target: week.weeklyBudgetTarget
+          target: Math.round(week.weeklyBudgetTarget)
         };
-        firTotal = week.monthlyFirTotal || 0;
+        firTotal = Math.round(week.monthlyFirTotal || 0);
       }
     });
     setLocalWeekData(newLocalData);
@@ -78,13 +82,13 @@ export function BudgetVsActualPage() {
 
   // Calculate total of adjusted weekly targets
   const calculateAdjustedTargetTotal = () => {
-    return Object.values(localWeekData).reduce((sum, week) => sum + (week.target || 0), 0);
+    return Math.round(Object.values(localWeekData).reduce((sum, week) => sum + (week.target || 0), 0));
   };
 
   // Check if targets are balanced
   const targetsAreBalanced = () => {
     const adjustedTotal = calculateAdjustedTargetTotal();
-    return Math.abs(adjustedTotal - monthlyFirTotal) < 0.01; // Allow for rounding errors
+    return Math.abs(adjustedTotal - monthlyFirTotal) <= 1; // Allow for $1 rounding difference
   };
 
   const handleSaveAll = async () => {
@@ -96,9 +100,9 @@ export function BudgetVsActualPage() {
       const difference = adjustedTotal - monthlyFirTotal;
       alert(
         `Weekly targets must equal monthly FIR total!\n\n` +
-        `Monthly FIR: $${monthlyFirTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
-        `Weekly Total: $${adjustedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
-        `Difference: $${Math.abs(difference).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${difference > 0 ? 'over' : 'under'}\n\n` +
+        `Monthly FIR: $${Math.round(monthlyFirTotal).toLocaleString()}\n` +
+        `Weekly Total: $${Math.round(adjustedTotal).toLocaleString()}\n` +
+        `Difference: $${Math.round(Math.abs(difference)).toLocaleString()} ${difference > 0 ? 'over' : 'under'}\n\n` +
         `Please adjust the weekly targets so they sum to the monthly total.`
       );
       return;
@@ -115,8 +119,8 @@ export function BudgetVsActualPage() {
           // Update actual revenue and jobs
           promises.push(updateWeeklyActual(week.id!, localData.revenue, localData.jobs));
           // Update budget target if changed
-          if (Math.abs(localData.target - week.weeklyBudgetTarget) > 0.01) {
-            promises.push(updateWeeklyBudgetTarget(week.id!, localData.target));
+          if (Math.abs(localData.target - week.weeklyBudgetTarget) > 1) {
+            promises.push(updateWeeklyBudgetTarget(week.id!, Math.round(localData.target)));
           }
           return Promise.all(promises);
         }
@@ -135,15 +139,15 @@ export function BudgetVsActualPage() {
   };
 
   // Use local data for calculations to show real-time updates
-  const totalBudget = Object.values(localWeekData).reduce((sum, week) => sum + (week.target || 0), 0);
-  const totalActual = Object.values(localWeekData).reduce((sum, week) => sum + (week.revenue || 0), 0);
+  const totalBudget = Math.round(Object.values(localWeekData).reduce((sum, week) => sum + (week.target || 0), 0));
+  const totalActual = Math.round(Object.values(localWeekData).reduce((sum, week) => sum + (week.revenue || 0), 0));
   const totalVariance = totalActual - totalBudget;
   const totalJobs = Object.values(localWeekData).reduce((sum, week) => sum + (week.jobs || 0), 0);
   const percentageComplete = totalBudget > 0 ? (totalActual / totalBudget) * 100 : 0;
   
   const adjustedTargetTotal = calculateAdjustedTargetTotal();
   const targetDifference = adjustedTargetTotal - monthlyFirTotal;
-  const showTargetWarning = hasUnsavedChanges && Math.abs(targetDifference) > 0.01;
+  const showTargetWarning = hasUnsavedChanges && Math.abs(targetDifference) > 1;
 
   return (
     <div className="space-y-6">
@@ -154,7 +158,7 @@ export function BudgetVsActualPage() {
             Budget vs Actual Tracking
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Track weekly revenue goals and actual performance with FIR integration
+            Track weekly revenue goals vs actual performance
           </p>
         </div>
       </div>
@@ -164,25 +168,42 @@ export function BudgetVsActualPage() {
         <CardContent className="pt-6">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-muted" />
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="px-3 py-2 border rounded-md bg-background text-foreground"
+              <Calendar className="h-5 w-5 text-accent" />
+              <Select 
+                value={selectedPeriod} 
+                onValueChange={(value) => {
+                  setSelectedPeriod(value);
+                  const [year, month] = value.split('-').map(Number);
+                  setSelectedYear(year);
+                  setSelectedMonth(month);
+                }}
               >
-                {Array.from({ length: 5 }, (_, i) => currentDate.getFullYear() - i).map((year) => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                className="px-3 py-2 border rounded-md bg-background text-foreground"
-              >
-                {months.map((month, index) => (
-                  <option key={month} value={index + 1}>{month}</option>
-                ))}
-              </select>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Select Period" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const year = currentDate.getFullYear();
+                    const month = 12 - i;
+                    const value = `${year}-${String(month).padStart(2, '0')}`;
+                    return (
+                      <SelectItem key={value} value={value}>
+                        {fullMonths[month - 1]} {year}
+                      </SelectItem>
+                    );
+                  })}
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const year = currentDate.getFullYear() - 1;
+                    const month = 12 - i;
+                    const value = `${year}-${String(month).padStart(2, '0')}`;
+                    return (
+                      <SelectItem key={value} value={value}>
+                        {fullMonths[month - 1]} {year}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </div>
             <button
               onClick={handleInitialize}
@@ -191,7 +212,7 @@ export function BudgetVsActualPage() {
               title="Creates or updates weekly budget targets from your monthly FIR"
             >
               {isInitializing && <Loader2 className="h-4 w-4 animate-spin" />}
-              {weeklyData.length > 0 ? 'Re-Initialize Month' : 'Initialize Month'}
+              {weeklyData.length > 0 ? 'Refresh Month' : 'Month Up to Date'}
             </button>
             <button
               onClick={handleSync}
@@ -214,11 +235,11 @@ export function BudgetVsActualPage() {
                 <DollarSign className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Monthly Budget</p>
+                <p className="text-sm text-accent">Monthly Budget</p>
                 <div className="text-2xl font-bold text-foreground mt-1">
                   ${Math.round(totalBudget).toLocaleString()}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">From FIR Target</p>
+                <p className="text-xs text-accent mt-1">From Master Revenue</p>
               </div>
             </div>
           </CardContent>
@@ -231,11 +252,11 @@ export function BudgetVsActualPage() {
                 <TrendingUp className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Actual Revenue</p>
+                <p className="text-sm text-accent">Actual Revenue</p>
                 <div className="text-2xl font-bold text-foreground mt-1">
-                  ${totalActual.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${totalActual.toLocaleString()}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-accent mt-1">
                   {percentageComplete.toFixed(1)}% of budget
                 </p>
               </div>
@@ -250,11 +271,11 @@ export function BudgetVsActualPage() {
                 {totalVariance >= 0 ? <TrendingUp className="h-5 w-5 text-accent" /> : <TrendingDown className="h-5 w-5 text-accent" />}
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Variance</p>
+                <p className="text-sm text-accent">Variance</p>
                 <div className={`text-2xl font-bold mt-1 ${totalVariance >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                   {totalVariance >= 0 ? '+' : ''}${Math.round(totalVariance).toLocaleString()}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-accent mt-1">
                   {totalVariance >= 0 ? 'Above' : 'Below'} target
                 </p>
               </div>
@@ -269,9 +290,9 @@ export function BudgetVsActualPage() {
                 <CheckCircle className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Total Jobs</p>
+                <p className="text-sm text-accent">Total Jobs</p>
                 <div className="text-2xl font-bold text-foreground mt-1">{totalJobs}</div>
-                <p className="text-xs text-muted-foreground mt-1">Completed this month</p>
+                <p className="text-xs text-accent mt-1">Completed this month</p>
               </div>
             </div>
           </CardContent>
@@ -285,13 +306,27 @@ export function BudgetVsActualPage() {
             <CardTitle className="flex items-center gap-2">
               Weekly Breakdown - {months[selectedMonth - 1]} {selectedYear}
             </CardTitle>
-            {weeklyData.length > 0 && weeklyData.some(w => w.isAutoPopulated) && (
-              <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                Auto-synced from Service Mix
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {weeklyData.length > 0 && weeklyData.some(w => w.isAutoPopulated) && (
+                <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                  Auto-synced from Service Mix
+                </span>
+              )}
+              <button
+                onClick={() => setIsWeeklyBreakdownExpanded(!isWeeklyBreakdownExpanded)}
+                className="p-1 hover:bg-accent/10 rounded transition-colors"
+                aria-label={isWeeklyBreakdownExpanded ? "Collapse section" : "Expand section"}
+              >
+                {isWeeklyBreakdownExpanded ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </button>
+            </div>
           </div>
         </CardHeader>
+        {isWeeklyBreakdownExpanded && (
         <CardContent>
           {loading ? (
             <div className="text-center py-12">
@@ -338,9 +373,9 @@ export function BudgetVsActualPage() {
                           <input
                             type="number"
                             value={localData.target}
-                            onChange={(e) => handleInputChange(week.id!, 'target', Number(e.target.value))}
+                            onChange={(e) => handleInputChange(week.id!, 'target', Math.round(Number(e.target.value)))}
                             className="w-32 px-2 py-1 border border-border rounded text-right bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent font-medium"
-                            step="0.01"
+                            step="1"
                             title="Adjust weekly target (must sum to monthly FIR)"
                           />
                         </td>
@@ -348,16 +383,16 @@ export function BudgetVsActualPage() {
                           <input
                             type="number"
                             value={localData.revenue}
-                            onChange={(e) => handleInputChange(week.id!, 'revenue', Number(e.target.value))}
+                            onChange={(e) => handleInputChange(week.id!, 'revenue', Math.round(Number(e.target.value)))}
                             className="w-32 px-2 py-1 border border-border rounded text-right bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                            step="0.01"
+                            step="1"
                           />
                         </td>
                         <td className={`py-3 px-4 text-right font-semibold ${
                           variance >= 0 ? 'text-green-500' : 'text-red-500'
                         }`}>
                           <div>
-                            {variance >= 0 ? '+' : ''}${Math.abs(variance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {variance >= 0 ? '+' : ''}${Math.abs(variance).toLocaleString()}
                           </div>
                           <div className="text-xs font-normal">
                             ({variance >= 0 ? '+' : ''}{variancePercent.toFixed(1)}%)
@@ -395,15 +430,15 @@ export function BudgetVsActualPage() {
                       Monthly Total
                     </td>
                     <td className="py-3 px-4 text-right font-bold text-foreground">
-                      ${totalBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ${totalBudget.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-right font-bold text-foreground">
-                      ${totalActual.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ${totalActual.toLocaleString()}
                     </td>
                     <td className={`py-3 px-4 text-right font-bold ${
                       totalVariance >= 0 ? 'text-green-500' : 'text-red-500'
                     }`}>
-                      {totalVariance >= 0 ? '+' : ''}${Math.abs(totalVariance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {totalVariance >= 0 ? '+' : ''}${Math.abs(totalVariance).toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-right font-bold text-foreground">
                       {totalJobs}
@@ -433,13 +468,13 @@ export function BudgetVsActualPage() {
                         {targetsAreBalanced() ? 'Targets Balanced ✓' : 'Targets Must Equal Monthly FIR'}
                       </p>
                       <div className="text-sm text-muted-foreground mt-1">
-                        <p>Monthly FIR Total: <span className="font-medium text-foreground">${monthlyFirTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+                        <p>Monthly FIR Total: <span className="font-medium text-foreground">${Math.round(monthlyFirTotal).toLocaleString()}</span></p>
                         <p>Weekly Targets Sum: <span className={`font-medium ${
                           targetsAreBalanced() ? 'text-green-500' : 'text-red-500'
-                        }`}>${adjustedTargetTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+                        }`}>${Math.round(adjustedTargetTotal).toLocaleString()}</span></p>
                         {!targetsAreBalanced() && (
                           <p className="mt-1 text-red-500 font-medium">
-                            Difference: ${Math.abs(targetDifference).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {targetDifference > 0 ? 'over' : 'under'}
+                            Difference: ${Math.round(Math.abs(targetDifference)).toLocaleString()} {targetDifference > 0 ? 'over' : 'under'}
                           </p>
                         )}
                       </div>
@@ -473,6 +508,7 @@ export function BudgetVsActualPage() {
             </div>
           )}
         </CardContent>
+        )}
       </Card>
 
       {/* Help Text */}

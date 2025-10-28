@@ -180,7 +180,7 @@ export function MasterRevenuePage() {
                   return (
                     <div 
                       key={year.year} 
-                      className="bg-card rounded-lg border border-border transition-colors"
+                      className="bg-muted/30 rounded-lg border border-border transition-colors"
                     >
                       {/* Year Header - Always Visible */}
                       <div 
@@ -191,12 +191,12 @@ export function MasterRevenuePage() {
                           <div className="flex-1">
                             <h4 className="text-xl font-bold text-foreground flex items-center gap-2">
                               {year.year}
-                              <span className="text-xs font-normal text-muted px-2 py-1 bg-accent/10 rounded">
+                              <span className="text-xs font-normal text-foreground px-2 py-1 bg-accent/20 rounded">
                                 Historical
                               </span>
                             </h4>
                             <p className="text-sm text-muted mt-1">
-                              Click to view detailed revenue curve
+                              Click to view a detailed snapshot of the year
                             </p>
                           </div>
                           <div className="flex items-center gap-4">
@@ -230,50 +230,50 @@ export function MasterRevenuePage() {
                         <div className="px-6 pb-6 space-y-4">
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             {/* Gross Revenue */}
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1 text-muted text-xs">
+                            <div className="space-y-1 bg-muted/30 p-4 rounded-lg">
+                              <div className="flex items-center gap-1 text-accent text-xs">
                                 <DollarSign className="h-3 w-3" />
                                 <span>Gross Revenue</span>
                               </div>
                               <div className="text-lg font-bold text-foreground">
                                 ${(grossRevenue / 1000).toFixed(0)}K
                               </div>
-                              <div className="text-xs text-muted">
+                              <div className="text-xs text-accent">
                                 ${grossRevenue.toLocaleString()}
                               </div>
                             </div>
 
                             {/* COGS */}
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1 text-muted text-xs">
+                            <div className="space-y-1 bg-muted/30 p-4 rounded-lg">
+                              <div className="flex items-center gap-1 text-accent text-xs">
                                 <TrendingDown className="h-3 w-3" />
                                 <span>COGS</span>
                               </div>
-                              <div className="text-lg font-bold text-orange-500">
+                              <div className="text-lg font-bold text-foreground">
                                 ${(cogs / 1000).toFixed(0)}K
                               </div>
-                              <div className="text-xs text-muted">
+                              <div className="text-xs text-accent">
                                 {((cogs / grossRevenue) * 100).toFixed(0)}% of revenue
                               </div>
                             </div>
 
                             {/* Operating Expenses */}
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1 text-muted text-xs">
+                            <div className="space-y-1 bg-muted/30 p-4 rounded-lg">
+                              <div className="flex items-center gap-1 text-accent text-xs">
                                 <TrendingDown className="h-3 w-3" />
                                 <span>Expenses</span>
                               </div>
-                              <div className="text-lg font-bold text-red-500">
+                              <div className="text-lg font-bold text-foreground">
                                 ${(expenses / 1000).toFixed(0)}K
                               </div>
-                              <div className="text-xs text-muted">
+                              <div className="text-xs text-accent">
                                 {((expenses / grossRevenue) * 100).toFixed(0)}% of revenue
                               </div>
                             </div>
 
                             {/* Net Profit */}
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1 text-muted text-xs">
+                            <div className="space-y-1 bg-muted/30 p-4 rounded-lg">
+                              <div className="flex items-center gap-1 text-accent text-xs">
                                 <TrendingUp className="h-3 w-3" />
                                 <span>Net Profit</span>
                               </div>
@@ -282,7 +282,7 @@ export function MasterRevenuePage() {
                               }`}>
                                 ${Math.abs(netProfit / 1000).toFixed(0)}K
                               </div>
-                              <div className="text-xs text-muted">
+                              <div className="text-xs text-foreground">
                                 {netProfit >= 0 ? 'Profitable' : 'Loss'}
                               </div>
                             </div>
@@ -296,17 +296,17 @@ export function MasterRevenuePage() {
                             </div>
                             <div className="flex h-3 rounded-full overflow-hidden bg-gray-700">
                               <div 
-                                className="bg-green-500" 
+                                className="bg-blue-900" 
                                 style={{ width: `${((grossProfit - expenses) / grossRevenue * 100).toFixed(1)}%` }}
                                 title={`Net Profit: ${profitMargin}%`}
                               />
                               <div 
-                                className="bg-red-500" 
+                                className="bg-blue-500" 
                                 style={{ width: `${(expenses / grossRevenue * 100).toFixed(1)}%` }}
                                 title={`Expenses: ${(expenses / grossRevenue * 100).toFixed(1)}%`}
                               />
                               <div 
-                                className="bg-orange-500" 
+                                className="bg-blue-300" 
                                 style={{ width: `${(cogs / grossRevenue * 100).toFixed(1)}%` }}
                                 title={`COGS: ${(cogs / grossRevenue * 100).toFixed(1)}%`}
                               />
@@ -314,15 +314,15 @@ export function MasterRevenuePage() {
                             <div className="flex items-center justify-between mt-2 text-xs">
                               <div className="flex items-center gap-4">
                                 <div className="flex items-center gap-1">
-                                  <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                                  <div className="w-3 h-3 rounded-full bg-blue-900"></div>
                                   <span className="text-muted">Profit</span>
                                 </div>
                                 <div className="flex items-center gap-1">
-                                  <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                                  <div className="w-3 h-3 rounded-full bg-blue-500"></div>
                                   <span className="text-muted">Expenses</span>
                                 </div>
                                 <div className="flex items-center gap-1">
-                                  <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+                                  <div className="w-3 h-3 rounded-full bg-blue-300"></div>
                                   <span className="text-muted">COGS</span>
                                 </div>
                               </div>
