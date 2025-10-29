@@ -69,9 +69,17 @@ export const FinancialStatements: React.FC = () => {
       
       try {
         console.log('🔄 Loading documents from API...');
+        
+        // Get auth token from Clerk
+        const token = await getToken();
+        if (!token) {
+          throw new Error('Not authenticated');
+        }
+        
         const response = await fetch(`http://localhost:5180/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
           }
         });
         

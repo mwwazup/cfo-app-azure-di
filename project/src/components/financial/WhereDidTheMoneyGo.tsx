@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { TrendingDown, TrendingUp, Loader2, Calendar, X } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
+import { useAuth } from '@clerk/clerk-react';
 import { formatCurrency } from '../../utils/formatters';
 
 interface WhereDidTheMoneyGoProps {
@@ -183,6 +184,7 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
 
 export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => {
   const { dbUserId } = useAuthContext();
+  const { getToken } = useAuth();
   const currentDate = new Date();
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
   
@@ -259,9 +261,17 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       try {
         setDocsLoading(true);
         console.log('🔄 Loading documents from API for WhereDidTheMoneyGo...');
+        
+        // Get auth token from Clerk
+        const token = await getToken();
+        if (!token) {
+          throw new Error('Not authenticated');
+        }
+        
         const response = await fetch(`http://localhost:5180/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
           }
         });
         
