@@ -190,24 +190,32 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
   const getSavedFilterState = () => {
     try {
       const saved = localStorage.getItem('whereDidTheMoneyGo_filter');
+      console.log('💾 Loading saved filter state:', saved);
       if (saved) {
         const parsed = JSON.parse(saved);
+        console.log('💾 Parsed filter state:', parsed);
         // Validate the saved data is for the current year, otherwise reset to current month
         if (parsed.filterYear === currentDate.getFullYear()) {
+          console.log('✅ Using saved filter state');
           return parsed;
+        } else {
+          console.log('⚠️ Saved state is for different year, resetting to current month');
         }
       }
     } catch (e) {
       console.warn('Failed to load saved filter state:', e);
     }
-    return {
+    const defaultState = {
       selectedPeriod: 'current_month',
       filterYear: currentDate.getFullYear(),
       filterMonth: currentDate.getMonth() + 1
     };
+    console.log('💾 Using default filter state:', defaultState);
+    return defaultState;
   };
   
   const savedState = getSavedFilterState();
+  console.log('🎯 Initial filter state:', savedState);
   
   // Use props if provided, otherwise use local state (with localStorage persistence)
   const [localSelectedPeriod, setLocalSelectedPeriod] = useState<string>(savedState.selectedPeriod);

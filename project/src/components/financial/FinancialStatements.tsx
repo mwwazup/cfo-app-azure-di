@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, RotateCcw, Calendar, ChevronLeft, ChevronRight, Settings, Edit3 } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
+import { useAuth } from '@clerk/clerk-react';
 import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
 import { WhereDidTheMoneyGo } from './WhereDidTheMoneyGo';
 import { ManualPLFormSimplified } from './ManualPLFormSimplified';
@@ -16,6 +17,7 @@ interface ProcessingResult {
 
 export const FinancialStatements: React.FC = () => {
   const { dbUserId } = useAuthContext();
+  const { getToken } = useAuth();
   const currentDate = new Date();
   
   // Filter state - shared with WhereDidTheMoneyGo component
@@ -486,17 +488,30 @@ export const FinancialStatements: React.FC = () => {
     setDeletingDocumentId(document.id || '');
     
     try {
+      // Get auth token from Clerk
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+      
       // Call the DELETE API endpoint
       const response = await fetch(`http://localhost:5180/api/docs/${document.id}`, {
         method: 'DELETE',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         }
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to delete document');
+        const errorText = await response.text();
+        console.error('Delete failed:', errorText);
+        try {
+          const error = JSON.parse(errorText);
+          throw new Error(error.detail || 'Failed to delete document');
+        } catch {
+          throw new Error(`Failed to delete document: ${response.status} ${response.statusText}`);
+        }
       }
       
       console.log('✅ Document deleted from database:', document.id);
