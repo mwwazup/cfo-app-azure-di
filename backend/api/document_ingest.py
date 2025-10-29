@@ -352,6 +352,52 @@ async def get_document_metrics(
         logger.error(f"Error fetching document metrics: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch metrics: {str(e)}")
 
+@router.delete("/docs/{document_id}")
+async def delete_document(
+    document_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a financial document and all associated data (metrics, KPIs).
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Verify user owns this document
+        doc_result = supabase.table("documents").select("user_id, file_path").eq("id", document_id).execute()
+        if not doc_result.data:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        if doc_result.data[0]["user_id"] != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this document")
+        
+        logger.info(f"Deleting document {document_id} for user {current_user.id}")
+        
+        # Delete associated metrics (cascade should handle this, but explicit is better)
+        supabase.table("document_metrics").delete().eq("doc_id", document_id).execute()
+        logger.info(f"Deleted metrics for document {document_id}")
+        
+        # Delete associated KPIs
+        supabase.table("document_kpis").delete().eq("doc_id", document_id).execute()
+        logger.info(f"Deleted KPIs for document {document_id}")
+        
+        # Delete the document itself
+        supabase.table("documents").delete().eq("id", document_id).execute()
+        logger.info(f"Deleted document {document_id}")
+        
+        # TODO: Delete file from storage if needed
+        # file_path = doc_result.data[0].get("file_path")
+        # if file_path:
+        #     supabase.storage.from_("documents").remove([file_path])
+        
+        return {"message": "Document deleted successfully", "document_id": document_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting document: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
+
 # Helper functions
 
 async def _process_document_with_azure_di(file_data: bytes) -> Any:

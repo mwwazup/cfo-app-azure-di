@@ -186,10 +186,33 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
   const currentDate = new Date();
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
   
-  // Use props if provided, otherwise use local state
-  const [localSelectedPeriod, setLocalSelectedPeriod] = useState<string>('current_month');
-  const [localFilterYear, setLocalFilterYear] = useState<number>(currentDate.getFullYear());
-  const [localFilterMonth, setLocalFilterMonth] = useState<number | 'all' | 'ytd'>(currentDate.getMonth() + 1);
+  // Load saved filter state from localStorage, or default to current month
+  const getSavedFilterState = () => {
+    try {
+      const saved = localStorage.getItem('whereDidTheMoneyGo_filter');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Validate the saved data is for the current year, otherwise reset to current month
+        if (parsed.filterYear === currentDate.getFullYear()) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load saved filter state:', e);
+    }
+    return {
+      selectedPeriod: 'current_month',
+      filterYear: currentDate.getFullYear(),
+      filterMonth: currentDate.getMonth() + 1
+    };
+  };
+  
+  const savedState = getSavedFilterState();
+  
+  // Use props if provided, otherwise use local state (with localStorage persistence)
+  const [localSelectedPeriod, setLocalSelectedPeriod] = useState<string>(savedState.selectedPeriod);
+  const [localFilterYear, setLocalFilterYear] = useState<number>(savedState.filterYear);
+  const [localFilterMonth, setLocalFilterMonth] = useState<number | 'all' | 'ytd'>(savedState.filterMonth);
   
   const selectedPeriod = props.selectedPeriod ?? localSelectedPeriod;
   const setSelectedPeriod = props.setSelectedPeriod ?? setLocalSelectedPeriod;
@@ -203,6 +226,22 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
   const [kpis, setKpis] = useState<any>(null);
   const [kpisLoading] = useState(false);
   const [kpisError, setKpisError] = useState(false);
+
+  // Save filter state to localStorage whenever it changes (only if using local state)
+  useEffect(() => {
+    if (!props.selectedPeriod) { // Only save if we're managing our own state
+      try {
+        localStorage.setItem('whereDidTheMoneyGo_filter', JSON.stringify({
+          selectedPeriod,
+          filterYear,
+          filterMonth
+        }));
+        console.log('💾 Saved filter state:', { selectedPeriod, filterYear, filterMonth });
+      } catch (e) {
+        console.warn('Failed to save filter state:', e);
+      }
+    }
+  }, [selectedPeriod, filterYear, filterMonth, props.selectedPeriod]);
 
   // Fetch documents using the same endpoint as manual P&L form
   useEffect(() => {
@@ -262,19 +301,98 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     loadDocuments();
   }, [dbUserId]);
 
+  // Helper function to format period labels
+  const formatPeriodLabel = (startDate: string, endDate: string): string => {
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T00:00:00');
+    
+    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+      return start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    }
+    
+    return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  };
+
+  // Get available document periods for selection - MUST be before KPI useEffect
+  const availableDocuments = useMemo(() => {
+    if (!documents || documents.length === 0) return [];
+    
+    // Filter for P&L documents only
+    const pnlDocuments = documents.filter(doc => doc.document_type === 'pnl');
+    
+    return pnlDocuments
+      .filter(doc => {
+        // Check for dates in main doc or analysis_result
+        const hasStartDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date);
+        const hasEndDate = doc.end_date || (doc.analysis_result && doc.analysis_result.end_date);
+        if (!hasStartDate || !hasEndDate) return false;
+        
+        // Apply year and month filters
+        const startDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date);
+        // Add T00:00:00 to avoid timezone issues
+        const docDate = new Date(startDate + 'T00:00:00');
+        const docYear = docDate.getFullYear();
+        const docMonth = docDate.getMonth() + 1;
+        
+        // Filter by year
+        if (docYear !== filterYear) return false;
+        
+        // YTD: include all months from Jan to current month
+        if (filterMonth === 'ytd') {
+          const currentMonth = new Date().getMonth() + 1;
+          return docMonth <= currentMonth;
+        }
+        
+        // Filter by month if not 'all'
+        if (filterMonth !== 'all' && docMonth !== filterMonth) return false;
+        
+        return true;
+      })
+      .map(doc => {
+        // Get dates from main doc or analysis_result
+        const startDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date) || '';
+        const endDate = doc.end_date || (doc.analysis_result && doc.analysis_result.end_date) || '';
+        
+        return {
+          id: doc.id,
+          label: `P&L - ${formatPeriodLabel(startDate, endDate)}`,
+          start_date: startDate,
+          end_date: endDate,
+          document: doc
+        };
+      })
+      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
+  }, [documents, filterYear, filterMonth]);
+
   // Fetch KPIs for selected document or aggregate for YTD
   useEffect(() => {
+    console.log('🔄 KPI useEffect triggered:', { 
+      documentsLength: documents.length, 
+      filterMonth, 
+      availableDocsLength: availableDocuments.length,
+      selectedDocumentId 
+    });
+    
     if (!documents.length) {
+      console.log('⚠️ No documents, clearing KPIs');
       setKpis(null);
       return;
     }
 
     // For YTD, aggregate all documents in the filtered range
     if (filterMonth === 'ytd') {
-      console.log('📊 YTD mode: aggregating all documents');
+      console.log('📊 YTD mode: aggregating all documents', {
+        availableDocsCount: availableDocuments.length,
+        availableDocs: availableDocuments.map(d => ({
+          id: d.document.id,
+          period: `${d.start_date} to ${d.end_date}`
+        }))
+      });
+      
       const ytdDocuments = availableDocuments.map(d => d.document);
       
       if (ytdDocuments.length === 0) {
+        console.log('❌ No YTD documents found in availableDocuments');
         setKpis(null);
         setKpisError(true);
         return;
@@ -353,10 +471,11 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         totalExpenses, 
         netProfit,
         totalOwnerDistributions,
-        documentCount: ytdDocuments.length 
+        documentCount: ytdDocuments.length,
+        cashLeft: netProfit - totalOwnerDistributions
       });
       
-      setKpis({
+      const ytdKpis = {
         revenue_total: totalRevenue,
         cogs_total: totalCogs,
         opex_total: totalOpex,
@@ -364,7 +483,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         net_profit: netProfit,
         owner_distributions: totalOwnerDistributions,
         is_ytd: true
-      });
+      };
+      
+      console.log('✅ Setting YTD KPIs:', ytdKpis);
+      setKpis(ytdKpis);
       setKpisError(false);
       return;
     }
@@ -441,102 +563,24 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       setKpis(null);
       setKpisError(true);
     }
-  }, [selectedDocumentId, documents, filterMonth]);
-
-  // Helper function to format period labels
-  const formatPeriodLabel = (startDate: string, endDate: string): string => {
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T00:00:00');
-    
-    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
-      return start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    }
-    
-    if (start.getFullYear() === end.getFullYear()) {
-      return `${start.toLocaleDateString('en-US', { month: 'short' })} - ${end.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
-    }
-    
-    return `${start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
-  };
-
-  // Get available document periods for selection - include all document types
-  const availableDocuments = useMemo(() => {
-    if (!documents || documents.length === 0) return [];
-    
-    // Filter for P&L documents only
-    const pnlDocuments = documents.filter(doc => doc.document_type === 'pnl');
-    
-    return pnlDocuments
-      .filter(doc => {
-        // Check for dates in main doc or analysis_result
-        const hasStartDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date);
-        const hasEndDate = doc.end_date || (doc.analysis_result && doc.analysis_result.end_date);
-        if (!hasStartDate || !hasEndDate) return false;
-        
-        // Apply year and month filters
-        const startDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date);
-        // Add T00:00:00 to avoid timezone issues
-        const docDate = new Date(startDate + 'T00:00:00');
-        const docYear = docDate.getFullYear();
-        const docMonth = docDate.getMonth() + 1;
-        
-        console.log('📅 Document filter check:', {
-          docId: doc.id,
-          startDate,
-          docYear,
-          docMonth,
-          filterYear,
-          filterMonth,
-          yearMatch: docYear === filterYear,
-          monthMatch: filterMonth === 'ytd' ? 'YTD mode' : (filterMonth === 'all' || docMonth === filterMonth)
-        });
-        
-        // Filter by year
-        if (docYear !== filterYear) return false;
-        
-        // YTD: include all months from Jan to current month
-        if (filterMonth === 'ytd') {
-          const currentMonth = new Date().getMonth() + 1;
-          return docMonth <= currentMonth;
-        }
-        
-        // Filter by month if not 'all'
-        if (filterMonth !== 'all' && docMonth !== filterMonth) return false;
-        
-        return true;
-      })
-      .map(doc => {
-        // Get dates from main doc or analysis_result
-        const startDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date) || '';
-        const endDate = doc.end_date || (doc.analysis_result && doc.analysis_result.end_date) || '';
-        
-        return {
-          id: doc.id,
-          label: `P&L - ${formatPeriodLabel(startDate, endDate)}`,
-          start_date: startDate,
-          end_date: endDate,
-          document: doc
-        };
-      })
-      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
-  }, [documents, filterYear, filterMonth]);
+  }, [selectedDocumentId, documents, filterMonth, availableDocuments]);
 
   // Auto-select the most recent P&L document when documents load or filters change
   useEffect(() => {
+    // For YTD, we don't need a selected document since we aggregate all
+    if (filterMonth === 'ytd') {
+      console.log('🎯 YTD mode: no document selection needed (aggregating all)');
+      return;
+    }
+    
     if (documents && documents.length > 0 && availableDocuments.length > 0) {
-      // For YTD, select the most recent document
-      if (filterMonth === 'ytd') {
-        console.log('🎯 YTD mode: selecting latest document');
-        setSelectedDocumentId(availableDocuments[0].document.id);
-        return;
-      }
-      
-      // Check if current selection is in the filtered list
+      // Check if current selection is still valid in the filtered list
       const currentDocInList = selectedDocumentId 
         ? availableDocuments.find(doc => doc.document.id === selectedDocumentId)
         : null;
       
-      if (!currentDocInList) {
+      // Only auto-select if there's no valid selection
+      if (!currentDocInList && !selectedDocumentId) {
         console.log('🎯 Auto-selecting latest document from filtered list:', availableDocuments[0]);
         setSelectedDocumentId(availableDocuments[0].document.id);
       }
@@ -545,7 +589,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       console.log('⚠️ No documents match filter, clearing selection');
       setSelectedDocumentId('');
     }
-  }, [availableDocuments, documents, selectedDocumentId, filterMonth]);
+  }, [documents, filterYear, filterMonth]);
 
   // Helper function to find previous period document
   const findPreviousPeriodDocument = (currentDoc: any) => {
@@ -589,10 +633,20 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
 
   // Process KPIs into radial chart data using memoization with guards
   const radialChartsData = useMemo(() => {
-    // Guard: only process if we have KPIs and a selected document
-    if (!kpis || !selectedDocumentId) {
+    // Guard: only process if we have KPIs
+    // For YTD mode, we don't need a selectedDocumentId since we aggregate all
+    if (!kpis) {
+      console.log('⚠️ No KPIs available for chart rendering');
       return null;
     }
+    
+    // For single month mode, we need a selected document
+    if (!kpis.is_ytd && !selectedDocumentId) {
+      console.log('⚠️ Single month mode but no document selected');
+      return null;
+    }
+    
+    console.log('📈 Rendering charts with KPIs:', kpis);
 
     // Use precomputed KPIs from server
     const totalRevenue = kpis.revenue_total || 0;
@@ -609,11 +663,11 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     // Define colors based on the dashboard palette
     const colors = {
       revenue: '#d0b568', // Gold for revenue
-      cogs: '#124a6b', // Blue 700 for COGS
-      expenses: '#124a6b', // Blue 700 for expenses
-      totalExpenses: '#124a6b', // Blue 700 for total expenses
-      ownerDistributions: '#124a6b', // Blue 700 for owner distributions
-      cashLeft: cashLeft >= 0 ? '#124a6b' : '#EF4444' // Blue-700 if positive, red if negative
+      cogs: '#40afefff', // Blue 700 for COGS
+      expenses: '#40afefff', // Blue 700 for expenses
+      totalExpenses: '#40afefff', // Blue 700 for total expenses
+      ownerDistributions: '#40afefff', // Blue 700 for owner distributions
+      cashLeft: cashLeft >= 0 ? '#40afefff' : '#EF4444' // Blue-700 if positive, red if negative
     };
     
     // Date range for display
@@ -760,7 +814,14 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       isYTD 
     });
 
-    return { charts, hasData: totalRevenue > 0 || totalExpenses > 0, isYTD };
+    const result = { charts, hasData: totalRevenue > 0 || totalExpenses > 0, isYTD };
+    console.log('📊 radialChartsData computed:', { 
+      hasData: result.hasData, 
+      isYTD: result.isYTD, 
+      chartsCount: charts.length,
+      chartTitles: charts.map(c => c.title)
+    });
+    return result;
   }, [kpis, selectedDocumentId, documents]);
 
 
@@ -874,17 +935,31 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
                     {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                   </SelectItem>
                   <SelectItem value="ytd">Year to Date</SelectItem>
-                  {/* Recent months */}
-                  {Array.from({ length: 11 }, (_, i) => {
-                    const d = new Date();
-                    d.setMonth(d.getMonth() - (i + 1));
-                    const monthValue = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                    return (
-                      <SelectItem key={monthValue} value={monthValue}>
-                        {d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                      </SelectItem>
-                    );
-                  })}
+                  {/* Recent months - generate unique months going back */}
+                  {(() => {
+                    const months = [];
+                    const seen = new Set();
+                    const now = new Date();
+                    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                    seen.add(currentMonthKey); // Skip current month since it's already shown
+                    
+                    for (let i = 1; i <= 11; i++) {
+                      const d = new Date();
+                      d.setMonth(d.getMonth() - i);
+                      const monthValue = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                      
+                      // Only add if we haven't seen this month before
+                      if (!seen.has(monthValue)) {
+                        seen.add(monthValue);
+                        months.push(
+                          <SelectItem key={monthValue} value={monthValue}>
+                            {d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                          </SelectItem>
+                        );
+                      }
+                    }
+                    return months;
+                  })()}
                 </SelectContent>
               </Select>
             </div>

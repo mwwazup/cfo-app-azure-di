@@ -486,14 +486,20 @@ export const FinancialStatements: React.FC = () => {
     setDeletingDocumentId(document.id || '');
     
     try {
-      if (impactAnalysis?.isApproved) {
-        // Enhanced deletion for approved documents
-        // Document deletion temporarily disabled
-        console.log('Document deletion disabled');
-      } else {
-        // Simple deletion for pending documents
-        console.log('Document deletion disabled');
+      // Call the DELETE API endpoint
+      const response = await fetch(`http://localhost:5180/api/docs/${document.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to delete document');
       }
+      
+      console.log('✅ Document deleted from database:', document.id);
       
       // Remove from local state
       setDocuments(prev => prev.filter(doc => doc.id !== document.id));

@@ -955,7 +955,7 @@ export function MasterChart() {
             <div className="flex justify-center gap-8 flex-wrap">
               {isHistoricalYear ? (
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "rgba(59, 130, 246, 1)" }}></div>
+                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "rgba(68, 156, 249, 1)" }}></div>
                   <span>Actual Revenue</span>
                 </div>
               ) : (
