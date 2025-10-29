@@ -9,15 +9,17 @@ import openai
 from supabase import create_client, Client
 import httpx
 from datetime import datetime
-from api import auth, chat, memory, business, financial, document_analysis, document_ingest
-from db import init_db, get_neo4j_driver, close_neo4j_driver
 
-# Load environment variables
+# Load environment variables FIRST
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
-# Set SKIP_DB to bypass database connection issues during testing
+# Set SKIP_DB BEFORE importing API modules (which import db.postgres)
 os.environ["SKIP_DB"] = "1"
 os.environ["SKIP_SERVICE_CHECKS"] = "1"
+
+# NOW import API modules after SKIP_DB is set
+from api import auth, chat, memory, business, financial, document_analysis, document_ingest
+from db import init_db, get_neo4j_driver, close_neo4j_driver
 
 # Initialize FastAPI app
 app = FastAPI(
