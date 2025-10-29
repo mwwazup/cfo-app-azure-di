@@ -124,12 +124,22 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        # In offline mode trust token without Supabase
+        # In offline mode, decode Clerk token to get user ID
         if os.getenv("SKIP_SERVICE_CHECKS") == "1":
-            # simple decode: token is irrelevant
-            return User(id=str(uuid4()), email="test@example.com", is_active=True)
+            # Decode Clerk session token (no verification in dev mode)
+            import jwt
+            try:
+                # Decode without verification for development
+                payload = jwt.decode(token, options={"verify_signature": False})
+                user_id = payload.get("sub")  # Clerk user ID is in 'sub' claim
+                email = payload.get("email", "user@example.com")
+                print(f"🔐 Decoded Clerk token: user_id={user_id}, email={email}")
+                return User(id=user_id, email=email, is_active=True)
+            except Exception as e:
+                print(f"❌ Failed to decode token: {e}")
+                raise credentials_exception
 
-        # Verify token with Supabase
+        # Verify token with Supabase (production mode)
         supabase = get_supabase_auth()
         user = supabase.auth.get_user(token)
         if not user or not user.user:
@@ -146,6 +156,7 @@ async def get_current_user(
 
         return User.model_validate(db_user)
     except Exception as e:
+        print(f"❌ Authentication error: {e}")
         raise credentials_exception
 
 @router.post("/signup", response_model=Token)
