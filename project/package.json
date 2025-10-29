@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "node server-minimal.js",
-    "backend": "cd ../backend && python main.py",
+    "backend": "cd ../backend && start.bat",
     "dev:full": "concurrently \"npm run dev\" \"npm run backend\"",
     "create-dev-user": "node scripts/createDevUser.js",
     "test-auth": "node scripts/testAuth.js",
