@@ -536,6 +536,13 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         || selectedDoc.raw_json?.net_profit?.value
         || 0;
       
+      // Extract owner distributions
+      const ownerDistRaw = selectedDoc.raw_json?.ownerDistributions;
+      const ownerDistributions = (typeof ownerDistRaw === 'object' && ownerDistRaw?.value)
+        ? ownerDistRaw.value
+        : (typeof ownerDistRaw === 'number' ? ownerDistRaw : 0) ||
+          selectedDoc.summary_metrics?.ownerDistributions || 0;
+      
       // If we don't have expense breakdown but have revenue and net profit, calculate total expenses
       let totalExpenses = cogs + opex;
       if (totalExpenses === 0 && revenue > 0 && netProfit >= 0) {
@@ -544,13 +551,14 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       }
       
       if (revenue > 0 || totalExpenses > 0) {
-        console.log('📊 Using financial data:', { revenue, cogs, opex, netProfit, totalExpenses });
+        console.log('📊 Using financial data:', { revenue, cogs, opex, netProfit, totalExpenses, ownerDistributions });
         setKpis({
           revenue_total: revenue,
           cogs_total: cogs,
           opex_total: opex,
           total_expenses: totalExpenses,
           net_profit: netProfit,
+          owner_distributions: ownerDistributions,
           is_ytd: false
         });
         setKpisError(false);
@@ -567,6 +575,13 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
 
   // Auto-select the most recent P&L document when documents load or filters change
   useEffect(() => {
+    console.log('🔄 Auto-select useEffect:', { 
+      filterMonth, 
+      availableDocsLength: availableDocuments.length,
+      selectedDocumentId,
+      documentsLength: documents.length
+    });
+    
     // For YTD, we don't need a selected document since we aggregate all
     if (filterMonth === 'ytd') {
       console.log('🎯 YTD mode: no document selection needed (aggregating all)');
@@ -579,8 +594,8 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         ? availableDocuments.find(doc => doc.document.id === selectedDocumentId)
         : null;
       
-      // Only auto-select if there's no valid selection
-      if (!currentDocInList && !selectedDocumentId) {
+      // Auto-select if no selection OR if current selection is not in filtered list
+      if (!selectedDocumentId || !currentDocInList) {
         console.log('🎯 Auto-selecting latest document from filtered list:', availableDocuments[0]);
         setSelectedDocumentId(availableDocuments[0].document.id);
       }
@@ -589,7 +604,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       console.log('⚠️ No documents match filter, clearing selection');
       setSelectedDocumentId('');
     }
-  }, [documents, filterYear, filterMonth]);
+  }, [documents, filterYear, filterMonth, availableDocuments]);
 
   // Helper function to find previous period document
   const findPreviousPeriodDocument = (currentDoc: any) => {
