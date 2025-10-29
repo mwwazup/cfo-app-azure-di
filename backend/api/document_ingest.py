@@ -237,36 +237,30 @@ async def ingest_document(
         )
 
 @router.get("/docs/meta")
+@router.get("/financial-documents")  # Alias for frontend compatibility
 async def get_documents_metadata(
-    user_id: str = Query(..., description="User ID to fetch documents for"),
+    user_id: str = Query(None, description="User ID (Clerk ID) to fetch documents for", alias="userId"),
     current_user: User = Depends(get_current_user)
 ):
     """
     Get metadata only for user's documents (no metrics).
+    Supports both /docs/meta and /financial-documents endpoints.
+    Accepts Clerk user IDs and queries by clerk_user_id column.
     """
     try:
-        # Ensure user can only access their own documents
-        if user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        # Use provided user_id (Clerk ID from frontend)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="userId parameter is required")
         
         supabase = get_supabase_client()
         
+        # Query by clerk_user_id instead of user_id (UUID)
         result = supabase.table("documents").select(
-            "id, document_type, start_date, end_date, source, created_at"
-        ).eq("user_id", user_id).order("created_at", desc=True).execute()
+            "id, document_type, start_date, end_date, source, created_at, user_id, clerk_user_id, filename, original_filename, file_size, mime_type, status, analysis_result, uploaded_at, analyzed_at, updated_at"
+        ).eq("clerk_user_id", user_id).order("created_at", desc=True).execute()
         
-        documents = []
-        for doc in result.data:
-            documents.append(DocumentMeta(
-                id=doc["id"],
-                document_type=doc["document_type"],
-                start_date=doc.get("start_date"),
-                end_date=doc.get("end_date"),
-                source=doc.get("source"),
-                created_at=doc["created_at"]
-            ))
-        
-        return documents
+        # Return raw data with all fields for frontend compatibility
+        return {"data": result.data}
         
     except HTTPException:
         raise
