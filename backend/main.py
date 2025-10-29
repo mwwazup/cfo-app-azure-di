@@ -111,3 +111,8 @@ async def health_check():
         "neo4j": "skipped (not currently used)",
         "timestamp": datetime.utcnow().isoformat()
     }
+
+# Run the server
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=5180, reload=True)
