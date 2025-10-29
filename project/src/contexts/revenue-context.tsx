@@ -76,7 +76,8 @@ const generateHistoricalData = (year: number): MonthlyData[] => {
 };
 
 // Calculate monthly FIR targets based on previous year's distribution
-const calculateMonthlyFIRTargets = (targetRevenue: number, previousYearData?: YearData, currentYearData?: YearData): number[] => {
+// IMPORTANT: FIR must be STABLE and DETERMINISTIC - never based on current year data
+const calculateMonthlyFIRTargets = (targetRevenue: number, previousYearData?: YearData): number[] => {
   if (previousYearData && previousYearData.data) {
     // Use previous year's pattern as the base
     const previousYearRevenue = previousYearData.data.map(item => item.revenue);
@@ -91,32 +92,9 @@ const calculateMonthlyFIRTargets = (targetRevenue: number, previousYearData?: Ye
     }
   }
 
-  // No previous year data OR previous year has no revenue
-  // Create an intelligent FIR curve based on current year data + growth trajectory
-  if (currentYearData && currentYearData.data) {
-    const currentRevenue = currentYearData.data.map(item => item.revenue);
-    const totalCurrentRevenue = currentRevenue.reduce((sum, revenue) => sum + revenue, 0);
-    
-    if (totalCurrentRevenue > 0) {
-      // Calculate the gap we need to fill
-      const revenueGap = targetRevenue - totalCurrentRevenue;
-      
-      // Create a growth curve that builds on current year's pattern
-      const currentPercentages = currentRevenue.map(revenue => 
-        totalCurrentRevenue > 0 ? revenue / totalCurrentRevenue : 1/12
-      );
-      
-      // Apply current pattern + proportional growth to reach target
-      return currentPercentages.map((percentage, index) => {
-        const baseAmount = currentRevenue[index];
-        const growthAmount = revenueGap * percentage;
-        return Math.max(baseAmount + growthAmount, targetRevenue / 12 * 0.5); // Minimum floor
-      });
-    }
-  }
-
   // Fallback: Create a realistic business growth curve (not flat)
   // Most businesses have seasonal patterns - higher in middle/end of year
+  // NEVER use current year data - it creates circular dependency and unstable FIR line
   const seasonalMultipliers = [
     0.75, 0.80, 0.85, 0.90, 0.95, 1.00,  // Jan-Jun: Building up
     1.05, 1.10, 1.15, 1.20, 1.15, 1.10   // Jul-Dec: Peak and taper
@@ -226,7 +204,10 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
 
         const newYearMap = new Map<number, YearData>();
 
-        for (const year of years) {
+        // CRITICAL: Process years in chronological order (oldest first) so previous year data is available
+        const sortedYears = [...years].sort((a, b) => a - b); // Ascending order
+        
+        for (const year of sortedYears) {
           const entries = await RevenueDataService.getRevenueDataForYear(dbUserId, year);
 
           // Build 12-month structure
@@ -248,23 +229,11 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
           const sampleEntry = entries[0];
           const profitMargin = sampleEntry ? (sampleEntry.profit_margin ?? 0) : 0;
 
-          // Create temporary year data for FIR calculation
-          const tempYearData = {
-            year,
-            data: monthlyData,
-            targetRevenue,
-            profitMargin,
-            isLocked: false,
-            isHistorical: year < currentYear,
-            monthlyFIRTargets: [],
-            isSample: false
-          };
-
           // Reconstruct monthlyFIRTargets using intelligent FIR calculation
           const previousYearData = newYearMap.get(year - 1) || allYearsData.get(year - 1);
           const monthlyFIRTargets = year < currentYear 
             ? undefined // Historical years don't need FIR targets
-            : calculateMonthlyFIRTargets(targetRevenue, previousYearData, tempYearData);
+            : calculateMonthlyFIRTargets(targetRevenue, previousYearData); // NEVER pass current year data
 
           // Debug: Log FIR calculation details
           if (monthlyFIRTargets && year >= currentYear) {
@@ -484,7 +453,7 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
     
     // Recalculate monthly FIR targets based on new target revenue
     const previousYearData = allYearsData.get(selectedYear - 1);
-    const newMonthlyFIRTargets = calculateMonthlyFIRTargets(targetRevenue, previousYearData, yearData);
+    const newMonthlyFIRTargets = calculateMonthlyFIRTargets(targetRevenue, previousYearData);
     
     console.log('📊 New monthly FIR targets:', newMonthlyFIRTargets);
     console.log('📊 Sum of monthly targets:', newMonthlyFIRTargets.reduce((a, b) => a + b, 0));

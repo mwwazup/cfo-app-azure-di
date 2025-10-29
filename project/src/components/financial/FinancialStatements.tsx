@@ -16,6 +16,12 @@ interface ProcessingResult {
 
 export const FinancialStatements: React.FC = () => {
   const { dbUserId } = useAuthContext();
+  const currentDate = new Date();
+  
+  // Filter state - shared with WhereDidTheMoneyGo component
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('current_month');
+  const [filterYear, setFilterYear] = useState<number>(currentDate.getFullYear());
+  const [filterMonth, setFilterMonth] = useState<number | 'all' | 'ytd'>(currentDate.getMonth() + 1);
   
   // Simple document state - will be enhanced later
   const [documents, setDocuments] = useState<FinancialDocument[]>([]);
@@ -899,13 +905,36 @@ export const FinancialStatements: React.FC = () => {
       </div>
 
       {/* Where Did The Money Go Section */}
-      <WhereDidTheMoneyGo />
+      <WhereDidTheMoneyGo 
+        selectedPeriod={selectedPeriod}
+        setSelectedPeriod={setSelectedPeriod}
+        filterYear={filterYear}
+        setFilterYear={setFilterYear}
+        filterMonth={filterMonth}
+        setFilterMonth={setFilterMonth}
+      />
 
       {/* Documents List */}
       <div className="bg-card rounded-lg border border-border">
         <div className="p-6 border-b border-border">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">Your Financial Documents</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-foreground">Your Financial Documents</h2>
+              {/* Filter indicator */}
+              {(filterMonth !== currentDate.getMonth() + 1 || filterYear !== currentDate.getFullYear() || selectedPeriod !== 'current_month') && (
+                <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
+                  {filterMonth === 'ytd' ? 'YTD' : selectedPeriod === 'current_month' ? 'Current Month' : 
+                    (() => {
+                      if (typeof filterMonth === 'number') {
+                        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        return `${monthNames[filterMonth - 1]} ${filterYear}`;
+                      }
+                      return 'All';
+                    })()
+                  }
+                </div>
+              )}
+            </div>
             <button
               onClick={() => setIsDocumentsCollapsed(!isDocumentsCollapsed)}
               className="flex items-center text-muted-foreground hover:text-foreground transition-colors"
@@ -919,7 +948,35 @@ export const FinancialStatements: React.FC = () => {
           </div>
         </div>
         
-        {!isDocumentsCollapsed && (
+        {!isDocumentsCollapsed && (() => {
+          // Filter documents based on the same criteria as WhereDidTheMoneyGo
+          const filteredDocuments = documents.filter(doc => {
+            // Only show P&L documents
+            if (doc.document_type !== 'pnl') return false;
+            
+            const startDate = doc.start_date || (doc as any).analysis_result?.start_date;
+            if (!startDate) return false;
+            
+            const docDate = new Date(startDate + 'T00:00:00');
+            const docYear = docDate.getFullYear();
+            const docMonth = docDate.getMonth() + 1;
+            
+            // Filter by year
+            if (docYear !== filterYear) return false;
+            
+            // YTD: include all months from Jan to current month
+            if (filterMonth === 'ytd') {
+              const currentMonth = new Date().getMonth() + 1;
+              return docMonth <= currentMonth;
+            }
+            
+            // Filter by specific month
+            if (filterMonth !== 'all' && docMonth !== filterMonth) return false;
+            
+            return true;
+          });
+          
+          return (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-muted/50">
@@ -933,16 +990,21 @@ export const FinancialStatements: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {documents.length === 0 ? (
+                {filteredDocuments.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center">
                       <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-foreground font-medium">No financial documents yet</p>
-                      <p className="text-sm text-muted-foreground">Upload your first financial statement to get started</p>
+                      <p className="text-foreground font-medium">No documents for selected period</p>
+                      <p className="text-sm text-muted-foreground">
+                        {filterMonth === 'ytd' ? 'No P&L documents found for year to date' : 
+                         filterMonth === 'all' ? 'No P&L documents found for this year' :
+                         `No P&L documents found for ${new Date(filterYear, typeof filterMonth === 'number' ? filterMonth - 1 : 0).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+                        }
+                      </p>
                     </td>
                   </tr>
                 ) : (
-                  documents.map((document) => (
+                  filteredDocuments.map((document) => (
                     <tr key={document.id} className="hover:bg-muted/25">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -1076,7 +1138,8 @@ export const FinancialStatements: React.FC = () => {
               </tbody>
             </table>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Review Modal */}

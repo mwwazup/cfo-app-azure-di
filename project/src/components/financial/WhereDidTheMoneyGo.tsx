@@ -7,12 +7,18 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { TrendingDown, TrendingUp, Loader2, Calendar, Filter } from 'lucide-react';
+import { TrendingDown, TrendingUp, Loader2, Calendar, X } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
 import { formatCurrency } from '../../utils/formatters';
 
 interface WhereDidTheMoneyGoProps {
-  // No props needed - component fetches its own data
+  // Optional props for shared filter state
+  selectedPeriod?: string;
+  setSelectedPeriod?: (value: string) => void;
+  filterYear?: number;
+  setFilterYear?: (value: number) => void;
+  filterMonth?: number | 'all' | 'ytd';
+  setFilterMonth?: (value: number | 'all' | 'ytd') => void;
 }
 
 
@@ -25,9 +31,10 @@ interface ChartCardProps {
   trendValue: number;
   dateRange: string;
   documents?: any[]; // Optional documents array for YTD calculations
+  isYTD?: boolean; // Flag to indicate YTD mode
 }
 
-function ChartCard({ title, value, percentage, color, trendDirection, trendValue, dateRange, documents }: ChartCardProps) {
+function ChartCard({ title, value, percentage, color, trendDirection, trendValue, dateRange, documents, isYTD }: ChartCardProps) {
   // Create chart data - using percentage for the radial fill
   const chartData = [
     { 
@@ -116,15 +123,21 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
                 : 'No previous period data available for comparison';
               
               if (title === 'Total Revenue') {
-                return `Total Revenue was ${valueText} which represents 100% of total income. ${trendText}.`;
+                const verbText = isYTD ? 'is' : 'was';
+                const periodText = isYTD ? 'for the year to date' : 'for this period';
+                return `Total Revenue ${verbText} ${valueText} ${periodText}, which represents 100% of total income. ${trendText}.`;
               } else if (title === 'Total Costs') {
-                return `Total Expenses were ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
+                const verbText = isYTD ? 'are' : 'were';
+                return `Total Expenses ${verbText} ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
               } else if (title === 'Net Profit') {
-                return `Net Profit was ${valueText} which equals ${percentageText}% of total revenue. Net Profit is Total Revenue minus Cost of Goods Sold minus Operating Expenses - this is how much money you have left before any owner distributions. ${trendText}.`;
+                const verbText = isYTD ? 'is' : 'was';
+                return `Net Profit ${verbText} ${valueText} which equals ${percentageText}% of total revenue. Net Profit is Total Revenue minus Cost of Goods Sold minus Operating Expenses - this is how much money you have left before any owner distributions or taxes. ${trendText}.`;
               } else if (title === 'Cost of Goods') {
-                return `Cost of Goods was ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
+                const verbText = isYTD ? 'is' : 'was';
+                return `Cost of Goods ${verbText} ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
               } else if (title === 'Operating Expenses') {
-                return `Operating Expenses were ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
+                const verbText = isYTD ? 'are' : 'were';
+                return `Operating Expenses ${verbText} ${valueText} which equals ${percentageText}% of total revenue. ${trendText}.`;
               } else if (title === 'Owner Distributions') {
                 // Calculate year-to-date owner distributions
                 const currentYear = new Date().getFullYear();
@@ -150,14 +163,16 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
                   ? ` For calendar year ${currentYear}, you have taken ${formatCurrency(ytdOwnerDistributions)} in total owner distributions.`
                   : '';
                 
-                return `Owner Distributions were ${valueText} which equals ${percentageText}% of total revenue. This represents money taken out of the business for personal use.${ytdText} ${trendText}.`;
+                const verbText = isYTD ? 'are' : 'were';
+                return `Owner Distributions ${verbText} ${valueText} which equals ${percentageText}% of total revenue. This represents money taken out of the business for personal use.${ytdText} ${trendText}.`;
               } else if (title === 'Cash Left for Growth') {
                 const growthText = value >= 0 
-                  ? `Cash Left for Growth is calculated as Net Profit minus Owner Distributions. After taking out owner distributions from the net profit, this is the true number you have for growth in the business - available for reinvestment, building reserves, and expanding operations.`
+                  ? `Cash Left for Growth is calculated as Net Profit minus Owner Distributions. After taking out owner distributions from the net profit, this is the true number you have for growth in the business - available for reinvestment, building reserves, paying taxes, and expanding operations.`
                   : `This negative amount indicates the business is operating at a loss after owner distributions, meaning more money was taken out than the business earned.`;
                 return `Cash Left for Growth is ${valueText} which equals ${percentageText}% of total revenue. ${growthText} ${trendText}.`;
               }
-              return `${title} was ${valueText} (${percentageText}% of revenue). ${trendText}.`;
+              const verbText = isYTD ? 'is' : 'was';
+              return `${title} ${verbText} ${valueText} (${percentageText}% of revenue). ${trendText}.`;
             })()}
           </p>
         </div>
@@ -166,13 +181,22 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
   );
 }
 
-export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
+export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => {
   const { dbUserId } = useAuthContext();
   const currentDate = new Date();
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('latest');
-  const [filterYear, setFilterYear] = useState<number>(currentDate.getFullYear());
-  const [filterMonth, setFilterMonth] = useState<number | 'all'>('all'); // Default to 'all' to show all documents
+  
+  // Use props if provided, otherwise use local state
+  const [localSelectedPeriod, setLocalSelectedPeriod] = useState<string>('current_month');
+  const [localFilterYear, setLocalFilterYear] = useState<number>(currentDate.getFullYear());
+  const [localFilterMonth, setLocalFilterMonth] = useState<number | 'all' | 'ytd'>(currentDate.getMonth() + 1);
+  
+  const selectedPeriod = props.selectedPeriod ?? localSelectedPeriod;
+  const setSelectedPeriod = props.setSelectedPeriod ?? setLocalSelectedPeriod;
+  const filterYear = props.filterYear ?? localFilterYear;
+  const setFilterYear = props.setFilterYear ?? setLocalFilterYear;
+  const filterMonth = props.filterMonth ?? localFilterMonth;
+  const setFilterMonth = props.setFilterMonth ?? setLocalFilterMonth;
   const [documents, setDocuments] = useState<any[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
   const [docsError, setDocsError] = useState<Error | null>(null);
@@ -238,9 +262,115 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
     loadDocuments();
   }, [dbUserId]);
 
-  // Fetch KPIs for selected document (simplified for now)
+  // Fetch KPIs for selected document or aggregate for YTD
   useEffect(() => {
-    if (!selectedDocumentId || !documents.length) {
+    if (!documents.length) {
+      setKpis(null);
+      return;
+    }
+
+    // For YTD, aggregate all documents in the filtered range
+    if (filterMonth === 'ytd') {
+      console.log('📊 YTD mode: aggregating all documents');
+      const ytdDocuments = availableDocuments.map(d => d.document);
+      
+      if (ytdDocuments.length === 0) {
+        setKpis(null);
+        setKpisError(true);
+        return;
+      }
+      
+      // Aggregate all financial data
+      let totalRevenue = 0;
+      let totalCogs = 0;
+      let totalOpex = 0;
+      let totalOwnerDistributions = 0;
+      
+      ytdDocuments.forEach((doc, index) => {
+        const revenue = doc.summary_metrics?.totalRevenue 
+          || doc.summary_metrics?.revenue 
+          || doc.raw_json?.revenue?.value
+          || 0;
+        
+        const cogs = doc.summary_metrics?.cost_of_goods_sold 
+          || doc.summary_metrics?.cogs 
+          || doc.raw_json?.cost_of_goods_sold?.value
+          || doc.raw_json?.cogs?.value
+          || 0;
+          
+        // Try multiple field variations for operating expenses
+        const opex = doc.summary_metrics?.operating_expenses 
+          || doc.summary_metrics?.opex
+          || doc.summary_metrics?.operatingExpenses
+          || doc.raw_json?.operating_expenses?.value
+          || doc.raw_json?.operatingExpenses?.value
+          || doc.raw_json?.opex?.value
+          || 0;
+        
+        // If we have total expenses but no breakdown, calculate opex as difference
+        const totalExpensesFromDoc = doc.summary_metrics?.total_expenses 
+          || doc.summary_metrics?.totalExpenses
+          || doc.raw_json?.total_expenses?.value
+          || doc.raw_json?.totalExpenses?.value
+          || 0;
+        
+        // If we have total expenses but opex is 0, calculate it
+        const finalOpex = (opex === 0 && totalExpensesFromDoc > 0 && cogs > 0) 
+          ? totalExpensesFromDoc - cogs 
+          : opex;
+        
+        const ownerDistRaw = doc.raw_json?.ownerDistributions;
+        const ownerDist = (typeof ownerDistRaw === 'object' && ownerDistRaw?.value)
+          ? ownerDistRaw.value
+          : (typeof ownerDistRaw === 'number' ? ownerDistRaw : 0) ||
+            doc.summary_metrics?.ownerDistributions || 0;
+        
+        console.log(`📄 Doc ${index + 1}:`, {
+          period: `${doc.start_date} to ${doc.end_date}`,
+          revenue,
+          cogs,
+          opex: opex,
+          finalOpex: finalOpex,
+          totalExpensesFromDoc,
+          ownerDist,
+          summary_metrics: doc.summary_metrics,
+          raw_json_keys: doc.raw_json ? Object.keys(doc.raw_json) : []
+        });
+        
+        totalRevenue += revenue;
+        totalCogs += cogs;
+        totalOpex += finalOpex; // Use finalOpex which includes calculated value
+        totalOwnerDistributions += ownerDist;
+      });
+      
+      const totalExpenses = totalCogs + totalOpex;
+      const netProfit = totalRevenue - totalExpenses;
+      
+      console.log('📊 YTD Aggregated data:', { 
+        totalRevenue, 
+        totalCogs, 
+        totalOpex, 
+        totalExpenses, 
+        netProfit,
+        totalOwnerDistributions,
+        documentCount: ytdDocuments.length 
+      });
+      
+      setKpis({
+        revenue_total: totalRevenue,
+        cogs_total: totalCogs,
+        opex_total: totalOpex,
+        total_expenses: totalExpenses,
+        net_profit: netProfit,
+        owner_distributions: totalOwnerDistributions,
+        is_ytd: true
+      });
+      setKpisError(false);
+      return;
+    }
+    
+    // For single month, use selected document
+    if (!selectedDocumentId) {
       setKpis(null);
       return;
     }
@@ -298,7 +428,8 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
           cogs_total: cogs,
           opex_total: opex,
           total_expenses: totalExpenses,
-          net_profit: netProfit
+          net_profit: netProfit,
+          is_ytd: false
         });
         setKpisError(false);
       } else {
@@ -310,7 +441,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
       setKpis(null);
       setKpisError(true);
     }
-  }, [selectedDocumentId, documents]);
+  }, [selectedDocumentId, documents, filterMonth]);
 
   // Helper function to format period labels
   const formatPeriodLabel = (startDate: string, endDate: string): string => {
@@ -357,11 +488,17 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
           filterYear,
           filterMonth,
           yearMatch: docYear === filterYear,
-          monthMatch: filterMonth === 'all' || docMonth === filterMonth
+          monthMatch: filterMonth === 'ytd' ? 'YTD mode' : (filterMonth === 'all' || docMonth === filterMonth)
         });
         
         // Filter by year
         if (docYear !== filterYear) return false;
+        
+        // YTD: include all months from Jan to current month
+        if (filterMonth === 'ytd') {
+          const currentMonth = new Date().getMonth() + 1;
+          return docMonth <= currentMonth;
+        }
         
         // Filter by month if not 'all'
         if (filterMonth !== 'all' && docMonth !== filterMonth) return false;
@@ -387,6 +524,13 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
   // Auto-select the most recent P&L document when documents load or filters change
   useEffect(() => {
     if (documents && documents.length > 0 && availableDocuments.length > 0) {
+      // For YTD, select the most recent document
+      if (filterMonth === 'ytd') {
+        console.log('🎯 YTD mode: selecting latest document');
+        setSelectedDocumentId(availableDocuments[0].document.id);
+        return;
+      }
+      
       // Check if current selection is in the filtered list
       const currentDocInList = selectedDocumentId 
         ? availableDocuments.find(doc => doc.document.id === selectedDocumentId)
@@ -395,15 +539,13 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
       if (!currentDocInList) {
         console.log('🎯 Auto-selecting latest document from filtered list:', availableDocuments[0]);
         setSelectedDocumentId(availableDocuments[0].document.id);
-        setSelectedPeriod('latest');
       }
     } else if (availableDocuments.length === 0 && selectedDocumentId) {
       // No documents match the filter, clear selection
       console.log('⚠️ No documents match filter, clearing selection');
       setSelectedDocumentId('');
-      setSelectedPeriod('latest');
     }
-  }, [availableDocuments, documents, selectedDocumentId]);
+  }, [availableDocuments, documents, selectedDocumentId, filterMonth]);
 
   // Helper function to find previous period document
   const findPreviousPeriodDocument = (currentDoc: any) => {
@@ -459,16 +601,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
     const totalExpenses = kpis.total_expenses || (cogsTotal + opexTotal);
     const netProfit = kpis.net_profit || (totalRevenue - totalExpenses);
     
-    // Get current period for date range and extract owner distributions
-    const selectedDoc = documents.find(doc => doc.id === selectedDocumentId);
-    const ownerDistributionsRaw = selectedDoc?.raw_json?.ownerDistributions;
-    const ownerDistributions = (typeof ownerDistributionsRaw === 'object' && ownerDistributionsRaw?.value)
-                              ? ownerDistributionsRaw.value
-                              : (typeof ownerDistributionsRaw === 'number' ? ownerDistributionsRaw : 0) ||
-                                selectedDoc?.summary_metrics?.ownerDistributions || 
-                                0;
-    
+    // Get owner distributions and date range
+    const ownerDistributions = kpis.owner_distributions || 0;
     const cashLeft = netProfit - ownerDistributions; // Cash remaining after owner distributions
+    const isYTD = kpis.is_ytd || false;
 
     // Define colors based on the dashboard palette
     const colors = {
@@ -479,11 +615,22 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
       ownerDistributions: '#124a6b', // Blue 700 for owner distributions
       cashLeft: cashLeft >= 0 ? '#124a6b' : '#EF4444' // Blue-700 if positive, red if negative
     };
-    const dateRange = selectedDoc ? 
-      formatPeriodLabel(selectedDoc.start_date || '', selectedDoc.end_date || '') : 
-      new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    
+    // Date range for display
+    let dateRange;
+    if (isYTD) {
+      const currentYear = new Date().getFullYear();
+      const currentMonth = new Date().toLocaleDateString('en-US', { month: 'long' });
+      dateRange = `YTD ${currentYear} (Jan - ${currentMonth})`;
+    } else {
+      const selectedDoc = documents.find(doc => doc.id === selectedDocumentId);
+      dateRange = selectedDoc ? 
+        formatPeriodLabel(selectedDoc.start_date || '', selectedDoc.end_date || '') : 
+        new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    }
 
-    // Find previous period document for trend calculations
+    // Find previous period document for trend calculations (only for single month view)
+    const selectedDoc = !isYTD ? documents.find(doc => doc.id === selectedDocumentId) : null;
     const previousDoc = selectedDoc ? findPreviousPeriodDocument(selectedDoc) : null;
     let previousRevenue = 0;
     let previousExpenses = 0;
@@ -539,8 +686,15 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
     const opexTrend = calculateTrend(opexTotal, previousOpex);
     const ownerDistributionsTrend = calculateTrend(ownerDistributions, previousOwnerDistributions);
 
-    // Create chart data array with real trend calculations
+    // Calculate Cash Left for Growth trend
+    const previousCashLeft = previousNetProfit - previousOwnerDistributions;
+    const cashLeftTrend = calculateTrend(cashLeft, previousCashLeft);
+
+    // Create chart data array - ALWAYS 6 cards in specific order
+    // Row 1: Total Revenue, Cost of Goods, Operating Expenses
+    // Row 2: Net Profit, Owner Distributions, Cash Left for Growth
     const charts = [
+      // ROW 1 - LEFT TO RIGHT
       {
         title: 'Total Revenue',
         value: totalRevenue,
@@ -551,14 +705,24 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
         dateRange
       },
       {
-        title: 'Total Expenses',
-        value: totalExpenses,
-        percentage: totalRevenue > 0 ? (totalExpenses / totalRevenue) * 100 : 0,
-        color: colors.totalExpenses,
-        trendDirection: expensesTrend.direction,
-        trendValue: expensesTrend.percentage,
+        title: 'Cost of Goods',
+        value: cogsTotal,
+        percentage: totalRevenue > 0 ? (cogsTotal / totalRevenue) * 100 : 0,
+        color: colors.cogs,
+        trendDirection: cogsTrend.direction,
+        trendValue: cogsTrend.percentage,
         dateRange
       },
+      {
+        title: 'Operating Expenses',
+        value: opexTotal,
+        percentage: totalRevenue > 0 ? (opexTotal / totalRevenue) * 100 : 0,
+        color: colors.expenses,
+        trendDirection: opexTrend.direction,
+        trendValue: opexTrend.percentage,
+        dateRange
+      },
+      // ROW 2 - LEFT TO RIGHT
       {
         title: 'Net Profit',
         value: netProfit,
@@ -567,27 +731,8 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
         trendDirection: netProfitTrend.direction,
         trendValue: netProfitTrend.percentage,
         dateRange
-      }
-    ];
-
-    // Second row charts in specific order: [Cost of Goods] [Owner Distributions] [Cash Left]
-    
-    // 1. Cost of Goods (first in second row)
-    if (cogsTotal > 0) {
-      charts.push({
-        title: 'Cost of Goods',
-        value: cogsTotal,
-        percentage: totalRevenue > 0 ? (cogsTotal / totalRevenue) * 100 : 0,
-        color: colors.cogs,
-        trendDirection: cogsTrend.direction,
-        trendValue: cogsTrend.percentage,
-        dateRange
-      });
-    }
-
-    // 2. Owner Distributions (second in second row)
-    if (ownerDistributions > 0) {
-      charts.push({
+      },
+      {
         title: 'Owner Distributions',
         value: ownerDistributions,
         percentage: totalRevenue > 0 ? (ownerDistributions / totalRevenue) * 100 : 0,
@@ -595,44 +740,27 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
         trendDirection: ownerDistributionsTrend.direction,
         trendValue: ownerDistributionsTrend.percentage,
         dateRange
-      });
-    }
-
-    // 3. Cash Left for Growth (third in second row)
-    const previousCashLeft = previousNetProfit - previousOwnerDistributions;
-    const cashLeftTrend = calculateTrend(cashLeft, previousCashLeft);
-    
-    charts.push({
-      title: 'Cash Left for Growth',
-      value: cashLeft,
-      percentage: totalRevenue > 0 ? Math.abs(cashLeft / totalRevenue) * 100 : 0,
-      color: cashLeft >= 0 ? '#026b48ff' : '#EF4444', // Green if positive, red if negative
-      trendDirection: cashLeftTrend.direction,
-      trendValue: cashLeftTrend.percentage,
-      dateRange
-    });
-
-    // Additional charts go to third row if needed
-    if (opexTotal > 0) {
-      charts.push({
-        title: 'Operating Expenses',
-        value: opexTotal,
-        percentage: totalRevenue > 0 ? (opexTotal / totalRevenue) * 100 : 0,
-        color: colors.expenses,
-        trendDirection: opexTrend.direction,
-        trendValue: opexTrend.percentage,
+      },
+      {
+        title: 'Cash Left for Growth',
+        value: cashLeft,
+        percentage: totalRevenue > 0 ? Math.abs(cashLeft / totalRevenue) * 100 : 0,
+        color: cashLeft >= 0 ? '#026b48ff' : '#EF4444', // Green if positive, red if negative
+        trendDirection: cashLeftTrend.direction,
+        trendValue: cashLeftTrend.percentage,
         dateRange
-      });
-    }
+      }
+    ];
 
     console.log('💰 Radial Chart Data:', { 
       current: { totalRevenue, totalExpenses, netProfit, ownerDistributions, cashLeft },
       previous: { revenue: previousRevenue, expenses: previousExpenses, netProfit: previousNetProfit, ownerDistributions: previousOwnerDistributions },
       trends: { revenueTrend, expensesTrend, netProfitTrend, ownerDistributionsTrend },
-      charts 
+      charts,
+      isYTD 
     });
 
-    return { charts, hasData: totalRevenue > 0 || totalExpenses > 0 };
+    return { charts, hasData: totalRevenue > 0 || totalExpenses > 0, isYTD };
   }, [kpis, selectedDocumentId, documents]);
 
 
@@ -712,122 +840,70 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
         {/* Period Filter and Active Viewing Display */}
         <div className="mt-4 space-y-4">
           {/* Filter Controls */}
-          <div className="flex flex-wrap items-center gap-4 p-3 bg-card border border-border rounded-lg">
-            {/* Year Filter */}
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Period Filter */}
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-accent" />
-              <Select 
-                value={filterYear.toString()} 
-                onValueChange={(value) => {
-                  setFilterYear(Number(value));
-                  setSelectedPeriod('latest');
-                }}
-              >
-                <SelectTrigger className="w-32">
-                  <SelectValue placeholder="Year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 5 }, (_, i) => currentDate.getFullYear() - i).map((year) => (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {/* Month Filter */}
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-accent" />
-              <Select 
-                value={filterMonth.toString()} 
-                onValueChange={(value) => {
-                  setFilterMonth(value === 'all' ? 'all' : Number(value));
-                  setSelectedPeriod('latest');
-                }}
-              >
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Month" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Months</SelectItem>
-                  {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((month, idx) => (
-                    <SelectItem key={idx} value={(idx + 1).toString()}>
-                      {month}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {/* Document Selector */}
-            <div className="flex items-center gap-2">
               <Select 
                 value={selectedPeriod} 
                 onValueChange={(value) => {
                   setSelectedPeriod(value);
-                  if (value === 'latest' && availableDocuments.length > 0) {
-                    setSelectedDocumentId(availableDocuments[0].document.id);
-                  } else if (value && value !== 'latest') {
-                    // Value is the document ID
-                    setSelectedDocumentId(value);
+                  const now = new Date();
+                  const currentMonth = now.getMonth() + 1;
+                  const currentYear = now.getFullYear();
+                  
+                  if (value === 'current_month') {
+                    setFilterYear(currentYear);
+                    setFilterMonth(currentMonth);
+                  } else if (value === 'ytd') {
+                    setFilterYear(currentYear);
+                    setFilterMonth('ytd');
+                  } else if (value.match(/^\d{4}-\d{2}$/)) {
+                    // Specific month format: YYYY-MM
+                    const [year, month] = value.split('-');
+                    setFilterYear(Number(year));
+                    setFilterMonth(Number(month));
                   }
                 }}
               >
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Select Period" />
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Period" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="latest">Latest Available</SelectItem>
-                  {availableDocuments.length === 0 ? (
-                    <SelectItem value="none" disabled>
-                      No documents for selected period
-                    </SelectItem>
-                  ) : (
-                    availableDocuments.map((doc) => {
-                      return (
-                        <SelectItem key={doc.document.id} value={doc.document.id}>
-                          {formatPeriodLabel(doc.start_date, doc.end_date)}
-                        </SelectItem>
-                      );
-                    })
-                  )}
+                  <SelectItem value="current_month">
+                    {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </SelectItem>
+                  <SelectItem value="ytd">Year to Date</SelectItem>
+                  {/* Recent months */}
+                  {Array.from({ length: 11 }, (_, i) => {
+                    const d = new Date();
+                    d.setMonth(d.getMonth() - (i + 1));
+                    const monthValue = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    return (
+                      <SelectItem key={monthValue} value={monthValue}>
+                        {d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
             
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="text-sm text-muted-foreground">P&L documents only</span>
-            </div>
-          </div>
-
-          {/* Active Viewing Display */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground">Viewing:</span>
-            <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
-              {filterYear}
-            </div>
-            <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
-              {filterMonth === 'all' 
-                ? 'All Months' 
-                : (['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][typeof filterMonth === 'number' ? filterMonth - 1 : 0] || 'Unknown')
-              }
-            </div>
-            {selectedDocumentId && (() => {
-              const selectedDoc = documents.find(doc => doc.id === selectedDocumentId);
-              if (selectedDoc) {
-                const startDate = selectedDoc.start_date || selectedDoc.analysis_result?.start_date || '';
-                const endDate = selectedDoc.end_date || selectedDoc.analysis_result?.end_date || '';
-                if (startDate && endDate) {
-                  return (
-                    <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
-                      P&L - {formatPeriodLabel(startDate, endDate)}
-                    </div>
-                  );
-                }
-              }
-              return null;
-            })()}
+            {/* Clear Filter Button */}
+            {(filterMonth !== currentDate.getMonth() + 1 || filterYear !== currentDate.getFullYear() || selectedPeriod !== 'current_month') && (
+              <button
+                onClick={() => {
+                  setSelectedPeriod('current_month');
+                  setFilterYear(currentDate.getFullYear());
+                  setFilterMonth(currentDate.getMonth() + 1);
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                title="Clear filters"
+              >
+                <X className="h-4 w-4" />
+                Clear
+              </button>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -861,6 +937,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
                     trendValue={chart.trendValue}
                     dateRange={chart.dateRange}
                     documents={documents}
+                    isYTD={radialChartsData.isYTD}
                   />
                 ))}
               </div>
@@ -879,6 +956,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = () => {
                       trendValue={chart.trendValue}
                       dateRange={chart.dateRange}
                       documents={documents}
+                      isYTD={radialChartsData.isYTD}
                     />
                   ))}
                 </div>
