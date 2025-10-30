@@ -238,20 +238,34 @@ export async function getFinancialDocument(documentId: string, userId: string) {
  */
 export async function deleteFinancialDocument(documentId: string, userId: string) {
   try {
-    const { error } = await supabase
-      .from('financial_documents')
-      .delete()
-      .eq('id', documentId)
-      .eq('user_id', userId);
+    console.log('🗑️ API: Starting document deletion:', { documentId, userId });
+    
+    const API_BASE_URL = 'http://localhost:8000';
+    const response = await fetch(`${API_BASE_URL}/api/financial-documents/${documentId}?userId=${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
 
-    if (error) {
-      throw error;
+    console.log('🗑️ API: Delete response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('🗑️ API: Delete request failed:', response.status, errorText);
+      throw new Error(`Failed to delete document: ${response.status} ${errorText}`);
     }
 
+    const result = await response.json();
+    console.log('🗑️ API: Document deleted successfully:', result);
+    
     return {
-      success: true
+      success: true,
+      deletedCount: result.deletedCount || 1,
+      message: result.message || 'Document deleted successfully'
     };
   } catch (error) {
+    console.error('🗑️ API: Deletion failed:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to delete document'

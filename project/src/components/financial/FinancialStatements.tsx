@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, RotateCcw, Calendar, ChevronLeft, ChevronRight, Settings, Edit3 } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
 import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
+import { deleteFinancialDocument } from '../../api/financialDocuments';
 import { WhereDidTheMoneyGo } from './WhereDidTheMoneyGo';
 import { ManualPLFormSimplified } from './ManualPLFormSimplified';
 import { ManualBalanceSheetForm } from './ManualBalanceSheetForm';
@@ -483,32 +484,60 @@ export const FinancialStatements: React.FC = () => {
     
     const { document, impactAnalysis } = showDeleteConfirmation;
     
+    console.log('🗑️ Starting document deletion:', {
+      documentId: document.id,
+      userId: dbUserId,
+      documentType: document.document_type,
+      documentStatus: document.status
+    });
+    
     setShowDeleteConfirmation(prev => prev ? { ...prev, step: 'processing' } : null);
     setDeletingDocumentId(document.id || '');
     
     try {
-      if (impactAnalysis?.isApproved) {
-        // Enhanced deletion for approved documents
-        // Document deletion temporarily disabled
-        console.log('Document deletion disabled');
-      } else {
-        // Simple deletion for pending documents
-        console.log('Document deletion disabled');
+      // Call the API to delete the document
+      console.log('📞 Calling deleteFinancialDocument API...');
+      const result = await deleteFinancialDocument(document.id || '', dbUserId);
+      
+      console.log('📞 API response:', result);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete document');
       }
       
       // Remove from local state
-      setDocuments(prev => prev.filter(doc => doc.id !== document.id));
+      const updatedDocuments = documents.filter(doc => doc.id !== document.id);
+      setDocuments(updatedDocuments);
+      
+      console.log('📋 Documents before deletion:', documents.length);
+      console.log('📋 Documents after deletion:', updatedDocuments.length);
       
       // Close any open modals
       if (selectedDocument?.id === document.id) {
         setSelectedDocument(null);
       }
       
+      // Dispatch custom event to notify other components (including WhereDidTheMoneyGo)
+      console.log('📡 Dispatching documentDeleted event...');
+      window.dispatchEvent(new CustomEvent('documentDeleted', {
+        detail: {
+          documentId: document.id,
+          remainingDocuments: updatedDocuments
+        }
+      }));
+      
       setShowDeleteConfirmation(null);
-      console.log('Document deleted successfully');
+      console.log('✅ Document deletion completed successfully');
+      
+      // Verify deletion was successful by checking documents list
+      setTimeout(() => {
+        console.log('🔍 Final verification - remaining documents:', updatedDocuments.length);
+        console.log('🔍 Document IDs remaining:', updatedDocuments.map(d => d.id));
+      }, 200);
+      
     } catch (error) {
-      console.error('Error deleting document:', error);
-      alert('An error occurred while deleting the document.');
+      console.error('❌ Error deleting document:', error);
+      alert('An error occurred while deleting the document: ' + (error instanceof Error ? error.message : 'Unknown error'));
       setShowDeleteConfirmation(prev => prev ? { ...prev, step: 'initial' } : null);
     } finally {
       setDeletingDocumentId(null);

@@ -449,11 +449,11 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         'raw_json.operating_expenses',
         'raw_json.opex.value',
         'raw_json.opex',
-        'raw_json.total_expenses.value',
-        'raw_json.total_expenses',
+        'raw_json.operatingExpenses.value',
+        'raw_json.operatingExpenses',
         'summary_metrics.operating_expenses',
         'summary_metrics.opex',
-        'summary_metrics.total_expenses'
+        'summary_metrics.operatingExpenses'
       ]);
       
       // Extract net profit/income
@@ -476,19 +476,42 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       
       console.log('📊 Extracted values:', { revenue, cogs, opex, netProfit, grossProfit });
       
+      // If we have total expenses but no breakdown, calculate opex as difference
+      const totalExpensesFromDoc = extractValue([
+        'raw_json.total_expenses.value',
+        'raw_json.total_expenses',
+        'raw_json.totalExpenses.value',
+        'raw_json.totalExpenses',
+        'summary_metrics.total_expenses',
+        'summary_metrics.totalExpenses'
+      ]);
+      
+      // If we have total expenses but opex is 0, calculate it
+      const finalOpex = (opex === 0 && totalExpensesFromDoc > 0 && cogs > 0) 
+        ? totalExpensesFromDoc - cogs 
+        : opex;
+      
+      console.log('📊 Final opex calculation:', { 
+        originalOpex: opex, 
+        totalExpensesFromDoc, 
+        cogs, 
+        finalOpex,
+        usedFallback: opex === 0 && totalExpensesFromDoc > 0 && cogs > 0
+      });
+      
       // If we don't have expense breakdown but have revenue and net profit, calculate total expenses
-      let totalExpenses = cogs + opex;
+      let totalExpenses = cogs + finalOpex;
       if (totalExpenses === 0 && revenue > 0 && netProfit >= 0) {
         totalExpenses = revenue - netProfit;
         console.log('📊 Calculated total expenses from revenue - net profit:', totalExpenses);
       }
       
       if (revenue > 0 || totalExpenses > 0) {
-        console.log('📊 Using financial data:', { revenue, cogs, opex, netProfit, totalExpenses });
+        console.log('📊 Using financial data:', { revenue, cogs, finalOpex, netProfit, totalExpenses });
         setKpis({
           revenue_total: revenue,
           cogs_total: cogs,
-          opex_total: opex,
+          opex_total: finalOpex,
           total_expenses: totalExpenses,
           net_profit: netProfit,
           is_ytd: false
@@ -565,6 +588,82 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       })
       .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
   }, [documents, filterYear, filterMonth, filterStatus]);
+
+  // Function to refresh documents from API
+  const refreshDocuments = async () => {
+    if (!dbUserId) return;
+    
+    try {
+      setDocsLoading(true);
+      console.log('🔄 Refreshing documents from API after deletion...');
+      const response = await fetch(`http://localhost:8000/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('📄 Refreshed API Response:', result);
+      
+      const documentsData = result.data || [];
+      
+      // Transform documents to flatten analysis_result data
+      const transformedDocuments = documentsData.map((doc: any) => {
+        if (doc.analysis_result) {
+          return {
+            ...doc,
+            start_date: doc.analysis_result.start_date || doc.start_date,
+            end_date: doc.analysis_result.end_date || doc.end_date,
+            summary_metrics: doc.analysis_result.summary_metrics || doc.summary_metrics,
+            raw_json: doc.analysis_result.raw_json || doc.raw_json
+          };
+        }
+        return doc;
+      });
+      
+      setDocuments(transformedDocuments);
+      setDocsError(null);
+      console.log('✅ Documents refreshed successfully:', transformedDocuments.length);
+      
+    } catch (error) {
+      console.error('❌ Error refreshing documents:', error);
+      setDocsError(error as Error);
+    } finally {
+      setDocsLoading(false);
+    }
+  };
+
+  // Listen for document deletion events
+  useEffect(() => {
+    const handleDocumentDeleted = async (event: CustomEvent) => {
+      console.log('🗑️ Document deletion detected in WhereDidTheMoneyGo:', event.detail);
+      
+      // Clear current KPIs immediately since the document list has changed
+      setKpis(null);
+      setKpisError(false);
+      
+      // Force a complete refresh by fetching fresh documents from the database
+      console.log('🔄 Forcing documents refresh after deletion');
+      
+      // Small delay to ensure the deletion is processed in the database
+      setTimeout(async () => {
+        await refreshDocuments();
+        console.log('🔄 Documents and KPIs refreshed after deletion');
+      }, 300);
+    };
+
+    // Add event listener
+    window.addEventListener('documentDeleted', handleDocumentDeleted as EventListener);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('documentDeleted', handleDocumentDeleted as EventListener);
+    };
+  }, [dbUserId]); // Add dbUserId dependency for refreshDocuments
 
   // Auto-select the most recent P&L document when documents load or filters change
   useEffect(() => {
