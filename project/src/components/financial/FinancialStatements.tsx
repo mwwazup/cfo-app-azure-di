@@ -8,6 +8,7 @@ import { ManualPLFormSimplified } from './ManualPLFormSimplified';
 import { ManualBalanceSheetForm } from './ManualBalanceSheetForm';
 import { ManualCashFlowForm } from './ManualCashFlowForm';
 import { EditDocumentModal } from './EditDocumentModal';
+import { CSVUploadModal } from './CSVUploadModal';
 
 interface ProcessingResult {
   document: Omit<FinancialDocument, 'id' | 'user_id'> & { user_id: string };
@@ -61,6 +62,7 @@ export const FinancialStatements: React.FC = () => {
   const [showManualPLForm, setShowManualPLForm] = useState(false);
   const [showManualBalanceSheetForm, setShowManualBalanceSheetForm] = useState(false);
   const [showManualCashFlowForm, setShowManualCashFlowForm] = useState(false);
+  const [showCSVUploadModal, setShowCSVUploadModal] = useState(false);
 
   // Load documents when component mounts or dbUserId changes
   useEffect(() => {
@@ -924,12 +926,38 @@ export const FinancialStatements: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* CSV Upload Button */}
+            <div className="border-solid p-6 text-center bg-white transition-all" style={{ border: '2px solid #d0b46a', borderRadius: '10px' }}>
+              <div className="space-y-4">
+                <div className="mx-auto w-16 h-16 bg-transparent flex items-center justify-center" style={{ border: '2px solid #d0b46a', borderRadius: '4px' }}>
+                  <FileSpreadsheet className="h-8 w-8" style={{ color: '#d0b46a' }} />
+                </div>
+                <div>
+                  <h4 className="text-lg font-semibold text-black mb-2">CSV Upload</h4>
+                  <p className="text-sm text-black mb-4">
+                    Upload financial data from CSV files for quick import and analysis
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setShowCSVUploadModal(true)}
+                    className="inline-flex items-center px-4 py-2 rounded-lg cursor-pointer transition-colors w-full justify-center"
+                    style={{ backgroundColor: '#d0b46a', color: 'black' }}
+                    disabled={isUploading}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload CSV
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
         
         <div className="mt-4 text-center">
           <p className="text-sm text-muted-foreground">
-            Supported formats: PDF, JPG, PNG • Maximum file size: 10MB
+            Supported formats: PDF, JPG, PNG, CSV • Maximum file size: 10MB
           </p>
         </div>
       </div>
@@ -1656,6 +1684,13 @@ export const FinancialStatements: React.FC = () => {
           setEditingDocument(null);
         }}
         onSave={handleSaveDocumentEdit}
+      />
+
+      {/* CSV Upload Modal */}
+      <CSVUploadModal
+        isOpen={showCSVUploadModal}
+        onClose={() => setShowCSVUploadModal(false)}
+        onUploadSuccess={loadDocuments}
       />
     </div>
   );
