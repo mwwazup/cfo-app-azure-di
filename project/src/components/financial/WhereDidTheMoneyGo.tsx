@@ -7,19 +7,18 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { TrendingDown, TrendingUp, Loader2, Calendar, X } from 'lucide-react';
+import { TrendingDown, TrendingUp, Loader2, Calendar, Filter, Target, RotateCcw, X } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
-import { useAuth } from '@clerk/clerk-react';
 import { formatCurrency } from '../../utils/formatters';
 
 interface WhereDidTheMoneyGoProps {
-  // Optional props for shared filter state
-  selectedPeriod?: string;
-  setSelectedPeriod?: (value: string) => void;
+  // Simple year/month/status filter state
   filterYear?: number;
   setFilterYear?: (value: number) => void;
-  filterMonth?: number | 'all' | 'ytd';
-  setFilterMonth?: (value: number | 'all' | 'ytd') => void;
+  filterMonth?: number;
+  setFilterMonth?: (value: number) => void;
+  filterStatus?: string;
+  setFilterStatus?: (value: string) => void;
 }
 
 
@@ -46,9 +45,20 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
   ];
 
   // Calculate endAngle based on percentage (0% = 0°, 100% = 360°)
-  // Cap the percentage at 100% to prevent over-rotation
-  const cappedPercentage = Math.min(Math.abs(percentage), 100);
+  // Handle negative values and cap at 100% to prevent over-rotation
+  const absolutePercentage = Math.abs(percentage);
+  const cappedPercentage = Math.min(absolutePercentage, 100);
   const dynamicEndAngle = (cappedPercentage / 100) * 360;
+  
+  // Debug logging for chart rendering
+  console.log(`📈 Chart ${title}:`, { 
+    value, 
+    percentage, 
+    absolutePercentage, 
+    cappedPercentage, 
+    dynamicEndAngle,
+    color 
+  });
 
   // Determine trend icon and color
   const TrendIcon = trendDirection === 'up' ? TrendingUp : TrendingDown;
@@ -182,76 +192,43 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
   );
 }
 
+const getDocumentTypeLabel = (type: string): string => {
+  switch (type) {
+    case 'pnl':
+      return 'Profit & Loss';
+    case 'balance_sheet':
+      return 'Balance Sheet';
+    case 'cash_flow':
+      return 'Cash Flow';
+    default:
+      return type;
+  }
+};
+
 export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => {
   const { dbUserId } = useAuthContext();
-  const { getToken } = useAuth();
   const currentDate = new Date();
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
   
-  // Load saved filter state from localStorage, or default to current month
-  const getSavedFilterState = () => {
-    try {
-      const saved = localStorage.getItem('whereDidTheMoneyGo_filter');
-      console.log('💾 Loading saved filter state:', saved);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        console.log('💾 Parsed filter state:', parsed);
-        // Validate the saved data is for the current year, otherwise reset to current month
-        if (parsed.filterYear === currentDate.getFullYear()) {
-          console.log('✅ Using saved filter state');
-          return parsed;
-        } else {
-          console.log('⚠️ Saved state is for different year, resetting to current month');
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to load saved filter state:', e);
-    }
-    const defaultState = {
-      selectedPeriod: 'current_month',
-      filterYear: currentDate.getFullYear(),
-      filterMonth: currentDate.getMonth() + 1
-    };
-    console.log('💾 Using default filter state:', defaultState);
-    return defaultState;
-  };
+  // Use props if provided, otherwise use local state
+  // Default to current year and month
+  const [localFilterYear, setLocalFilterYear] = useState<number>(currentDate.getFullYear());
+  const [localFilterMonth, setLocalFilterMonth] = useState<number>(currentDate.getMonth() + 1);
+  const [localFilterStatus, setLocalFilterStatus] = useState<string>('all');
   
-  const savedState = getSavedFilterState();
-  console.log('🎯 Initial filter state:', savedState);
-  
-  // Use props if provided, otherwise use local state (with localStorage persistence)
-  const [localSelectedPeriod, setLocalSelectedPeriod] = useState<string>(savedState.selectedPeriod);
-  const [localFilterYear, setLocalFilterYear] = useState<number>(savedState.filterYear);
-  const [localFilterMonth, setLocalFilterMonth] = useState<number | 'all' | 'ytd'>(savedState.filterMonth);
-  
-  const selectedPeriod = props.selectedPeriod ?? localSelectedPeriod;
-  const setSelectedPeriod = props.setSelectedPeriod ?? setLocalSelectedPeriod;
   const filterYear = props.filterYear ?? localFilterYear;
   const setFilterYear = props.setFilterYear ?? setLocalFilterYear;
   const filterMonth = props.filterMonth ?? localFilterMonth;
   const setFilterMonth = props.setFilterMonth ?? setLocalFilterMonth;
+  const filterStatus = props.filterStatus ?? localFilterStatus;
+  const setFilterStatus = props.setFilterStatus ?? setLocalFilterStatus;
+  
   const [documents, setDocuments] = useState<any[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
   const [docsError, setDocsError] = useState<Error | null>(null);
   const [kpis, setKpis] = useState<any>(null);
   const [kpisLoading] = useState(false);
   const [kpisError, setKpisError] = useState(false);
-
-  // Save filter state to localStorage whenever it changes (only if using local state)
-  useEffect(() => {
-    if (!props.selectedPeriod) { // Only save if we're managing our own state
-      try {
-        localStorage.setItem('whereDidTheMoneyGo_filter', JSON.stringify({
-          selectedPeriod,
-          filterYear,
-          filterMonth
-        }));
-        console.log('💾 Saved filter state:', { selectedPeriod, filterYear, filterMonth });
-      } catch (e) {
-        console.warn('Failed to save filter state:', e);
-      }
-    }
-  }, [selectedPeriod, filterYear, filterMonth, props.selectedPeriod]);
 
   // Fetch documents using the same endpoint as manual P&L form
   useEffect(() => {
@@ -261,17 +238,9 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       try {
         setDocsLoading(true);
         console.log('🔄 Loading documents from API for WhereDidTheMoneyGo...');
-        
-        // Get auth token from Clerk
-        const token = await getToken();
-        if (!token) {
-          throw new Error('Not authenticated');
-        }
-        
-        const response = await fetch(`http://localhost:5180/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
+        const response = await fetch(`http://localhost:8000/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Content-Type': 'application/json'
           }
         });
         
@@ -319,98 +288,19 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     loadDocuments();
   }, [dbUserId]);
 
-  // Helper function to format period labels
-  const formatPeriodLabel = (startDate: string, endDate: string): string => {
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T00:00:00');
-    
-    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
-      return start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    }
-    
-    return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
-  };
-
-  // Get available document periods for selection - MUST be before KPI useEffect
-  const availableDocuments = useMemo(() => {
-    if (!documents || documents.length === 0) return [];
-    
-    // Filter for P&L documents only
-    const pnlDocuments = documents.filter(doc => doc.document_type === 'pnl');
-    
-    return pnlDocuments
-      .filter(doc => {
-        // Check for dates in main doc or analysis_result
-        const hasStartDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date);
-        const hasEndDate = doc.end_date || (doc.analysis_result && doc.analysis_result.end_date);
-        if (!hasStartDate || !hasEndDate) return false;
-        
-        // Apply year and month filters
-        const startDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date);
-        // Add T00:00:00 to avoid timezone issues
-        const docDate = new Date(startDate + 'T00:00:00');
-        const docYear = docDate.getFullYear();
-        const docMonth = docDate.getMonth() + 1;
-        
-        // Filter by year
-        if (docYear !== filterYear) return false;
-        
-        // YTD: include all months from Jan to current month
-        if (filterMonth === 'ytd') {
-          const currentMonth = new Date().getMonth() + 1;
-          return docMonth <= currentMonth;
-        }
-        
-        // Filter by month if not 'all'
-        if (filterMonth !== 'all' && docMonth !== filterMonth) return false;
-        
-        return true;
-      })
-      .map(doc => {
-        // Get dates from main doc or analysis_result
-        const startDate = doc.start_date || (doc.analysis_result && doc.analysis_result.start_date) || '';
-        const endDate = doc.end_date || (doc.analysis_result && doc.analysis_result.end_date) || '';
-        
-        return {
-          id: doc.id,
-          label: `P&L - ${formatPeriodLabel(startDate, endDate)}`,
-          start_date: startDate,
-          end_date: endDate,
-          document: doc
-        };
-      })
-      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
-  }, [documents, filterYear, filterMonth]);
-
   // Fetch KPIs for selected document or aggregate for YTD
   useEffect(() => {
-    console.log('🔄 KPI useEffect triggered:', { 
-      documentsLength: documents.length, 
-      filterMonth, 
-      availableDocsLength: availableDocuments.length,
-      selectedDocumentId 
-    });
-    
     if (!documents.length) {
-      console.log('⚠️ No documents, clearing KPIs');
       setKpis(null);
       return;
     }
 
     // For YTD, aggregate all documents in the filtered range
-    if (filterMonth === 'ytd') {
-      console.log('📊 YTD mode: aggregating all documents', {
-        availableDocsCount: availableDocuments.length,
-        availableDocs: availableDocuments.map(d => ({
-          id: d.document.id,
-          period: `${d.start_date} to ${d.end_date}`
-        }))
-      });
-      
+    if (filterMonth === 0) { // Month 0 represents YTD
+      console.log('📊 YTD mode: aggregating all documents');
       const ytdDocuments = availableDocuments.map(d => d.document);
       
       if (ytdDocuments.length === 0) {
-        console.log('❌ No YTD documents found in availableDocuments');
         setKpis(null);
         setKpisError(true);
         return;
@@ -489,11 +379,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         totalExpenses, 
         netProfit,
         totalOwnerDistributions,
-        documentCount: ytdDocuments.length,
-        cashLeft: netProfit - totalOwnerDistributions
+        documentCount: ytdDocuments.length 
       });
       
-      const ytdKpis = {
+      setKpis({
         revenue_total: totalRevenue,
         cogs_total: totalCogs,
         opex_total: totalOpex,
@@ -501,10 +390,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         net_profit: netProfit,
         owner_distributions: totalOwnerDistributions,
         is_ytd: true
-      };
-      
-      console.log('✅ Setting YTD KPIs:', ytdKpis);
-      setKpis(ytdKpis);
+      });
       setKpisError(false);
       return;
     }
@@ -518,48 +404,77 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     const selectedDoc = documents.find(doc => doc.id === selectedDocumentId);
     if (selectedDoc) {
       console.log('📊 Selected document for KPIs:', selectedDoc);
-      
-      // Extract revenue using same logic as FinancialStatements component
-      const revenue = selectedDoc.summary_metrics?.totalRevenue 
-        ? selectedDoc.summary_metrics.totalRevenue
-        : selectedDoc.summary_metrics?.revenue 
-          ? selectedDoc.summary_metrics.revenue
-          : selectedDoc.raw_json?.revenue?.value
-            ? selectedDoc.raw_json.revenue.value
-            : 0;
-      
-      // Extract all available financial data from summary_metrics and raw_json
       console.log('📊 Available summary_metrics:', selectedDoc.summary_metrics);
       console.log('📊 Available raw_json:', selectedDoc.raw_json);
       
-      // Try multiple field variations for expenses
-      const cogs = selectedDoc.summary_metrics?.cost_of_goods_sold 
-        || selectedDoc.summary_metrics?.cogs 
-        || selectedDoc.raw_json?.cost_of_goods_sold?.value
-        || selectedDoc.raw_json?.cogs?.value
-        || 0;
-        
-      const opex = selectedDoc.summary_metrics?.operating_expenses 
-        || selectedDoc.summary_metrics?.opex
-        || selectedDoc.summary_metrics?.expenses
-        || selectedDoc.raw_json?.operating_expenses?.value
-        || selectedDoc.raw_json?.expenses?.value
-        || 0;
-        
-      // Also try to get net profit to calculate expenses if needed
-      const netProfit = selectedDoc.summary_metrics?.netProfit 
-        || selectedDoc.summary_metrics?.net_profit
-        || selectedDoc.summary_metrics?.net_income
-        || selectedDoc.raw_json?.netProfit?.value
-        || selectedDoc.raw_json?.net_profit?.value
-        || 0;
+      // Enhanced data extraction - check raw_json first as it seems to contain the actual data
+      const extractValue = (paths: string[]) => {
+        for (const path of paths) {
+          const keys = path.split('.');
+          let value = selectedDoc;
+          for (const key of keys) {
+            value = value?.[key];
+            if (value === undefined || value === null) break;
+          }
+          if (typeof value === 'number') return value;
+          if (typeof value === 'object' && value?.value !== undefined) return value.value;
+        }
+        return 0;
+      };
       
-      // Extract owner distributions
-      const ownerDistRaw = selectedDoc.raw_json?.ownerDistributions;
-      const ownerDistributions = (typeof ownerDistRaw === 'object' && ownerDistRaw?.value)
-        ? ownerDistRaw.value
-        : (typeof ownerDistRaw === 'number' ? ownerDistRaw : 0) ||
-          selectedDoc.summary_metrics?.ownerDistributions || 0;
+      // Extract revenue with multiple possible paths
+      const revenue = extractValue([
+        'raw_json.total_revenue.value',
+        'raw_json.total_revenue',
+        'raw_json.revenue.value',
+        'raw_json.revenue',
+        'summary_metrics.totalRevenue',
+        'summary_metrics.revenue',
+        'summary_metrics.total_revenue'
+      ]);
+      
+      // Extract cost of goods sold
+      const cogs = extractValue([
+        'raw_json.cost_of_goods_sold.value',
+        'raw_json.cost_of_goods_sold',
+        'raw_json.cogs.value',
+        'raw_json.cogs',
+        'summary_metrics.cost_of_goods_sold',
+        'summary_metrics.cogs'
+      ]);
+      
+      // Extract operating expenses
+      const opex = extractValue([
+        'raw_json.operating_expenses.value',
+        'raw_json.operating_expenses',
+        'raw_json.opex.value',
+        'raw_json.opex',
+        'raw_json.total_expenses.value',
+        'raw_json.total_expenses',
+        'summary_metrics.operating_expenses',
+        'summary_metrics.opex',
+        'summary_metrics.total_expenses'
+      ]);
+      
+      // Extract net profit/income
+      const netProfit = extractValue([
+        'raw_json.net_income.value',
+        'raw_json.net_income',
+        'raw_json.net_profit.value',
+        'raw_json.net_profit',
+        'summary_metrics.net_income',
+        'summary_metrics.net_profit',
+        'summary_metrics.netProfit'
+      ]);
+      
+      // Extract gross profit
+      const grossProfit = extractValue([
+        'raw_json.gross_profit.value',
+        'raw_json.gross_profit',
+        'summary_metrics.gross_profit'
+      ]);
+      
+      console.log('📊 Extracted values:', { revenue, cogs, opex, netProfit, grossProfit });
       
       // If we don't have expense breakdown but have revenue and net profit, calculate total expenses
       let totalExpenses = cogs + opex;
@@ -569,14 +484,13 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       }
       
       if (revenue > 0 || totalExpenses > 0) {
-        console.log('📊 Using financial data:', { revenue, cogs, opex, netProfit, totalExpenses, ownerDistributions });
+        console.log('📊 Using financial data:', { revenue, cogs, opex, netProfit, totalExpenses });
         setKpis({
           revenue_total: revenue,
           cogs_total: cogs,
           opex_total: opex,
           total_expenses: totalExpenses,
           net_profit: netProfit,
-          owner_distributions: ownerDistributions,
           is_ytd: false
         });
         setKpisError(false);
@@ -589,40 +503,85 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       setKpis(null);
       setKpisError(true);
     }
-  }, [selectedDocumentId, documents, filterMonth, availableDocuments]);
+  }, [selectedDocumentId, documents, filterMonth, filterYear]);
+
+  // Helper function to format period labels
+  const formatPeriodLabel = (startDate: string, endDate: string): string => {
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T00:00:00');
+    
+    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+      return start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    }
+    
+    if (start.getFullYear() === end.getFullYear()) {
+      return `${start.toLocaleDateString('en-US', { month: 'short' })} - ${end.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
+    }
+    
+    return `${start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
+  };
+
+  // Get available documents for selection - filter by year, month, and status
+  const availableDocuments = useMemo(() => {
+    if (!documents || documents.length === 0) return [];
+    
+    return documents
+      .filter(doc => {
+        // Status filter
+        if (filterStatus !== 'all') {
+          const docStatus = doc.status || 'unknown';
+          if (docStatus !== filterStatus) {
+            return false;
+          }
+        }
+
+        // Year/month filter requires valid dates
+        const startDate = doc.start_date || doc.analysis_result?.start_date;
+        if (!startDate) return false;
+
+        const docDate = new Date(startDate + 'T00:00:00');
+        const docYear = docDate.getFullYear();
+        const docMonth = docDate.getMonth() + 1;
+
+        // Filter by year
+        if (docYear !== filterYear) return false;
+        
+        // Filter by month (0 means YTD - include all months)
+        if (filterMonth !== 0 && docMonth !== filterMonth) return false;
+
+        return true;
+      })
+      .map(doc => {
+        const startDate = doc.start_date || doc.analysis_result?.start_date || '';
+        const endDate = doc.end_date || doc.analysis_result?.end_date || '';
+        
+        return {
+          id: doc.id,
+          label: `${getDocumentTypeLabel(doc.document_type)} - ${formatPeriodLabel(startDate, endDate)}`,
+          start_date: startDate,
+          end_date: endDate,
+          document: doc
+        };
+      })
+      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
+  }, [documents, filterYear, filterMonth, filterStatus]);
 
   // Auto-select the most recent P&L document when documents load or filters change
   useEffect(() => {
-    console.log('🔄 Auto-select useEffect:', { 
-      filterMonth, 
-      availableDocsLength: availableDocuments.length,
-      selectedDocumentId,
-      documentsLength: documents.length
-    });
-    
-    // For YTD, we don't need a selected document since we aggregate all
-    if (filterMonth === 'ytd') {
-      console.log('🎯 YTD mode: no document selection needed (aggregating all)');
-      return;
-    }
-    
     if (documents && documents.length > 0 && availableDocuments.length > 0) {
-      // Check if current selection is still valid in the filtered list
       const currentDocInList = selectedDocumentId 
         ? availableDocuments.find(doc => doc.document.id === selectedDocumentId)
         : null;
       
-      // Auto-select if no selection OR if current selection is not in filtered list
-      if (!selectedDocumentId || !currentDocInList) {
+      if (!currentDocInList) {
         console.log('🎯 Auto-selecting latest document from filtered list:', availableDocuments[0]);
         setSelectedDocumentId(availableDocuments[0].document.id);
       }
     } else if (availableDocuments.length === 0 && selectedDocumentId) {
-      // No documents match the filter, clear selection
       console.log('⚠️ No documents match filter, clearing selection');
       setSelectedDocumentId('');
     }
-  }, [documents, filterYear, filterMonth, availableDocuments]);
+  }, [availableDocuments, documents, selectedDocumentId]);
 
   // Helper function to find previous period document
   const findPreviousPeriodDocument = (currentDoc: any) => {
@@ -666,20 +625,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
 
   // Process KPIs into radial chart data using memoization with guards
   const radialChartsData = useMemo(() => {
-    // Guard: only process if we have KPIs
-    // For YTD mode, we don't need a selectedDocumentId since we aggregate all
-    if (!kpis) {
-      console.log('⚠️ No KPIs available for chart rendering');
+    // Guard: only process if we have KPIs and a selected document
+    if (!kpis || !selectedDocumentId) {
       return null;
     }
-    
-    // For single month mode, we need a selected document
-    if (!kpis.is_ytd && !selectedDocumentId) {
-      console.log('⚠️ Single month mode but no document selected');
-      return null;
-    }
-    
-    console.log('📈 Rendering charts with KPIs:', kpis);
 
     // Use precomputed KPIs from server
     const totalRevenue = kpis.revenue_total || 0;
@@ -696,11 +645,11 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     // Define colors based on the dashboard palette
     const colors = {
       revenue: '#d0b568', // Gold for revenue
-      cogs: '#40afefff', // Blue 700 for COGS
-      expenses: '#40afefff', // Blue 700 for expenses
-      totalExpenses: '#40afefff', // Blue 700 for total expenses
-      ownerDistributions: '#40afefff', // Blue 700 for owner distributions
-      cashLeft: cashLeft >= 0 ? '#40afefff' : '#EF4444' // Blue-700 if positive, red if negative
+      cogs: '#124a6b', // Blue 700 for COGS
+      expenses: '#124a6b', // Blue 700 for expenses
+      totalExpenses: '#124a6b', // Blue 700 for total expenses
+      ownerDistributions: '#124a6b', // Blue 700 for owner distributions
+      cashLeft: cashLeft >= 0 ? '#124a6b' : '#EF4444' // Blue-700 if positive, red if negative
     };
     
     // Date range for display
@@ -847,14 +796,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       isYTD 
     });
 
-    const result = { charts, hasData: totalRevenue > 0 || totalExpenses > 0, isYTD };
-    console.log('📊 radialChartsData computed:', { 
-      hasData: result.hasData, 
-      isYTD: result.isYTD, 
-      chartsCount: charts.length,
-      chartTitles: charts.map(c => c.title)
-    });
-    return result;
+    // Enhanced data validation - ensure we have meaningful financial data
+    const hasValidData = totalRevenue > 0 || totalExpenses > 0 || netProfit !== 0;
+    
+    return { charts, hasData: hasValidData, isYTD };
   }, [kpis, selectedDocumentId, documents]);
 
 
@@ -931,79 +876,96 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
           </div>
         </div>
         
-        {/* Period Filter and Active Viewing Display */}
+        {/* Year/Month/Status Filter Controls */}
         <div className="mt-4 space-y-4">
+          {/* Active Viewing Display */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>Viewing:</span>
+            <span className="font-medium text-foreground">
+              {filterMonth === 0 ? 'Year to Date' : new Date(filterYear, filterMonth - 1).toLocaleDateString('en-US', { month: 'long' })}
+            </span>
+            <span className="font-medium text-foreground">{filterYear}</span>
+            {filterStatus !== 'all' && (
+              <>
+                <span>•</span>
+                <span className="font-medium text-foreground capitalize">{filterStatus.replace('_', ' ')}</span>
+              </>
+            )}
+          </div>
+          
           {/* Filter Controls */}
           <div className="flex flex-wrap items-center gap-4">
-            {/* Period Filter */}
+            {/* Year Filter */}
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-accent" />
               <Select 
-                value={selectedPeriod} 
-                onValueChange={(value) => {
-                  setSelectedPeriod(value);
-                  const now = new Date();
-                  const currentMonth = now.getMonth() + 1;
-                  const currentYear = now.getFullYear();
-                  
-                  if (value === 'current_month') {
-                    setFilterYear(currentYear);
-                    setFilterMonth(currentMonth);
-                  } else if (value === 'ytd') {
-                    setFilterYear(currentYear);
-                    setFilterMonth('ytd');
-                  } else if (value.match(/^\d{4}-\d{2}$/)) {
-                    // Specific month format: YYYY-MM
-                    const [year, month] = value.split('-');
-                    setFilterYear(Number(year));
-                    setFilterMonth(Number(month));
-                  }
-                }}
+                value={filterYear.toString()} 
+                onValueChange={(value) => setFilterYear(Number(value))}
               >
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Period" />
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Year" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="current_month">
-                    {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                  </SelectItem>
-                  <SelectItem value="ytd">Year to Date</SelectItem>
-                  {/* Recent months - generate unique months going back */}
-                  {(() => {
-                    const months = [];
-                    const seen = new Set();
-                    const now = new Date();
-                    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-                    seen.add(currentMonthKey); // Skip current month since it's already shown
-                    
-                    for (let i = 1; i <= 11; i++) {
-                      const d = new Date();
-                      d.setMonth(d.getMonth() - i);
-                      const monthValue = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                      
-                      // Only add if we haven't seen this month before
-                      if (!seen.has(monthValue)) {
-                        seen.add(monthValue);
-                        months.push(
-                          <SelectItem key={monthValue} value={monthValue}>
-                            {d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                          </SelectItem>
-                        );
-                      }
-                    }
-                    return months;
-                  })()}
+                  {Array.from({ length: 10 }, (_, i) => {
+                    const year = currentDate.getFullYear() - (5 - i);
+                    return (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Month Filter */}
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-accent" />
+              <Select 
+                value={filterMonth.toString()} 
+                onValueChange={(value) => setFilterMonth(Number(value))}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Month" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">Year to Date</SelectItem>
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const month = i + 1;
+                    const monthName = new Date(2024, i, 1).toLocaleDateString('en-US', { month: 'long' });
+                    return (
+                      <SelectItem key={month} value={month.toString()}>
+                        {monthName}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Status Filter */}
+            <div className="flex items-center gap-2">
+              <Target className="h-4 w-4 text-accent" />
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="processing">Processing</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="needs_review">Needs Review</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             
             {/* Clear Filter Button */}
-            {(filterMonth !== currentDate.getMonth() + 1 || filterYear !== currentDate.getFullYear() || selectedPeriod !== 'current_month') && (
+            {(filterYear !== currentDate.getFullYear() || filterMonth !== currentDate.getMonth() + 1 || filterStatus !== 'all') && (
               <button
                 onClick={() => {
-                  setSelectedPeriod('current_month');
                   setFilterYear(currentDate.getFullYear());
                   setFilterMonth(currentDate.getMonth() + 1);
+                  setFilterStatus('all');
                 }}
                 className="flex items-center gap-1 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
                 title="Clear filters"

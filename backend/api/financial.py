@@ -358,7 +358,61 @@ async def upsert_kpi_record(
             return {"ok": True, "record": result.data[0]}
         else:
             return {"ok": True, "record": None}
-            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.get("/api/financial-documents")
+async def get_financial_documents(userId: str = Query(...)):
+    """Get financial documents for a user"""
+    try:
+        supabase = get_supabase_db()
+        result = supabase.table('financial_documents').select('*').eq('user_id', userId).order('uploaded_at', desc=True).execute()
+        return {"data": result.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.post("/api/financial-documents")
+async def create_financial_document(request: dict):
+    """Create a financial document"""
+    try:
+        supabase = get_supabase_db()
+        
+        user_id = request.get('userId')
+        if not user_id:
+            raise HTTPException(status_code=400, detail="userId is required")
+        
+        # Prepare document data
+        doc_data = {
+            'user_id': user_id,
+            **{k: v for k, v in request.items() if k != 'userId'}
+        }
+        
+        result = supabase.table('financial_documents').insert(doc_data).execute()
+        return {"data": result.data[0] if result.data else None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.put("/api/financial-documents/{document_id}")
+async def update_financial_document(document_id: str, request: dict):
+    """Update a financial document"""
+    try:
+        supabase = get_supabase_db()
+        
+        # Remove userId from update data
+        update_data = {k: v for k, v in request.items() if k != 'userId'}
+        
+        result = supabase.table('financial_documents').update(update_data).eq('id', document_id).execute()
+        return {"data": result.data[0] if result.data else None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@revenue_router.delete("/api/financial-documents/{document_id}")
+async def delete_financial_document(document_id: str):
+    """Delete a financial document"""
+    try:
+        supabase = get_supabase_db()
+        result = supabase.table('financial_documents').delete().eq('id', document_id).execute()
+        return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -71,9 +71,8 @@ export function SupabaseSessionBridge() {
           console.warn('Could not decode Clerk token for debugging:', decodeError);
         }
 
-        // Since your backend is already set up to accept Clerk user IDs directly,
-        // and you're using the test server on port 5180, we don't actually need
-        // to exchange tokens. The current setup should work as-is.
+        // Backend is set up to accept Clerk user IDs directly.
+        // No token exchange needed - current setup works as-is.
         
         console.log('✅ Authentication bridge active - using Clerk tokens directly with backend API');
         console.log('💡 Your backend API calls will use Clerk user IDs as expected');
@@ -145,8 +144,8 @@ export async function debugAuthState() {
     }
     
     // Test backend API compatibility
-    console.log('💡 Your setup uses Clerk user IDs directly with the backend API on port 5180');
-    console.log('💡 This bypasses Supabase RLS and should work with your current architecture');
+    console.log('💡 Your setup uses Clerk user IDs directly with the backend API');
+    console.log('💡 This bypasses Supabase RLS and works with your current architecture');
     
     // Try the auth_echo function if it exists (optional)
     try {

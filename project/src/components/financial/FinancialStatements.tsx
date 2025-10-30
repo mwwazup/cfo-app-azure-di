@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, RotateCcw, Calendar, ChevronLeft, ChevronRight, Settings, Edit3 } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
-import { useAuth } from '@clerk/clerk-react';
 import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
 import { WhereDidTheMoneyGo } from './WhereDidTheMoneyGo';
 import { ManualPLFormSimplified } from './ManualPLFormSimplified';
@@ -17,13 +16,13 @@ interface ProcessingResult {
 
 export const FinancialStatements: React.FC = () => {
   const { dbUserId } = useAuthContext();
-  const { getToken } = useAuth();
   const currentDate = new Date();
   
   // Filter state - shared with WhereDidTheMoneyGo component
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('current_month');
+  // Simple year/month/status approach
   const [filterYear, setFilterYear] = useState<number>(currentDate.getFullYear());
-  const [filterMonth, setFilterMonth] = useState<number | 'all' | 'ytd'>(currentDate.getMonth() + 1);
+  const [filterMonth, setFilterMonth] = useState<number>(currentDate.getMonth() + 1);
+  const [filterStatus, setFilterStatus] = useState<string>('all');
   
   // Simple document state - will be enhanced later
   const [documents, setDocuments] = useState<FinancialDocument[]>([]);
@@ -69,17 +68,9 @@ export const FinancialStatements: React.FC = () => {
       
       try {
         console.log('🔄 Loading documents from API...');
-        
-        // Get auth token from Clerk
-        const token = await getToken();
-        if (!token) {
-          throw new Error('Not authenticated');
-        }
-        
-        const response = await fetch(`http://localhost:5180/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
+        const response = await fetch(`http://localhost:8000/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Content-Type': 'application/json'
           }
         });
         
@@ -496,33 +487,14 @@ export const FinancialStatements: React.FC = () => {
     setDeletingDocumentId(document.id || '');
     
     try {
-      // Get auth token from Clerk
-      const token = await getToken();
-      if (!token) {
-        throw new Error('Not authenticated');
+      if (impactAnalysis?.isApproved) {
+        // Enhanced deletion for approved documents
+        // Document deletion temporarily disabled
+        console.log('Document deletion disabled');
+      } else {
+        // Simple deletion for pending documents
+        console.log('Document deletion disabled');
       }
-      
-      // Call the DELETE API endpoint
-      const response = await fetch(`http://localhost:5180/api/docs/${document.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Delete failed:', errorText);
-        try {
-          const error = JSON.parse(errorText);
-          throw new Error(error.detail || 'Failed to delete document');
-        } catch {
-          throw new Error(`Failed to delete document: ${response.status} ${response.statusText}`);
-        }
-      }
-      
-      console.log('✅ Document deleted from database:', document.id);
       
       // Remove from local state
       setDocuments(prev => prev.filter(doc => doc.id !== document.id));
@@ -568,7 +540,7 @@ export const FinancialStatements: React.FC = () => {
       console.log('🔍 Using dbUserId (Clerk ID):', dbUserId);
       console.log('🔍 Updated document data:', updatedDocument);
       
-      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5180';
+      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
       const response = await fetch(`${API_BASE_URL}/api/financial-documents/${updatedDocument.id}`, {
         method: 'PUT',
         headers: {
@@ -935,34 +907,34 @@ export const FinancialStatements: React.FC = () => {
 
       {/* Where Did The Money Go Section */}
       <WhereDidTheMoneyGo 
-        selectedPeriod={selectedPeriod}
-        setSelectedPeriod={setSelectedPeriod}
         filterYear={filterYear}
         setFilterYear={setFilterYear}
         filterMonth={filterMonth}
         setFilterMonth={setFilterMonth}
+        filterStatus={filterStatus}
+        setFilterStatus={setFilterStatus}
       />
 
       {/* Documents List */}
       <div className="bg-card rounded-lg border border-border">
         <div className="p-6 border-b border-border">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-foreground">Your Financial Documents</h2>
-              {/* Filter indicator */}
-              {(filterMonth !== currentDate.getMonth() + 1 || filterYear !== currentDate.getFullYear() || selectedPeriod !== 'current_month') && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-foreground">Your Financial Documents</h2>
+              </div>
+              {/* Active filters display */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">Viewing:</span>
                 <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
-                  {filterMonth === 'ytd' ? 'YTD' : selectedPeriod === 'current_month' ? 'Current Month' : 
-                    (() => {
-                      if (typeof filterMonth === 'number') {
-                        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                        return `${monthNames[filterMonth - 1]} ${filterYear}`;
-                      }
-                      return 'All';
-                    })()
-                  }
+                  {filterMonth === 0 ? `Year to Date ${filterYear}` : new Date(filterYear, filterMonth - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                 </div>
-              )}
+                {filterStatus !== 'all' && (
+                  <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent capitalize">
+                    {filterStatus.replace('_', ' ')}
+                  </div>
+                )}
+              </div>
             </div>
             <button
               onClick={() => setIsDocumentsCollapsed(!isDocumentsCollapsed)}
@@ -980,31 +952,31 @@ export const FinancialStatements: React.FC = () => {
         {!isDocumentsCollapsed && (() => {
           // Filter documents based on the same criteria as WhereDidTheMoneyGo
           const filteredDocuments = documents.filter(doc => {
-            // Only show P&L documents
-            if (doc.document_type !== 'pnl') return false;
-            
-            const startDate = doc.start_date || (doc as any).analysis_result?.start_date;
+            // Status filter
+            if (filterStatus !== 'all') {
+              const docStatus = doc.status || 'unknown';
+              if (docStatus !== filterStatus) {
+                return false;
+              }
+            }
+
+            // Year/month filter
+            const startDate = doc.start_date || doc.analysis_result?.start_date;
             if (!startDate) return false;
-            
+
             const docDate = new Date(startDate + 'T00:00:00');
             const docYear = docDate.getFullYear();
             const docMonth = docDate.getMonth() + 1;
-            
+
             // Filter by year
             if (docYear !== filterYear) return false;
             
-            // YTD: include all months from Jan to current month
-            if (filterMonth === 'ytd') {
-              const currentMonth = new Date().getMonth() + 1;
-              return docMonth <= currentMonth;
-            }
-            
-            // Filter by specific month
-            if (filterMonth !== 'all' && docMonth !== filterMonth) return false;
-            
+            // Filter by month (0 means YTD - include all months)
+            if (filterMonth !== 0 && docMonth !== filterMonth) return false;
+
             return true;
           });
-          
+
           return (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1025,9 +997,9 @@ export const FinancialStatements: React.FC = () => {
                       <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                       <p className="text-foreground font-medium">No documents for selected period</p>
                       <p className="text-sm text-muted-foreground">
-                        {filterMonth === 'ytd' ? 'No P&L documents found for year to date' : 
-                         filterMonth === 'all' ? 'No P&L documents found for this year' :
-                         `No P&L documents found for ${new Date(filterYear, typeof filterMonth === 'number' ? filterMonth - 1 : 0).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+                        {filterMonth === 0 
+                          ? `No documents found for year to date ${filterYear}`
+                          : `No documents found for ${new Date(filterYear, filterMonth - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
                         }
                       </p>
                     </td>

@@ -9,17 +9,15 @@ import openai
 from supabase import create_client, Client
 import httpx
 from datetime import datetime
-
-# Load environment variables FIRST
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
-
-# Set SKIP_DB BEFORE importing API modules (which import db.postgres)
-os.environ["SKIP_DB"] = "1"
-os.environ["SKIP_SERVICE_CHECKS"] = "1"
-
-# NOW import API modules after SKIP_DB is set
 from api import auth, chat, memory, business, financial, document_analysis, document_ingest
 from db import init_db, get_neo4j_driver, close_neo4j_driver
+
+# Load environment variables
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
+# Set SKIP_DB to bypass database connection issues during testing
+os.environ["SKIP_DB"] = "1"
+os.environ["SKIP_SERVICE_CHECKS"] = "1"
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -111,8 +109,3 @@ async def health_check():
         "neo4j": "skipped (not currently used)",
         "timestamp": datetime.utcnow().isoformat()
     }
-
-# Run the server
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=5180, reload=True)

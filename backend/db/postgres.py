@@ -27,17 +27,17 @@ else:
     db_password = None
 
 if not SKIP_DB:
-    # URL encode the @ symbol in the password
-    if db_password:
-        db_password = db_password.replace('@', '%40')
-        print("URL encoded @ symbol in password")
-
-    # Construct database URL with DIRECT connection (not pooler)
-    # Extract project ref from SUPABASE_URL if available, otherwise use hardcoded value
-    supabase_url = os.getenv('SUPABASE_URL', 'https://rpilyciarvacbmaaszvc.supabase.co')
-    project_ref = supabase_url.replace('https://', '').replace('.supabase.co', '')
-    DATABASE_URL = f"postgresql://postgres:{db_password}@db.{project_ref}.supabase.co:5432/postgres"
-    print(f"Database URL: {DATABASE_URL}")
+    # Get DATABASE_URL from environment variable
+    DATABASE_URL = os.getenv('DATABASE_URL')
+    
+    if not DATABASE_URL:
+        # Fallback: construct from individual components if DATABASE_URL not set
+        if db_password:
+            db_password = db_password.replace('@', '%40')
+            print("URL encoded @ symbol in password")
+        DATABASE_URL = f"postgresql://postgres.rpilyciarvacbmaaszvc:{db_password}@aws-0-us-west-1.pooler.supabase.com:5432/postgres"
+    
+    print(f"Database URL: {DATABASE_URL[:50]}...{DATABASE_URL[-20:]}")
 
     # Create engine with debug output
     print("Creating SQLAlchemy engine...")
@@ -53,27 +53,70 @@ if not SKIP_DB:
         raise
 
     # Run simple auto-migration to ensure newer columns exist (primarily for tests / CI)
-    # Only run migrations if database is enabled
-    if not SKIP_DB:
-        with engine.connect() as conn:
-            try:
-                # Ensure extra_metadata column exists
-                res = conn.execute(text("""
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name='financial_statements' 
-                      AND column_name='extra_metadata' 
-                    LIMIT 1;"""))
-                if res.fetchone() is None:
-                    print("Adding missing column extra_metadata to financial_statements …")
-                    conn.execute(text("ALTER TABLE financial_statements ADD COLUMN extra_metadata JSONB"))
-                    conn.commit()
-            except Exception as mig_err:
-                # Non-fatal: print but continue startup
-                print(f"Auto-migration check failed: {mig_err}")
+    with engine.connect() as conn:
+        try:
+            # Ensure extra_metadata column exists
+            res = conn.execute(text("""
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name='financial_statements' 
+                  AND column_name='extra_metadata' 
+                LIMIT 1;"""))
+            if res.fetchone() is None:
+                print("Adding missing column extra_metadata to financial_statements …")
+                conn.execute(text("ALTER TABLE financial_statements ADD COLUMN extra_metadata JSONB"))
+                conn.commit()
+        except Exception as mig_err:
+            # Non-fatal: print but continue startup
+            print(f"Auto-migration check failed: {mig_err}")
 
-# Create models and session based on SKIP_DB flag
+# Create session factory
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Create base class for declarative models
+Base = declarative_base()
+
+class User(Base):
+    """User model matching Supabase users table"""
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String, unique=True, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class FinancialStatement(Base):
+    """Financial statement model matching the existing database table"""
+    __tablename__ = "financial_statements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    file_name = Column(Text, nullable=False)
+    file_path = Column(Text, nullable=False)
+    statement_type = Column(Text, nullable=False)  # income_statement, balance_sheet, cash_flow
+    upload_date = Column(DateTime(timezone=True), default=datetime.utcnow)
+    file_size = Column(BigInteger)
+    file_type = Column(Text)  # e.g., csv, xlsx, pdf
+    parsed_data = Column(JSON)  # Parsed financial data
+    extra_metadata = Column(JSON)  # Additional metadata (e.g., date ranges, currency)
+
+class FinancialCategory(Base):
+    """Financial category model for classifying statement items"""
+    __tablename__ = "financial_categories"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    type = Column(String, nullable=False)  # income, expense, asset, liability, equity
+    description = Column(Text)
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("financial_categories.id"))  # For hierarchical categories
+    extra_metadata = Column(JSON)  # Additional metadata (e.g., custom rules, AI hints)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# Create stub objects when SKIP_DB is enabled
 if SKIP_DB:
-    # Create stub objects when SKIP_DB is enabled
+    # Create stub engine and session
     engine = None
     SessionLocal = None
     Base = declarative_base()
@@ -89,57 +132,9 @@ if SKIP_DB:
         def __init__(self, **kwargs):
             for key, value in kwargs.items():
                 setattr(self, key, value)
-    
-    # Create stub FinancialCategory model
-    class FinancialCategory:
-        def __init__(self, **kwargs):
-            for key, value in kwargs.items():
-                setattr(self, key, value)
 else:
     # Create session factory
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    
-    # Create base class for declarative models
-    Base = declarative_base()
-
-    class User(Base):
-        """User model matching Supabase users table"""
-        __tablename__ = "users"
-
-        id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-        email = Column(String, unique=True, nullable=False)
-        is_active = Column(Boolean, default=True)
-        created_at = Column(DateTime, default=datetime.utcnow)
-        updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    class FinancialStatement(Base):
-        """Financial statement model matching the existing database table"""
-        __tablename__ = "financial_statements"
-
-        id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-        user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-        file_name = Column(Text, nullable=False)
-        file_path = Column(Text, nullable=False)
-        statement_type = Column(Text, nullable=False)  # income_statement, balance_sheet, cash_flow
-        upload_date = Column(DateTime(timezone=True), default=datetime.utcnow)
-        file_size = Column(BigInteger)
-        file_type = Column(Text)  # e.g., csv, xlsx, pdf
-        parsed_data = Column(JSON)  # Parsed financial data
-        extra_metadata = Column(JSON)  # Additional metadata (e.g., date ranges, currency)
-
-    class FinancialCategory(Base):
-        """Financial category model for classifying statement items"""
-        __tablename__ = "financial_categories"
-
-        id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-        user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-        name = Column(String, nullable=False)
-        type = Column(String, nullable=False)  # income, expense, asset, liability, equity
-        description = Column(Text)
-        parent_id = Column(UUID(as_uuid=True), ForeignKey("financial_categories.id"))  # For hierarchical categories
-        extra_metadata = Column(JSON)  # Additional metadata (e.g., custom rules, AI hints)
-        created_at = Column(DateTime, default=datetime.utcnow)
-        updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 # Dependency to get database session
 def get_db():

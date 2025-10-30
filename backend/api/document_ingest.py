@@ -237,30 +237,36 @@ async def ingest_document(
         )
 
 @router.get("/docs/meta")
-@router.get("/financial-documents")  # Alias for frontend compatibility
 async def get_documents_metadata(
-    user_id: str = Query(None, description="User ID (Clerk ID) to fetch documents for", alias="userId"),
+    user_id: str = Query(..., description="User ID to fetch documents for"),
     current_user: User = Depends(get_current_user)
 ):
     """
     Get metadata only for user's documents (no metrics).
-    Supports both /docs/meta and /financial-documents endpoints.
-    Accepts Clerk user IDs and queries by clerk_user_id column.
     """
     try:
-        # Use provided user_id (Clerk ID from frontend)
-        if not user_id:
-            raise HTTPException(status_code=400, detail="userId parameter is required")
+        # Ensure user can only access their own documents
+        if user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
         
         supabase = get_supabase_client()
         
-        # Query by clerk_user_id instead of user_id (UUID)
         result = supabase.table("documents").select(
-            "id, document_type, start_date, end_date, source, created_at, user_id, clerk_user_id, filename, original_filename, file_size, mime_type, status, analysis_result, uploaded_at, analyzed_at, updated_at"
-        ).eq("clerk_user_id", user_id).order("created_at", desc=True).execute()
+            "id, document_type, start_date, end_date, source, created_at"
+        ).eq("user_id", user_id).order("created_at", desc=True).execute()
         
-        # Return raw data with all fields for frontend compatibility
-        return {"data": result.data}
+        documents = []
+        for doc in result.data:
+            documents.append(DocumentMeta(
+                id=doc["id"],
+                document_type=doc["document_type"],
+                start_date=doc.get("start_date"),
+                end_date=doc.get("end_date"),
+                source=doc.get("source"),
+                created_at=doc["created_at"]
+            ))
+        
+        return documents
         
     except HTTPException:
         raise
@@ -345,52 +351,6 @@ async def get_document_metrics(
     except Exception as e:
         logger.error(f"Error fetching document metrics: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch metrics: {str(e)}")
-
-@router.delete("/docs/{document_id}")
-async def delete_document(
-    document_id: str,
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Delete a financial document and all associated data (metrics, KPIs).
-    """
-    try:
-        supabase = get_supabase_client()
-        
-        # Verify user owns this document
-        doc_result = supabase.table("documents").select("user_id, file_path").eq("id", document_id).execute()
-        if not doc_result.data:
-            raise HTTPException(status_code=404, detail="Document not found")
-        
-        if doc_result.data[0]["user_id"] != current_user.id:
-            raise HTTPException(status_code=403, detail="Not authorized to delete this document")
-        
-        logger.info(f"Deleting document {document_id} for user {current_user.id}")
-        
-        # Delete associated metrics (cascade should handle this, but explicit is better)
-        supabase.table("document_metrics").delete().eq("doc_id", document_id).execute()
-        logger.info(f"Deleted metrics for document {document_id}")
-        
-        # Delete associated KPIs
-        supabase.table("document_kpis").delete().eq("doc_id", document_id).execute()
-        logger.info(f"Deleted KPIs for document {document_id}")
-        
-        # Delete the document itself
-        supabase.table("documents").delete().eq("id", document_id).execute()
-        logger.info(f"Deleted document {document_id}")
-        
-        # TODO: Delete file from storage if needed
-        # file_path = doc_result.data[0].get("file_path")
-        # if file_path:
-        #     supabase.storage.from_("documents").remove([file_path])
-        
-        return {"message": "Document deleted successfully", "document_id": document_id}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting document: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
 
 # Helper functions
 

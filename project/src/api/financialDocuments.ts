@@ -32,7 +32,7 @@ export async function uploadFinancialDocuments(
     );
 
     // Call our backend API for document analysis
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5180';
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
     
     const response = await fetch(`${API_BASE_URL}/api/documentAnalysis`, {
       method: 'POST',
@@ -76,35 +76,94 @@ export async function uploadFinancialDocuments(
 }
 
 /**
+ * Save a financial document directly to Supabase
+ */
+export async function saveFinancialDocument(data: {
+  userId: string;
+  document_type: string;
+  start_date: string;
+  end_date: string;
+  summary_metrics: any;
+  raw_json: any;
+  confidence_score?: number;
+  status?: string;
+  source?: string;
+  filename?: string;
+}) {
+  try {
+    console.log('💾 Saving financial document to Supabase:', data);
+    
+    const { data: savedDoc, error } = await supabase
+      .from('financial_documents')
+      .insert([{
+        user_id: data.userId,
+        document_type: data.document_type,
+        start_date: data.start_date,
+        end_date: data.end_date,
+        summary_metrics: data.summary_metrics,
+        raw_json: data.raw_json,
+        confidence_score: data.confidence_score || 0.9,
+        status: data.status || 'approved',
+        filename: data.filename || 'csv_upload',
+        uploaded_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Supabase save error:', error);
+      throw error;
+    }
+
+    console.log('✅ Document saved successfully:', savedDoc);
+    
+    return {
+      success: true,
+      document: savedDoc
+    };
+  } catch (error) {
+    console.error('❌ Error saving document:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save document'
+    };
+  }
+}
+
+/**
  * Get financial documents for a user
  */
 export async function getUserFinancialDocuments(userId: string, limit: number = 50) {
   try {
-    // Use the backend API instead of direct Supabase calls to bypass RLS issues
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5180';
+    console.log('📄 Fetching financial documents from Supabase for user:', userId);
     
-    const response = await fetch(`${API_BASE_URL}/api/financial-documents?userId=${encodeURIComponent(userId)}&limit=${limit}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    // Query Supabase directly for financial_documents
+    const { data, error } = await supabase
+      .from('financial_documents')
+      .select('*')
+      .eq('user_id', userId)
+      .order('uploaded_at', { ascending: false })
+      .limit(limit);
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    if (error) {
+      console.error('❌ Supabase error:', error);
+      throw error;
     }
 
-    const result = await response.json();
+    console.log(`✅ Found ${data?.length || 0} financial documents`);
     
-    // The API returns data in a 'data' property, not 'documents'
-    const documents = result.data || result.documents || [];
-    
-    if (!documents) {
-      throw new Error(result.error || 'No documents returned from API');
+    if (!data || data.length === 0) {
+      console.log('⚠️ No documents found in database for user:', userId);
+      return {
+        success: true,
+        documents: []
+      };
     }
 
     // Transform the data to match expected structure
-    const transformedData = documents.map((doc: any) => ({
+    const transformedData = data.map((doc: any) => ({
       ...doc,
       // Ensure uploaded_at exists for display
       uploaded_at: doc.uploaded_at || doc.created_at || doc.start_date || new Date().toISOString(),
@@ -122,7 +181,7 @@ export async function getUserFinancialDocuments(userId: string, limit: number = 
       documents: transformedData
     };
   } catch (error) {
-    console.error('Error fetching financial documents:', error);
+    console.error('❌ Error fetching financial documents:', error);
     return {
       success: false,
       documents: [],
@@ -136,22 +195,36 @@ export async function getUserFinancialDocuments(userId: string, limit: number = 
  */
 export async function getFinancialDocument(documentId: string, userId: string) {
   try {
+    console.log('📄 Fetching specific document:', documentId);
+    
     const { data, error } = await supabase
       .from('financial_documents')
       .select('*')
       .eq('id', documentId)
       .eq('user_id', userId)
-      .single();
+      .maybeSingle(); // Use maybeSingle() to avoid 406 errors
 
     if (error) {
+      console.error('❌ Supabase error:', error);
       throw error;
     }
 
+    if (!data) {
+      console.log('⚠️ Document not found:', documentId);
+      return {
+        success: false,
+        document: null,
+        error: 'Document not found'
+      };
+    }
+
+    console.log('✅ Document fetched successfully');
     return {
       success: true,
       document: data
     };
   } catch (error) {
+    console.error('❌ Error fetching document:', error);
     return {
       success: false,
       document: null,

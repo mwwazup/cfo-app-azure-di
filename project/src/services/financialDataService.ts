@@ -2,8 +2,8 @@
 import { FinancialStatement, StatementType } from '../models/FinancialStatement';
 import { FinancialFileParser } from '../utils/parseFinancialFile';
 
-// Use test server API instead of direct Supabase calls
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5180';
+// Use backend API
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
 export class FinancialDataService {
   static async uploadFinancialStatement(

@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthContext } from '../contexts/auth-context';
 
-// API base URL for test server
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5180';
+// API base URL
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
 
 // Types for API responses

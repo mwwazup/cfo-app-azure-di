@@ -89,7 +89,7 @@ export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({
     setIsSaving(true);
     
     try {
-      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5180';
+      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
       const response = await fetch(`${API_BASE_URL}/api/financial-documents`, {
         method: 'POST',
         headers: {
