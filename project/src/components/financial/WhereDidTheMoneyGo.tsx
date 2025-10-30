@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { TrendingDown, TrendingUp, Loader2, Calendar, Filter, Target, RotateCcw, X } from 'lucide-react';
+import { TrendingUp, TrendingDown, Loader2, Calendar, Filter, Target, X } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
 import { formatCurrency } from '../../utils/formatters';
 
@@ -639,8 +639,9 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
 
   // Listen for document deletion events
   useEffect(() => {
-    const handleDocumentDeleted = async (event: CustomEvent) => {
-      console.log('🗑️ Document deletion detected in WhereDidTheMoneyGo:', event.detail);
+    const handleDocumentDeleted = async (event: Event) => {
+      const customEvent = event as CustomEvent;
+      console.log('🗑️ Document deletion detected in WhereDidTheMoneyGo:', customEvent.detail);
       
       // Clear current KPIs immediately since the document list has changed
       setKpis(null);
@@ -657,11 +658,11 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     };
 
     // Add event listener
-    window.addEventListener('documentDeleted', handleDocumentDeleted as EventListener);
+    window.addEventListener('documentDeleted', handleDocumentDeleted);
     
     // Cleanup
     return () => {
-      window.removeEventListener('documentDeleted', handleDocumentDeleted as EventListener);
+      window.removeEventListener('documentDeleted', handleDocumentDeleted);
     };
   }, [dbUserId]); // Add dbUserId dependency for refreshDocuments
 
