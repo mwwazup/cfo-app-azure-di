@@ -295,10 +295,37 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       return;
     }
 
-    // For YTD, aggregate all documents in the filtered range
+    // For YTD, aggregate all documents from the selected year
     if (filterMonth === 0) { // Month 0 represents YTD
-      console.log('📊 YTD mode: aggregating all documents');
-      const ytdDocuments = availableDocuments.map(d => d.document);
+      console.log('📊 YTD mode: aggregating all documents from year', filterYear);
+      
+      // Get ALL documents from the selected year (not just filtered ones)
+      const ytdDocuments = documents
+        .filter(doc => {
+          // Status filter
+          if (filterStatus !== 'all') {
+            const docStatus = doc.status || 'unknown';
+            if (docStatus !== filterStatus) {
+              return false;
+            }
+          }
+
+          // Year filter (but ignore month for YTD)
+          const startDate = doc.start_date || doc.analysis_result?.start_date;
+          if (!startDate) return false;
+
+          // Handle different date formats
+          let docDate: Date;
+          if (startDate.includes('T')) {
+            docDate = new Date(startDate);
+          } else {
+            docDate = new Date(startDate + 'T00:00:00');
+          }
+
+          const docYear = docDate.getFullYear();
+          return docYear === filterYear;
+        })
+        .map(doc => doc);
       
       if (ytdDocuments.length === 0) {
         setKpis(null);
@@ -313,21 +340,34 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       let totalOwnerDistributions = 0;
       
       ytdDocuments.forEach((doc, index) => {
-        const revenue = doc.summary_metrics?.totalRevenue 
-          || doc.summary_metrics?.revenue 
+        console.log(`📄 Doc ${index + 1} (${doc.filename}):`, {
+          filename: doc.filename,
+          summary_metrics_keys: doc.summary_metrics ? Object.keys(doc.summary_metrics) : [],
+          raw_json_keys: doc.raw_json ? Object.keys(doc.raw_json) : [],
+          summary_metrics: doc.summary_metrics,
+          raw_json: doc.raw_json
+        });
+        
+        const revenue = doc.summary_metrics?.total_revenue     // CSV snake_case
+          || doc.summary_metrics?.totalRevenue        // Manual camelCase  
+          || doc.summary_metrics?.revenue
+          || doc.raw_json?.total_revenue?.value
+          || doc.raw_json?.totalRevenue?.value
           || doc.raw_json?.revenue?.value
           || 0;
         
-        const cogs = doc.summary_metrics?.cost_of_goods_sold 
+        const cogs = doc.summary_metrics?.cost_of_goods_sold   // CSV snake_case
+          || doc.summary_metrics?.costOfGoodsSold             // Manual camelCase
           || doc.summary_metrics?.cogs 
           || doc.raw_json?.cost_of_goods_sold?.value
+          || doc.raw_json?.costOfGoodsSold?.value
           || doc.raw_json?.cogs?.value
           || 0;
           
         // Try multiple field variations for operating expenses
-        const opex = doc.summary_metrics?.operating_expenses 
+        const opex = doc.summary_metrics?.operating_expenses     // CSV snake_case
+          || doc.summary_metrics?.operatingExpenses             // Manual camelCase
           || doc.summary_metrics?.opex
-          || doc.summary_metrics?.operatingExpenses
           || doc.raw_json?.operating_expenses?.value
           || doc.raw_json?.operatingExpenses?.value
           || doc.raw_json?.opex?.value
@@ -530,8 +570,21 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
 
   // Helper function to format period labels
   const formatPeriodLabel = (startDate: string, endDate: string): string => {
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T00:00:00');
+    // Handle different date formats - some already have time, some don't
+    let start: Date;
+    let end: Date;
+    
+    if (startDate.includes('T')) {
+      start = new Date(startDate);
+    } else {
+      start = new Date(startDate + 'T00:00:00');
+    }
+    
+    if (endDate.includes('T')) {
+      end = new Date(endDate);
+    } else {
+      end = new Date(endDate + 'T00:00:00');
+    }
     
     if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
       return start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -548,7 +601,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
   const availableDocuments = useMemo(() => {
     if (!documents || documents.length === 0) return [];
     
-    return documents
+    const filtered = documents
       .filter(doc => {
         // Status filter
         if (filterStatus !== 'all') {
@@ -562,7 +615,16 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         const startDate = doc.start_date || doc.analysis_result?.start_date;
         if (!startDate) return false;
 
-        const docDate = new Date(startDate + 'T00:00:00');
+        // Handle different date formats - some already have time, some don't
+        let docDate: Date;
+        if (startDate.includes('T')) {
+          // Date already includes time (e.g., '2024-03-01T07:00:00.000Z')
+          docDate = new Date(startDate);
+        } else {
+          // Date is just the date part (e.g., '2024-03-01')
+          docDate = new Date(startDate + 'T00:00:00');
+        }
+        
         const docYear = docDate.getFullYear();
         const docMonth = docDate.getMonth() + 1;
 
@@ -573,7 +635,9 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         if (filterMonth !== 0 && docMonth !== filterMonth) return false;
 
         return true;
-      })
+      });
+    
+    return filtered
       .map(doc => {
         const startDate = doc.start_date || doc.analysis_result?.start_date || '';
         const endDate = doc.end_date || doc.analysis_result?.end_date || '';
@@ -756,8 +820,11 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     let dateRange;
     if (isYTD) {
       const currentYear = new Date().getFullYear();
-      const currentMonth = new Date().toLocaleDateString('en-US', { month: 'long' });
-      dateRange = `YTD ${currentYear} (Jan - ${currentMonth})`;
+      const displayYear = filterYear === currentYear ? currentYear : filterYear;
+      const displayMonth = filterYear === currentYear ? 
+        new Date().toLocaleDateString('en-US', { month: 'long' }) : 
+        'December';
+      dateRange = `YTD ${displayYear} (Jan - ${displayMonth})`;
     } else {
       const selectedDoc = documents.find(doc => doc.id === selectedDocumentId);
       dateRange = selectedDoc ? 
@@ -1006,7 +1073,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
                   <SelectValue placeholder="Year" />
                 </SelectTrigger>
                 <SelectContent>
-                  {Array.from({ length: 10 }, (_, i) => {
+                  {Array.from({ length: 6 }, (_, i) => {
                     const year = currentDate.getFullYear() - (5 - i);
                     return (
                       <SelectItem key={year} value={year.toString()}>

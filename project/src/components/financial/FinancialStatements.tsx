@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, RotateCcw, Calendar, ChevronLeft, ChevronRight, Settings, Edit3 } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, RotateCcw, Calendar, ChevronLeft, ChevronRight, Settings, Edit3, X } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
 import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
-import { deleteFinancialDocument } from '../../api/financialDocuments';
+import { deleteFinancialDocument, createManualFinancialDocument } from '../../api/financialDocuments';
 import { WhereDidTheMoneyGo } from './WhereDidTheMoneyGo';
 import { ManualPLFormSimplified } from './ManualPLFormSimplified';
 import { ManualBalanceSheetForm } from './ManualBalanceSheetForm';
 import { ManualCashFlowForm } from './ManualCashFlowForm';
 import { EditDocumentModal } from './EditDocumentModal';
-import { CSVUploadModal } from './CSVUploadModal';
+import { parseFinancialCSV, validateCSVFile } from '../../utils/csvParser';
 
 interface ProcessingResult {
   document: Omit<FinancialDocument, 'id' | 'user_id'> & { user_id: string };
@@ -25,6 +25,9 @@ export const FinancialStatements: React.FC = () => {
   const [filterYear, setFilterYear] = useState<number>(currentDate.getFullYear());
   const [filterMonth, setFilterMonth] = useState<number>(currentDate.getMonth() + 1);
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  
+  // Shared document selection state
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
   
   // Simple document state - will be enhanced later
   const [documents, setDocuments] = useState<FinancialDocument[]>([]);
@@ -62,68 +65,74 @@ export const FinancialStatements: React.FC = () => {
   const [showManualPLForm, setShowManualPLForm] = useState(false);
   const [showManualBalanceSheetForm, setShowManualBalanceSheetForm] = useState(false);
   const [showManualCashFlowForm, setShowManualCashFlowForm] = useState(false);
-  const [showCSVUploadModal, setShowCSVUploadModal] = useState(false);
+
+  // Load documents function (can be called from anywhere)
+  const loadDocuments = async () => {
+    if (!dbUserId) return;
+    
+    try {
+      console.log('🔄 Loading documents from API...');
+      const response = await fetch(`http://localhost:8000/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('📄 API Response:', result);
+      
+      // The API returns data in a 'data' property
+      const documentsData = result.data || [];
+      console.log('📋 Documents to display:', documentsData);
+      
+      // Debug: Log the structure of the first document
+      if (documentsData.length > 0) {
+        console.log('🔍 First document structure:', documentsData[0]);
+        console.log('🔍 Document keys:', Object.keys(documentsData[0]));
+      }
+      
+      // Transform documents to flatten analysis_result data for the modal
+      const transformedDocuments = documentsData.map((doc: any) => {
+        if (doc.analysis_result) {
+          // Extract data from analysis_result and flatten it
+          const flattenedDoc = {
+            ...doc,
+            revenue: doc.analysis_result.revenue || 0,
+            cogs: doc.analysis_result.cogs || 0,
+            operating_expenses: doc.analysis_result.operating_expenses || 0,
+            net_profit: doc.analysis_result.net_profit || 0,
+            owner_distributions: doc.analysis_result.owner_distributions || 0
+          };
+          return flattenedDoc;
+        }
+        return doc;
+      });
+      
+      console.log('🔍 Transformed documents:', transformedDocuments);
+      setDocuments(transformedDocuments);
+    } catch (error) {
+      console.error('❌ Error loading documents:', error);
+    }
+  };
 
   // Load documents when component mounts or dbUserId changes
   useEffect(() => {
-    const loadDocuments = async () => {
-      if (!dbUserId) return;
-      
-      try {
-        console.log('🔄 Loading documents from API...');
-        const response = await fetch(`http://localhost:8000/api/financial-documents?userId=${encodeURIComponent(dbUserId)}`, {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        console.log('📄 API Response:', result);
-        
-        // The API returns data in a 'data' property
-        const documentsData = result.data || [];
-        console.log('📋 Documents to display:', documentsData);
-        
-        // Debug: Log the structure of the first document
-        if (documentsData.length > 0) {
-          console.log('🔍 First document structure:', documentsData[0]);
-          console.log('🔍 Document keys:', Object.keys(documentsData[0]));
-        }
-        
-        // Transform documents to flatten analysis_result data for the modal
-        const transformedDocuments = documentsData.map((doc: any) => {
-          if (doc.analysis_result) {
-            // Extract data from analysis_result and flatten it
-            return {
-              ...doc,
-              start_date: doc.analysis_result.start_date || doc.start_date,
-              end_date: doc.analysis_result.end_date || doc.end_date,
-              summary_metrics: doc.analysis_result.summary_metrics || doc.summary_metrics,
-              raw_json: doc.analysis_result.raw_json || {},
-              // Keep the original analysis_result for reference
-              _original_analysis_result: doc.analysis_result
-            };
-          }
-          return doc;
-        });
-        
-        console.log('🔍 Transformed documents:', transformedDocuments);
-        setDocuments(transformedDocuments);
-        console.log('✅ Documents loaded successfully:', documentsData.length);
-        
-      } catch (error) {
-        console.error('❌ Error loading documents:', error);
-        // Set empty array on error to show "no documents" message
-        setDocuments([]);
-      }
-    };
-
     loadDocuments();
   }, [dbUserId]);
+
+  // Sync selected document when selection changes
+  useEffect(() => {
+    if (selectedDocumentId && documents.length > 0) {
+      const selectedDoc = documents.find(doc => doc.id === selectedDocumentId);
+      setSelectedDocument(selectedDoc || null);
+    } else if (!selectedDocumentId) {
+      setSelectedDocument(null);
+    }
+  }, [selectedDocumentId, documents]);
 
   // Initialize calendar dates when processing result changes
   useEffect(() => {
@@ -171,9 +180,11 @@ export const FinancialStatements: React.FC = () => {
     if (!file || !dbUserId) return;
 
     // Validate file type
-    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-    if (!allowedTypes.includes(file.type)) {
-      alert('Please upload a PDF, JPG, or PNG file.');
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'text/csv'];
+    const isCSV = file.name.endsWith('.csv') || file.type === 'text/csv';
+    
+    if (!allowedTypes.includes(file.type) && !isCSV) {
+      alert('Please upload a PDF, JPG, PNG, or CSV file.');
       return;
     }
 
@@ -197,15 +208,30 @@ export const FinancialStatements: React.FC = () => {
 
       console.log(`Processing ${documentType} document with Test Server Document Service...`);
       
-      // Process document with Test Server Document Service
-      // Document processing temporarily disabled - use manual forms instead
-      const extractedData = { 
-        documentType, 
-        extractedFields: { total_revenue: { value: 0 }, cost_of_goods_sold: { value: 0 }, operating_expenses: { value: 0 }, net_income: { value: 0 } }, 
-        summary: { total_revenue: 0, cost_of_goods_sold: 0, operating_expenses: 0, net_income: 0 }, 
-        document: { start_date: '', end_date: '', document_type: documentType }, 
-        metadata: { confidence: 0.8 } 
-      };
+      let extractedData;
+      
+      // Handle CSV files differently
+      if (isCSV) {
+        console.log('Processing CSV file...');
+        const csvResult = await parseFinancialCSV(file, 'pnl');
+        
+        if (!csvResult.success || !csvResult.data) {
+          throw new Error(csvResult.error || 'Failed to parse CSV file');
+        }
+        
+        extractedData = csvResult.data;
+        console.log('CSV parsed successfully:', extractedData);
+      } else {
+        // Process PDF/image documents with Test Server Document Service
+        // Document processing temporarily disabled - use manual forms instead
+        extractedData = { 
+          documentType, 
+          extractedFields: { total_revenue: { value: 0 }, cost_of_goods_sold: { value: 0 }, operating_expenses: { value: 0 }, net_income: { value: 0 } }, 
+          summary: { total_revenue: 0, cost_of_goods_sold: 0, operating_expenses: 0, net_income: 0 }, 
+          document: { start_date: '', end_date: '', document_type: documentType }, 
+          metadata: { confidence: 0.8 } 
+        };
+      }
       setLastExtractedData(extractedData);
       
       clearInterval(progressInterval);
@@ -223,7 +249,8 @@ export const FinancialStatements: React.FC = () => {
         summary_metrics: extractedData.summary || {},
         confidence_score: extractedData.metadata?.confidence || 0,
         status: 'pending',
-        source: 'test_server_upload'
+        source: isCSV ? 'csv_upload' : 'test_server_upload',
+        filename: file.name
       };
 
       // Create metrics from the extracted financial data
@@ -293,15 +320,32 @@ export const FinancialStatements: React.FC = () => {
         throw new Error('No extracted data available to save');
       }
       
-      // Document saving temporarily disabled - use manual forms instead
-      // Note: Processing result and extracted data would be used here when saving is enabled
-      const documentId = `temp_${Date.now()}`;
-      console.log('Document save disabled - use manual forms');
-
-      console.log(`Financial document approved and saved with ID: ${documentId}`);
+      console.log('💾 Creating financial document via backend API with user ID:', dbUserId);
       
-      // Document list refresh disabled - use manual forms instead
-      console.log('Document list refresh disabled');
+      // Use the backend API to create the document (handles RLS policies)
+      const createResult = await createManualFinancialDocument({
+        userId: dbUserId,
+        document_type: processingResult.document.document_type,
+        start_date: processingResult.document.start_date,
+        end_date: processingResult.document.end_date,
+        summary_metrics: processingResult.document.summary_metrics,
+        raw_json: processingResult.document.raw_json,
+        confidence_score: processingResult.confidence_score,
+        status: 'approved',
+        source: processingResult.document.source || 'test_server_upload',
+        filename: processingResult.document.filename || 'uploaded_file'
+      });
+
+      if (!createResult.success) {
+        throw new Error(createResult.error || 'Failed to save document');
+      }
+
+      const documentId = createResult.documentId || createResult.document?.id || 'unknown';
+      console.log(`✅ Financial document approved and saved with real ID: ${documentId}`);
+      
+      // Refresh the document list to show the new document
+      console.log('🔄 Refreshing document list...');
+      await loadDocuments();
       
       // Close modal
       setShowReviewModal(false);
@@ -325,7 +369,7 @@ export const FinancialStatements: React.FC = () => {
         }
       }, 3000);
     } catch (error) {
-      console.error('Error saving document:', error);
+      console.error('❌ Error saving document:', error);
       alert(`Error saving document: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
@@ -377,7 +421,6 @@ export const FinancialStatements: React.FC = () => {
       }
     } catch (error) {
       console.error('Error loading document metrics:', error);
-      setDocumentMetrics([]);
     } finally {
       setIsLoadingMetrics(false);
     }
@@ -557,6 +600,11 @@ export const FinancialStatements: React.FC = () => {
     console.log('🔍 Editing document:', document);
     console.log('🔍 Document fields:', Object.keys(document));
     console.log('🔍 Document values:', Object.entries(document));
+    console.log('🔍 Document dates:', {
+      start_date: document.start_date,
+      end_date: document.end_date,
+      formattedPeriod: formatPeriod(document.start_date, document.end_date)
+    });
     setEditingDocument(document);
     setShowEditModal(true);
   };
@@ -758,9 +806,21 @@ export const FinancialStatements: React.FC = () => {
   };
 
   const formatPeriod = (startDate: string, endDate: string): string => {
-    // Parse dates as local dates to avoid timezone issues
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T00:00:00');
+    // Handle different date formats - some already have time, some don't
+    let start: Date;
+    let end: Date;
+    
+    if (startDate.includes('T')) {
+      start = new Date(startDate);
+    } else {
+      start = new Date(startDate + 'T00:00:00');
+    }
+    
+    if (endDate.includes('T')) {
+      end = new Date(endDate);
+    } else {
+      end = new Date(endDate + 'T00:00:00');
+    }
     
     // If same month and year, show just the month/year
     if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
@@ -834,7 +894,7 @@ export const FinancialStatements: React.FC = () => {
                       <input
                         type="file"
                         className="hidden"
-                        accept=".pdf,.jpg,.jpeg,.png"
+                        accept=".pdf,.jpg,.jpeg,.png,.csv"
                         onChange={(e) => handleFileUpload(e, 'pnl')}
                         disabled={isUploading}
                       />
@@ -926,32 +986,6 @@ export const FinancialStatements: React.FC = () => {
                 </div>
               </div>
             </div>
-
-            {/* CSV Upload Button */}
-            <div className="border-solid p-6 text-center bg-white transition-all" style={{ border: '2px solid #d0b46a', borderRadius: '10px' }}>
-              <div className="space-y-4">
-                <div className="mx-auto w-16 h-16 bg-transparent flex items-center justify-center" style={{ border: '2px solid #d0b46a', borderRadius: '4px' }}>
-                  <FileSpreadsheet className="h-8 w-8" style={{ color: '#d0b46a' }} />
-                </div>
-                <div>
-                  <h4 className="text-lg font-semibold text-black mb-2">CSV Upload</h4>
-                  <p className="text-sm text-black mb-4">
-                    Upload financial data from CSV files for quick import and analysis
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setShowCSVUploadModal(true)}
-                    className="inline-flex items-center px-4 py-2 rounded-lg cursor-pointer transition-colors w-full justify-center"
-                    style={{ backgroundColor: '#d0b46a', color: 'black' }}
-                    disabled={isUploading}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload CSV
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
         )}
         
@@ -980,6 +1014,7 @@ export const FinancialStatements: React.FC = () => {
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-foreground">Your Financial Documents</h2>
               </div>
+              
               {/* Active filters display */}
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">Viewing:</span>
@@ -1008,6 +1043,19 @@ export const FinancialStatements: React.FC = () => {
         
         {!isDocumentsCollapsed && (() => {
           // Filter documents based on the same criteria as WhereDidTheMoneyGo
+          console.log('🔍 DEBUG: FinancialStatements filtering documents:', {
+            totalDocuments: documents.length,
+            filterYear,
+            filterMonth,
+            filterStatus,
+            documents: documents.map(d => ({
+              id: d.id,
+              filename: d.filename,
+              start_date: d.start_date,
+              end_date: d.end_date
+            }))
+          });
+          
           const filteredDocuments = documents.filter(doc => {
             // Status filter
             if (filterStatus !== 'all') {
@@ -1021,7 +1069,16 @@ export const FinancialStatements: React.FC = () => {
             const startDate = doc.start_date || doc.analysis_result?.start_date;
             if (!startDate) return false;
 
-            const docDate = new Date(startDate + 'T00:00:00');
+            // Handle different date formats - some already have time, some don't
+            let docDate: Date;
+            if (startDate.includes('T')) {
+              // Date already includes time (e.g., '2024-02-01T07:00:00.000Z')
+              docDate = new Date(startDate);
+            } else {
+              // Date is just the date part (e.g., '2024-02-01')
+              docDate = new Date(startDate + 'T00:00:00');
+            }
+            
             const docYear = docDate.getFullYear();
             const docMonth = docDate.getMonth() + 1;
 
@@ -1032,6 +1089,17 @@ export const FinancialStatements: React.FC = () => {
             if (filterMonth !== 0 && docMonth !== filterMonth) return false;
 
             return true;
+          });
+
+          console.log('🎯 DEBUG: FinancialStatements filter result:', {
+            originalCount: documents.length,
+            filteredCount: filteredDocuments.length,
+            filteredDocuments: filteredDocuments.map(d => ({
+              id: d.id,
+              filename: d.filename,
+              start_date: d.start_date,
+              end_date: d.end_date
+            }))
           });
 
           return (
@@ -1081,21 +1149,27 @@ export const FinancialStatements: React.FC = () => {
                         {formatPeriod(document.start_date, document.end_date)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
-                        {document.summary_metrics?.totalRevenue 
-                          ? `$${document.summary_metrics.totalRevenue.toLocaleString()}` 
-                          : document.summary_metrics?.revenue 
-                            ? `$${document.summary_metrics.revenue.toLocaleString()}`
-                            : document.raw_json?.revenue?.value
-                              ? `$${document.raw_json.revenue.value.toLocaleString()}`
-                              : '-'
+                        {document.summary_metrics?.total_revenue 
+                          ? `$${document.summary_metrics.total_revenue.toLocaleString()}` 
+                          : document.summary_metrics?.totalRevenue 
+                            ? `$${document.summary_metrics.totalRevenue.toLocaleString()}`
+                            : document.summary_metrics?.revenue 
+                              ? `$${document.summary_metrics.revenue.toLocaleString()}`
+                              : document.raw_json?.revenue?.value
+                                ? `$${document.raw_json.revenue.value.toLocaleString()}`
+                                : '-'
                         }
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
-                        {document.summary_metrics?.netProfit 
-                          ? `$${document.summary_metrics.netProfit.toLocaleString()}` 
-                          : document.raw_json?.netProfit?.value
-                            ? `$${document.raw_json.netProfit.value.toLocaleString()}`
-                            : '-'
+                        {document.summary_metrics?.net_income 
+                          ? `$${document.summary_metrics.net_income.toLocaleString()}` 
+                          : document.summary_metrics?.netProfit 
+                            ? `$${document.summary_metrics.netProfit.toLocaleString()}`
+                            : document.raw_json?.net_income?.value
+                              ? `$${document.raw_json.net_income.value.toLocaleString()}`
+                              : document.raw_json?.netProfit?.value
+                                ? `$${document.raw_json.netProfit.value.toLocaleString()}`
+                                : '-'
                         }
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -1448,108 +1522,7 @@ export const FinancialStatements: React.FC = () => {
         </div>
       )}
 
-      {/* Document Details Modal */}
-      {selectedDocument && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-card rounded-lg border border-border max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-border">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">
-                    {getDocumentTypeLabel(selectedDocument.document_type)} Details
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Period: {formatPeriod(selectedDocument.start_date, selectedDocument.end_date)}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Uploaded: {new Date(selectedDocument.uploaded_at || '').toLocaleDateString()}
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    if (selectedDocument.id) {
-                      deleteDocument(selectedDocument.id);
-                    }
-                  }}
-                  disabled={!selectedDocument.id || deletingDocumentId === selectedDocument.id}
-                  className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed p-2 rounded-md hover:bg-red-50"
-                  title="Delete this document"
-                >
-                  {deletingDocumentId === selectedDocument.id ? (
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-red-600"></div>
-                  ) : (
-                    <Trash2 className="h-5 w-5" />
-                  )}
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6">
-              {isLoadingMetrics ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
-                </div>
-              ) : (
-                documentMetrics.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full border border-border rounded-md">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Field</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Value</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Category</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {documentMetrics.map((metric) => (
-                          <tr key={metric.id}>
-                            <td className="px-4 py-2 text-sm text-foreground capitalize">
-                              {String(metric.label || '').replace(/_/g, ' ')}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-foreground font-medium">
-                              {(metric as any).display_value || formatCurrency(Number(metric.value || 0))}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-muted-foreground capitalize">
-                              {String(metric.category || 'unknown')}
-                            </td>
-                            <td className="px-4 py-2 text-sm">
-                              <div className={`flex items-center ${getStatusColor(selectedDocument?.status || 'pending')}`}>
-                                {getStatusIcon(selectedDocument?.status || 'pending')}
-                                <span className="ml-2 text-sm capitalize">{selectedDocument?.status || 'pending'}</span>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="text-lg font-medium mb-2">No extracted data available</p>
-                    <p className="text-sm">
-                      This document may not have been processed yet, or the extraction failed.
-                      <br />
-                      Try re-uploading the document or contact support if the issue persists.
-                    </p>
-                  </div>
-                )
-              )}
-            </div>
-
-            <div className="p-6 border-t border-border flex justify-end">
-              <button
-                onClick={() => setSelectedDocument(null)}
-                className="px-4 py-2 border border-border rounded-md text-foreground hover:bg-muted transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      
       {/* Enhanced Delete Confirmation Modal */}
       {showDeleteConfirmation && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1686,12 +1659,98 @@ export const FinancialStatements: React.FC = () => {
         onSave={handleSaveDocumentEdit}
       />
 
-      {/* CSV Upload Modal */}
-      <CSVUploadModal
-        isOpen={showCSVUploadModal}
-        onClose={() => setShowCSVUploadModal(false)}
-        onUploadSuccess={loadDocuments}
-      />
+      {/* Document View Modal */}
+      {selectedDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-lg border border-border max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">
+                    {getDocumentTypeLabel(selectedDocument.document_type)} Details
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Period: {formatPeriod(selectedDocument.start_date, selectedDocument.end_date)}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Uploaded: {new Date(selectedDocument.uploaded_at || '').toLocaleDateString()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedDocument(null)}
+                  className="text-muted-foreground hover:text-foreground p-2 rounded-md hover:bg-muted"
+                  title="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {isLoadingMetrics ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+                </div>
+              ) : (
+                documentMetrics.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border border-border rounded-md">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Field</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Value</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Category</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {documentMetrics.map((metric) => (
+                          <tr key={metric.id}>
+                            <td className="px-4 py-2 text-sm text-foreground capitalize">
+                              {String(metric.label || '').replace(/_/g, ' ')}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-foreground font-medium">
+                              {(metric as any).display_value || formatCurrency(Number(metric.value || 0))}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-muted-foreground capitalize">
+                              {String(metric.category || 'unknown')}
+                            </td>
+                            <td className="px-4 py-2 text-sm">
+                              <div className={`flex items-center ${getStatusColor(selectedDocument?.status || 'pending')}`}>
+                                {getStatusIcon(selectedDocument?.status || 'pending')}
+                                <span className="ml-2 text-sm capitalize">{selectedDocument?.status || 'pending'}</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">No extracted data available</p>
+                    <p className="text-sm">
+                      This document may not have been processed yet, or the extraction failed.
+                      <br />
+                      Try re-uploading the document or contact support if the issue persists.
+                    </p>
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="p-6 border-t border-border flex justify-end">
+              <button
+                onClick={() => setSelectedDocument(null)}
+                className="px-4 py-2 border border-border rounded-md text-foreground hover:bg-muted transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

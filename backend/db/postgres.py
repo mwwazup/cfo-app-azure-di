@@ -69,8 +69,12 @@ if not SKIP_DB:
             # Non-fatal: print but continue startup
             print(f"Auto-migration check failed: {mig_err}")
 
-# Create session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Create session factory (only if database is available)
+if not SKIP_DB:
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+else:
+    # Create a dummy session factory when database is skipped
+    SessionLocal = None
 
 # Create base class for declarative models
 Base = declarative_base()
@@ -133,8 +137,8 @@ if SKIP_DB:
             for key, value in kwargs.items():
                 setattr(self, key, value)
 else:
-    # Create session factory
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    # SessionLocal already created above in the conditional block
+    pass
 
 # Dependency to get database session
 def get_db():

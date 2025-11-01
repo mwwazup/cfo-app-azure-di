@@ -32,7 +32,7 @@ export async function uploadFinancialDocuments(
     );
 
     // Call our backend API for document analysis
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
     
     const response = await fetch(`${API_BASE_URL}/api/documentAnalysis`, {
       method: 'POST',
@@ -71,6 +71,56 @@ export async function uploadFinancialDocuments(
       success: false,
       documentIds: [],
       errors: [error instanceof Error ? error.message : 'Upload failed']
+    };
+  }
+}
+
+/**
+ * Create a financial document using the backend API (handles RLS policies)
+ */
+export async function createManualFinancialDocument(data: {
+  userId: string;
+  document_type: string;
+  start_date: string;
+  end_date: string;
+  raw_json: any;
+  summary_metrics: any;
+  confidence_score?: number;
+  status?: string;
+  source?: string;
+  filename?: string;
+}) {
+  try {
+    console.log('💾 Creating financial document via backend API:', data);
+    
+    const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+    const response = await fetch(`${API_BASE_URL}/api/financial-documents`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Backend API error:', response.status, errorText);
+      throw new Error(`Backend API error: ${response.status} ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('✅ Document created successfully via backend API:', result);
+    
+    return {
+      success: true,
+      document: result.document || result,
+      documentId: result.documentId || result.id
+    };
+  } catch (error) {
+    console.error('❌ Error creating document via backend API:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to create document'
     };
   }
 }

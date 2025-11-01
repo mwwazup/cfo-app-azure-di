@@ -109,3 +109,32 @@ async def health_check():
         "neo4j": "skipped (not currently used)",
         "timestamp": datetime.utcnow().isoformat()
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    print("🚀 Starting CFO App Backend...")
+    print("📊 Available endpoints:")
+    print("   - GET /")
+    print("   - GET /health")
+    print("   - GET /api/financial-documents")
+    print("   - POST /api/financial-documents")
+    print("   - PUT /api/financial-documents/{id}")
+    print("   - DELETE /api/financial-documents/{id}")
+    print("   - GET /api/revenue-entries")
+    print("   - POST /api/revenue-entries")
+    print("   - GET /api/revenue-kpis")
+    print("   - GET /api/kpi-records")
+    print("   - POST /api/kpi-records")
+    print("   - PUT /api/kpi-records/goal")
+    print("   - DELETE /api/kpi-records")
+    print("   - GET /docs (FastAPI auto-docs)")
+    print()
+    
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )

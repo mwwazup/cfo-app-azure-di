@@ -150,7 +150,7 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
               </label>
               <input
                 type="date"
-                value={editedDocument.start_date || ''}
+                value={editedDocument.start_date ? editedDocument.start_date.split('T')[0] : ''}
                 onChange={(e) => updateField('start_date', e.target.value)}
                 className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
               />
@@ -162,7 +162,7 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
               </label>
               <input
                 type="date"
-                value={editedDocument.end_date || ''}
+                value={editedDocument.end_date ? editedDocument.end_date.split('T')[0] : ''}
                 onChange={(e) => updateField('end_date', e.target.value)}
                 className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
               />
@@ -253,27 +253,7 @@ export const EditDocumentModal: React.FC<EditDocumentModalProps> = ({
             </div>
           )}
 
-          {/* Confidence Score */}
-          {editedDocument.confidence_score !== undefined && (
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
-                Confidence Score
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step="0.01"
-                value={editedDocument.confidence_score || 0}
-                onChange={(e) => updateField('confidence_score', parseFloat(e.target.value))}
-                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
-              />
-              <p className="text-sm text-muted-foreground mt-1">
-                Value between 0.00 and 1.00 (current: {((editedDocument.confidence_score || 0) * 100).toFixed(1)}%)
-              </p>
-            </div>
-          )}
-        </div>
+                  </div>
 
         {/* Footer */}
         <div className="flex items-center justify-end space-x-4 p-6 border-t border-border">
