@@ -21,10 +21,60 @@ export const FinancialStatements: React.FC = () => {
   const currentDate = new Date();
   
   // Filter state - shared with WhereDidTheMoneyGo component
-  // Simple year/month/status approach
-  const [filterYear, setFilterYear] = useState<number>(currentDate.getFullYear());
-  const [filterMonth, setFilterMonth] = useState<number>(currentDate.getMonth() + 1);
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  // Simple year/month/status approach with localStorage persistence
+  const getSavedFilters = () => {
+    try {
+      const saved = localStorage.getItem('financial-statements-filters');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Validate the saved filters
+        const filterYear = parsed.filterYear || currentDate.getFullYear();
+        const filterMonth = parsed.filterMonth !== undefined ? parsed.filterMonth : currentDate.getMonth() + 1;
+        const filterStatus = parsed.filterStatus || 'all';
+        
+        // Clear invalid filters (e.g., if filterMonth is invalid)
+        // Note: filterMonth = 0 is valid for YTD, filterMonth 1-12 are valid for individual months
+        if (filterMonth < 0 || filterMonth > 12) {
+          console.log('🗑️ Clearing invalid filters from localStorage');
+          localStorage.removeItem('financial-statements-filters');
+          return {
+            filterYear: currentDate.getFullYear(),
+            filterMonth: currentDate.getMonth() + 1,
+            filterStatus: 'all'
+          };
+        }
+        
+        return {
+          filterYear,
+          filterMonth,
+          filterStatus
+        };
+      }
+    } catch (error) {
+      console.log('Error loading saved filters:', error);
+      // Clear corrupted data
+      localStorage.removeItem('financial-statements-filters');
+    }
+    return {
+      filterYear: currentDate.getFullYear(),
+      filterMonth: currentDate.getMonth() + 1,
+      filterStatus: 'all'
+    };
+  };
+
+  const savedFilters = getSavedFilters();
+  console.log('🔄 Loading saved filters:', savedFilters);
+  const [filterYear, setFilterYear] = useState<number>(savedFilters.filterYear);
+  const [filterMonth, setFilterMonth] = useState<number>(savedFilters.filterMonth);
+  const [filterStatus, setFilterStatus] = useState<string>(savedFilters.filterStatus);
+  
+  // Document sorting state
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // desc = newest first
+  
+  // Debug current filter values
+  useEffect(() => {
+    console.log('📊 Current filter values:', { filterYear, filterMonth, filterStatus });
+  }, [filterYear, filterMonth, filterStatus]);
   
   // Shared document selection state
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
@@ -123,6 +173,24 @@ export const FinancialStatements: React.FC = () => {
   useEffect(() => {
     loadDocuments();
   }, [dbUserId]);
+
+  // Save filter state to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      // Only save valid filter values
+      if (filterYear && filterMonth !== undefined && filterStatus) {
+        const filterState = {
+          filterYear,
+          filterMonth,
+          filterStatus
+        };
+        console.log('💾 Saving filters to localStorage:', filterState);
+        localStorage.setItem('financial-statements-filters', JSON.stringify(filterState));
+      }
+    } catch (error) {
+      console.log('Error saving filters:', error);
+    }
+  }, [filterYear, filterMonth, filterStatus]);
 
   // Sync selected document when selection changes
   useEffect(() => {
@@ -1089,6 +1157,17 @@ export const FinancialStatements: React.FC = () => {
             if (filterMonth !== 0 && docMonth !== filterMonth) return false;
 
             return true;
+          }).sort((a, b) => {
+            // Sort by start date
+            const dateA = new Date(a.start_date || a.analysis_result?.start_date || '');
+            const dateB = new Date(b.start_date || b.analysis_result?.start_date || '');
+            
+            // Handle invalid dates
+            if (isNaN(dateA.getTime())) return 1;
+            if (isNaN(dateB.getTime())) return -1;
+            
+            // Sort based on sortOrder
+            return sortOrder === 'desc' ? dateB.getTime() - dateA.getTime() : dateA.getTime() - dateB.getTime();
           });
 
           console.log('🎯 DEBUG: FinancialStatements filter result:', {
@@ -1108,7 +1187,19 @@ export const FinancialStatements: React.FC = () => {
               <thead className="bg-muted/50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Document</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Period</th>
+                  <th 
+  className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground transition-colors"
+  onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+>
+  <div className="flex items-center gap-1">
+    Period
+    {sortOrder === 'desc' ? (
+      <ChevronDown className="w-3 h-3" />
+    ) : (
+      <ChevronUp className="w-3 h-3" />
+    )}
+  </div>
+</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Revenue</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Net Profit</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
@@ -1433,7 +1524,7 @@ export const FinancialStatements: React.FC = () => {
                             setShowCalendar(false);
                           }}
                           disabled={!selectedStartDate || !selectedEndDate}
-                          className="px-3 py-1 bg-primary text-primary-foreground rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1 bg-primary text-black rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Apply
                         </button>
