@@ -106,6 +106,7 @@ export interface FinancialDocument {
   document_type: DocumentType;
   start_date: string;
   end_date: string;
+  filename?: string;
   raw_json?: any;
   summary_metrics?: any;
   confidence_score?: number;

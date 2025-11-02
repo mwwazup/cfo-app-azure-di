@@ -12,11 +12,14 @@ import { useAuthContext } from '../../contexts/auth-context';
 import { formatCurrency } from '../../utils/formatters';
 
 interface WhereDidTheMoneyGoProps {
+  // Shared filter state from parent component
+  selectedPeriod?: string;
+  setSelectedPeriod?: (period: string) => void;
   // Simple year/month/status filter state
   filterYear?: number;
   setFilterYear?: (value: number) => void;
-  filterMonth?: number;
-  setFilterMonth?: (value: number) => void;
+  filterMonth?: number | 'ytd';
+  setFilterMonth?: (value: number | 'ytd') => void;
   filterStatus?: string;
   setFilterStatus?: (value: string) => void;
 }
@@ -32,9 +35,12 @@ interface ChartCardProps {
   dateRange: string;
   documents?: any[]; // Optional documents array for YTD calculations
   isYTD?: boolean; // Flag to indicate YTD mode
+  previousYear?: number; // Previous year for comparison (e.g., 2024)
+  previousMonth?: string; // Previous month name for comparison (e.g., "September 2025")
+  comparisonType?: 'year-over-year' | 'period-over-period' | 'none'; // Type of comparison to show
 }
 
-function ChartCard({ title, value, percentage, color, trendDirection, trendValue, dateRange, documents, isYTD }: ChartCardProps) {
+function ChartCard({ title, value, percentage, color, trendDirection, trendValue, dateRange, documents, isYTD, previousYear, previousMonth, comparisonType = 'year-over-year' }: ChartCardProps) {
   // Create chart data - using percentage for the radial fill
   const chartData = [
     { 
@@ -50,16 +56,6 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
   const cappedPercentage = Math.min(absolutePercentage, 100);
   const dynamicEndAngle = (cappedPercentage / 100) * 360;
   
-  // Debug logging for chart rendering
-  console.log(`📈 Chart ${title}:`, { 
-    value, 
-    percentage, 
-    absolutePercentage, 
-    cappedPercentage, 
-    dynamicEndAngle,
-    color 
-  });
-
   // Determine trend icon and color
   const TrendIcon = trendDirection === 'up' ? TrendingUp : TrendingDown;
   const trendColor = trendDirection === 'up' ? 'text-green-400' : 
@@ -129,9 +125,31 @@ function ChartCard({ title, value, percentage, color, trendDirection, trendValue
             {(() => {
               const valueText = formatCurrency(value);
               const percentageText = percentage.toFixed(1);
-              const trendText = trendDirection !== 'neutral' && trendValue > 0
-                ? `This is a ${trendValue.toFixed(1)}% ${trendDirection === 'up' ? 'increase' : 'decrease'} from the previous period`
-                : 'No previous period data available for comparison';
+              
+              // Dynamic trend text based on comparison type
+              const getTrendText = () => {
+                if (comparisonType === 'none') {
+                  return 'No previous period data available for comparison';
+                }
+                
+                if (trendDirection === 'neutral') {
+                  if (comparisonType === 'year-over-year') {
+                    return `This is unchanged from the same period in ${previousYear}`;
+                  } else {
+                    return `This is unchanged from ${previousMonth || 'the previous month'}`;
+                  }
+                }
+                
+                if (comparisonType === 'year-over-year' && previousYear) {
+                  return `This is a ${trendValue.toFixed(1)}% ${trendDirection === 'up' ? 'increase' : 'decrease'} from the same period in ${previousYear}`;
+                } else if (comparisonType === 'period-over-period') {
+                  return `This is a ${trendValue.toFixed(1)}% ${trendDirection === 'up' ? 'increase' : 'decrease'} from ${previousMonth || 'the previous month'}`;
+                } else {
+                  return `This is a ${trendValue.toFixed(1)}% ${trendDirection === 'up' ? 'increase' : 'decrease'} from the previous period`;
+                }
+              };
+              
+              const trendText = getTrendText();
               
               if (title === 'Total Revenue') {
                 const verbText = isYTD ? 'is' : 'was';
@@ -215,6 +233,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
   const [localFilterYear, setLocalFilterYear] = useState<number>(currentDate.getFullYear());
   const [localFilterMonth, setLocalFilterMonth] = useState<number>(currentDate.getMonth() + 1);
   const [localFilterStatus, setLocalFilterStatus] = useState<string>('all');
+  const [localSelectedPeriod, setLocalSelectedPeriod] = useState<string>('current_month');
   
   const filterYear = props.filterYear ?? localFilterYear;
   const setFilterYear = props.setFilterYear ?? setLocalFilterYear;
@@ -222,6 +241,8 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
   const setFilterMonth = props.setFilterMonth ?? setLocalFilterMonth;
   const filterStatus = props.filterStatus ?? localFilterStatus;
   const setFilterStatus = props.setFilterStatus ?? setLocalFilterStatus;
+  const selectedPeriod = props.selectedPeriod ?? localSelectedPeriod;
+  const setSelectedPeriod = props.setSelectedPeriod ?? setLocalSelectedPeriod;
   
   const [documents, setDocuments] = useState<any[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
@@ -249,10 +270,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         }
         
         const result = await response.json();
-        console.log('📄 WhereDidTheMoneyGo API Response:', result);
-        
         const documentsData = result.data || [];
-        console.log('📋 Raw documents from API:', documentsData);
         
         // Transform documents to flatten analysis_result data (same as FinancialStatements component)
         const transformedDocuments = documentsData.map((doc: any) => {
@@ -296,10 +314,8 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     }
 
     // For YTD, aggregate all documents from the selected year
-    if (filterMonth === 0) { // Month 0 represents YTD
-      console.log('📊 YTD mode: aggregating all documents from year', filterYear);
-      
-      // Get ALL documents from the selected year (not just filtered ones)
+    if (filterMonth === 'ytd') {
+      // YTD mode: aggregate all documents from the year
       const ytdDocuments = documents
         .filter(doc => {
           // Status filter
@@ -586,15 +602,28 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
       end = new Date(endDate + 'T00:00:00');
     }
     
-    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
-      return start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    // FIX: Use UTC methods to avoid timezone conversion issues
+    // UTC midnight Feb 28 should still be February, not January in Mountain Time
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    const startUTCMonth = start.getUTCMonth();
+    const startUTCYear = start.getUTCFullYear();
+    const endUTCMonth = end.getUTCMonth();
+    const endUTCYear = end.getUTCFullYear();
+    
+    if (startUTCMonth === endUTCMonth && startUTCYear === endUTCYear) {
+      // Same month - single month label
+      return `${monthNames[startUTCMonth]} ${startUTCYear}`;
     }
     
-    if (start.getFullYear() === end.getFullYear()) {
-      return `${start.toLocaleDateString('en-US', { month: 'short' })} - ${end.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
+    if (startUTCYear === endUTCYear) {
+      // Same year, different months
+      return `${monthNames[startUTCMonth]} - ${monthNames[endUTCMonth]} ${endUTCYear}`;
     }
     
-    return `${start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
+    // Different years
+    return `${monthNames[startUTCMonth]} ${startUTCYear} - ${monthNames[endUTCMonth]} ${endUTCYear}`;
   };
 
   // Get available documents for selection - filter by year, month, and status
@@ -625,8 +654,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
           docDate = new Date(startDate + 'T00:00:00');
         }
         
-        const docYear = docDate.getFullYear();
-        const docMonth = docDate.getMonth() + 1;
+        // FIX: Use UTC methods to avoid timezone conversion issues
+        // UTC May 1 should still be May, not April in Mountain Time
+        const docYear = docDate.getUTCFullYear();
+        const docMonth = docDate.getUTCMonth() + 1;
 
         // Filter by year
         if (docYear !== filterYear) return false;
@@ -751,22 +782,37 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
   const findPreviousPeriodDocument = (currentDoc: any) => {
     if (!currentDoc || !currentDoc.start_date) return null;
     
+    // FIX: Use UTC methods to avoid timezone conversion issues
     const currentStartDate = new Date(currentDoc.start_date);
     
-    // Look for documents from previous periods
-    const previousDocs = documents.filter(doc => {
-      if (!doc.start_date || doc.id === currentDoc.id) return false;
+    // CRITICAL FIX: Use the same documents array that contains all the data
+    // The debug output shows 'documents' has all 22 items while 'availableDocuments' only has 1
+    const allDocuments = documents;
+    
+    // First, sort ALL documents by start_date descending (most recent first)
+    const sortedDocuments = allDocuments
+      .filter(doc => doc.start_date) // Only documents with dates
+      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
+    
+    // Find the first document that comes before the current document
+    const previousDoc = sortedDocuments.find(doc => {
+      if (doc.id === currentDoc.id) return false;
       
+      // FIX: Use UTC methods to avoid timezone conversion issues
       const docStartDate = new Date(doc.start_date);
-      return docStartDate < currentStartDate;
+      const isPrevious = docStartDate.getTime() < currentStartDate.getTime();
+      
+      if (isPrevious) {
+        return true;
+      }
+      return false;
     });
     
-    if (previousDocs.length === 0) return null;
+    if (!previousDoc) {
+      return null;
+    }
     
-    // Sort by start_date descending and get the most recent previous document
-    return previousDocs.sort((a, b) => 
-      new Date(b.start_date).getTime() - new Date(a.start_date).getTime()
-    )[0];
+    return previousDoc;
   };
 
   // Helper function to calculate trend percentage
@@ -800,13 +846,14 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     const opexTotal = kpis.opex_total || 0;
     const totalExpenses = kpis.total_expenses || (cogsTotal + opexTotal);
     const netProfit = kpis.net_profit || (totalRevenue - totalExpenses);
-    
-    // Get owner distributions and date range
     const ownerDistributions = kpis.owner_distributions || 0;
-    const cashLeft = netProfit - ownerDistributions; // Cash remaining after owner distributions
+    
+    // Calculate cash left for growth
+    const cashLeft = totalRevenue - totalExpenses - ownerDistributions;
+    
+    // Check if this is YTD data
     const isYTD = kpis.is_ytd || false;
-
-    // Define colors based on the dashboard palette
+    
     const colors = {
       revenue: '#d0b568', // Gold for revenue
       cogs: '#124a6b', // Blue 700 for COGS
@@ -832,58 +879,101 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     }
 
-    // Find previous period document for trend calculations (only for single month view)
-    const selectedDoc = !isYTD ? documents.find(doc => doc.id === selectedDocumentId) : null;
-    const previousDoc = selectedDoc ? findPreviousPeriodDocument(selectedDoc) : null;
+    // Find previous period document for trend calculations
+    // For YTD: compare YTD current year vs YTD previous year
+    // For single month: compare current month vs previous month
     let previousRevenue = 0;
     let previousExpenses = 0;
     let previousCogs = 0;
     let previousOpex = 0;
     let previousNetProfit = 0;
     let previousOwnerDistributions = 0;
+    let hasValidComparison = false;
+    let previousDoc = null; // Store the previous document for reuse
 
-    if (previousDoc) {
-      // Extract previous period data using same logic as current
-      const prevSummaryMetrics = previousDoc.summary_metrics || {};
-      const prevRawJson = previousDoc.raw_json || {};
-      
-      previousRevenue = prevSummaryMetrics.totalRevenue 
-        || prevSummaryMetrics.revenue 
-        || prevRawJson.revenue?.value 
-        || 0;
-        
-      previousCogs = prevSummaryMetrics.cost_of_goods_sold 
-        || prevSummaryMetrics.cogs 
-        || prevRawJson.cost_of_goods_sold?.value
-        || 0;
-        
-      previousOpex = prevSummaryMetrics.operating_expenses 
-        || prevSummaryMetrics.opex
-        || prevRawJson.operating_expenses?.value
-        || 0;
-        
-      const prevOwnerDistributionsRaw = prevRawJson.ownerDistributions;
-      previousOwnerDistributions = (typeof prevOwnerDistributionsRaw === 'object' && prevOwnerDistributionsRaw?.value)
-                                  ? prevOwnerDistributionsRaw.value
-                                  : (typeof prevOwnerDistributionsRaw === 'number' ? prevOwnerDistributionsRaw : 0) ||
-                                    prevSummaryMetrics.ownerDistributions || 
-                                    0;
-      
-      previousExpenses = previousCogs + previousOpex;
-      previousNetProfit = previousRevenue - previousExpenses;
-      
-      console.log('📊 Previous period data:', {
-        document: formatPeriodLabel(previousDoc.start_date || '', previousDoc.end_date || ''),
-        revenue: previousRevenue,
-        expenses: previousExpenses,
-        netProfit: previousNetProfit,
-        ownerDistributions: previousOwnerDistributions
+    if (isYTD) {
+      // YTD comparison: aggregate same months from previous year
+      const previousYearDocs = documents.filter(doc => {
+        if (!doc.start_date) return false;
+        const docYear = new Date(doc.start_date).getFullYear();
+        const docMonth = new Date(doc.start_date).getMonth() + 1;
+        return docYear === filterYear - 1 && docMonth <= (filterMonth === 0 || filterMonth === 'ytd' ? new Date().getMonth() + 1 : filterMonth);
       });
-    }
+
+      if (previousYearDocs.length > 0) {
+        previousYearDocs.forEach(doc => {
+          const prevSummaryMetrics = doc.summary_metrics || {};
+          const prevRawJson = doc.raw_json || {};
+          
+          const revenue = prevSummaryMetrics.totalRevenue 
+            || prevSummaryMetrics.revenue 
+            || prevRawJson.revenue?.value 
+            || 0;
+          const cogs = prevSummaryMetrics.cost_of_goods_sold 
+            || prevSummaryMetrics.cogs 
+            || prevRawJson.cost_of_goods_sold?.value
+            || 0;
+          const opex = prevSummaryMetrics.operating_expenses 
+            || prevSummaryMetrics.opex
+            || prevRawJson.operating_expenses?.value
+            || 0;
+          const ownerDist = (typeof prevRawJson.ownerDistributions === 'object' && prevRawJson.ownerDistributions?.value)
+            ? prevRawJson.ownerDistributions.value
+            : (typeof prevRawJson.ownerDistributions === 'number' ? prevRawJson.ownerDistributions : 0) ||
+              prevSummaryMetrics.ownerDistributions || 0;
+          
+          previousRevenue += revenue;
+          previousCogs += cogs;
+          previousOpex += opex;
+          previousOwnerDistributions += ownerDist;
+        });
+        
+        previousExpenses = previousCogs + previousOpex;
+        previousNetProfit = previousRevenue - previousExpenses;
+        hasValidComparison = true;
+      }
+    } else {
+        // Single month comparison: find previous period document
+        const selectedDoc = documents.find(doc => doc.id === selectedDocumentId);
+        previousDoc = selectedDoc ? findPreviousPeriodDocument(selectedDoc) : null;
+        
+        if (previousDoc) {
+          // Extract financial data from previous document
+          const prevSummaryMetrics = previousDoc.summary_metrics || {};
+          const prevRawJson = previousDoc.raw_json || {};
+          
+          previousRevenue = prevSummaryMetrics.totalRevenue 
+            || prevSummaryMetrics.revenue 
+            || prevRawJson.total_revenue?.value
+            || prevRawJson.revenue?.value
+            || 0;
+          
+          previousCogs = prevSummaryMetrics.cost_of_goods_sold
+            || prevSummaryMetrics.cogs
+            || prevRawJson.cost_of_goods_sold?.value
+            || prevRawJson.cogs?.value
+            || 0;
+          
+          previousOpex = prevSummaryMetrics.operating_expenses
+            || prevSummaryMetrics.opex
+            || prevRawJson.operating_expenses?.value
+            || prevRawJson.operatingExpenses?.value
+            || 0;
+          
+          previousOwnerDistributions = prevSummaryMetrics.owner_distributions
+            || prevSummaryMetrics.ownerDistributions
+            || prevRawJson.owner_distributions?.value
+            || prevRawJson.ownerDistributions?.value
+            || 0;
+          
+          previousExpenses = previousCogs + previousOpex;
+          previousNetProfit = previousRevenue - previousExpenses;
+          hasValidComparison = true;
+        }
+      }
 
     // Calculate trends
     const revenueTrend = calculateTrend(totalRevenue, previousRevenue);
-    const expensesTrend = calculateTrend(totalExpenses, previousExpenses);
     const netProfitTrend = calculateTrend(netProfit, previousNetProfit);
     const cogsTrend = calculateTrend(cogsTotal, previousCogs);
     const opexTrend = calculateTrend(opexTotal, previousOpex);
@@ -892,6 +982,37 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     // Calculate Cash Left for Growth trend
     const previousCashLeft = previousNetProfit - previousOwnerDistributions;
     const cashLeftTrend = calculateTrend(cashLeft, previousCashLeft);
+
+    // Determine comparison type with explicit typing
+    const comparisonType: 'year-over-year' | 'period-over-period' | 'none' = 
+      hasValidComparison ? (isYTD ? 'year-over-year' : 'period-over-period') : 'none';
+
+    // Determine previous year for display
+    const currentYear = filterYear || new Date().getFullYear();
+    const previousYear = hasValidComparison ? 
+      (isYTD ? currentYear - 1 : 
+        (selectedDocumentId ? 
+          new Date(documents.find(doc => doc.id === selectedDocumentId)?.start_date || '').getFullYear() - 1 : 
+          currentYear - 1)) : 
+      undefined;
+
+    // Calculate previous month name for display (only for single month comparisons)
+    const previousMonth = !isYTD && hasValidComparison && previousDoc ? (() => {
+      // Use the already found previous document's date
+      const prevDate = new Date(previousDoc.start_date);
+      
+      // FIX: Use UTC methods to avoid timezone conversion issues
+      // Simple date strings like '2025-02-01' parse as UTC midnight, but getMonth() 
+      // returns local timezone which can shift the month
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+      
+      const utcMonth = prevDate.getUTCMonth();
+      const utcYear = prevDate.getUTCFullYear();
+      const monthName = `${monthNames[utcMonth]} ${utcYear}`;
+      
+      return monthName;
+    })() : undefined;
 
     // Create chart data array - ALWAYS 6 cards in specific order
     // Row 1: Total Revenue, Cost of Goods, Operating Expenses
@@ -905,7 +1026,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         color: colors.revenue,
         trendDirection: revenueTrend.direction,
         trendValue: revenueTrend.percentage,
-        dateRange
+        dateRange,
+        previousYear,
+        previousMonth,
+        comparisonType
       },
       {
         title: 'Cost of Goods',
@@ -914,7 +1038,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         color: colors.cogs,
         trendDirection: cogsTrend.direction,
         trendValue: cogsTrend.percentage,
-        dateRange
+        dateRange,
+        previousYear,
+        previousMonth,
+        comparisonType
       },
       {
         title: 'Operating Expenses',
@@ -923,7 +1050,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         color: colors.expenses,
         trendDirection: opexTrend.direction,
         trendValue: opexTrend.percentage,
-        dateRange
+        dateRange,
+        previousYear,
+        previousMonth,
+        comparisonType
       },
       // ROW 2 - LEFT TO RIGHT
       {
@@ -933,7 +1063,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         color: colors.cashLeft,
         trendDirection: netProfitTrend.direction,
         trendValue: netProfitTrend.percentage,
-        dateRange
+        dateRange,
+        previousYear,
+        previousMonth,
+        comparisonType
       },
       {
         title: 'Owner Distributions',
@@ -942,7 +1075,10 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         color: colors.ownerDistributions,
         trendDirection: ownerDistributionsTrend.direction,
         trendValue: ownerDistributionsTrend.percentage,
-        dateRange
+        dateRange,
+        previousYear,
+        previousMonth,
+        comparisonType
       },
       {
         title: 'Cash Left for Growth',
@@ -951,17 +1087,12 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         color: cashLeft >= 0 ? '#026b48ff' : '#EF4444', // Green if positive, red if negative
         trendDirection: cashLeftTrend.direction,
         trendValue: cashLeftTrend.percentage,
-        dateRange
+        dateRange,
+        previousYear,
+        previousMonth,
+        comparisonType
       }
     ];
-
-    console.log('💰 Radial Chart Data:', { 
-      current: { totalRevenue, totalExpenses, netProfit, ownerDistributions, cashLeft },
-      previous: { revenue: previousRevenue, expenses: previousExpenses, netProfit: previousNetProfit, ownerDistributions: previousOwnerDistributions },
-      trends: { revenueTrend, expensesTrend, netProfitTrend, ownerDistributionsTrend },
-      charts,
-      isYTD 
-    });
 
     // Enhanced data validation - ensure we have meaningful financial data
     const hasValidData = totalRevenue > 0 || totalExpenses > 0 || netProfit !== 0;
@@ -1049,7 +1180,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>Viewing:</span>
             <span className="font-medium text-foreground">
-              {filterMonth === 0 ? 'Year to Date' : new Date(filterYear, filterMonth - 1).toLocaleDateString('en-US', { month: 'long' })}
+              {filterMonth === 0 || filterMonth === 'ytd' ? 'Year to Date' : new Date(filterYear, (filterMonth as number) - 1).toLocaleDateString('en-US', { month: 'long' })}
             </span>
             <span className="font-medium text-foreground">{filterYear}</span>
             {filterStatus !== 'all' && (
@@ -1175,6 +1306,9 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
                     dateRange={chart.dateRange}
                     documents={documents}
                     isYTD={radialChartsData.isYTD}
+                    previousYear={chart.previousYear}
+                    previousMonth={chart.previousMonth}
+                    comparisonType={chart.comparisonType}
                   />
                 ))}
               </div>
@@ -1194,6 +1328,9 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
                       dateRange={chart.dateRange}
                       documents={documents}
                       isYTD={radialChartsData.isYTD}
+                      previousYear={chart.previousYear}
+                      previousMonth={chart.previousMonth}
+                      comparisonType={chart.comparisonType}
                     />
                   ))}
                 </div>

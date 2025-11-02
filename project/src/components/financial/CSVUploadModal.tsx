@@ -82,11 +82,11 @@ export const CSVUploadModal: React.FC<CSVUploadModalProps> = ({
 
       // Create a financial document from CSV data
       const documentData = {
-        user_id: dbUserId,
+        userId: dbUserId,
         document_type: parseResult.data.documentType,
         status: 'completed',
-        start_date: parseResult.data.document.start_date || new Date().toISOString().split('T')[0],
-        end_date: parseResult.data.document.end_date || new Date().toISOString().split('T')[0],
+        start_date: parseResult.data.document.start_date || new Date().toISOString(),
+        end_date: parseResult.data.document.end_date || new Date().toISOString(),
         file_name: file.name,
         source: 'csv_upload',
         raw_json: parseResult.data.extractedFields,

@@ -9,6 +9,8 @@ interface ManualPLFormProps {
   onClose: () => void;
   onSave: () => void;
   onCashflowSync?: (data: CashflowSyncData) => void;
+  initialData?: Partial<PLFormData>;
+  documentId?: string; // If provided, we're editing an existing document
 }
 
 interface CashflowSyncData {
@@ -30,22 +32,26 @@ interface PLFormData {
   operatingExpenses: number;
   ownerDistributions: number;
   taxes: number;
+  filename?: string;
 }
 
 export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({ 
   onClose, 
   onSave, 
-  onCashflowSync 
+  onCashflowSync,
+  initialData,
+  documentId 
 }) => {
   const { dbUserId } = useAuthContext();
   const [formData, setFormData] = useState<PLFormData>({
-    startDate: '',
-    endDate: '',
-    revenue: 0,
-    cogs: 0,
-    operatingExpenses: 0,
-    ownerDistributions: 0,
-    taxes: 0,
+    startDate: initialData?.startDate || '',
+    endDate: initialData?.endDate || '',
+    revenue: initialData?.revenue || 0,
+    cogs: initialData?.cogs || 0,
+    operatingExpenses: initialData?.operatingExpenses || 0,
+    ownerDistributions: initialData?.ownerDistributions || 0,
+    taxes: initialData?.taxes || 0,
+    filename: initialData?.filename,
   });
   
   const [isSaving, setIsSaving] = useState(false);
@@ -90,8 +96,30 @@ export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({
     
     try {
       const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-      const response = await fetch(`${API_BASE_URL}/api/financial-documents`, {
-        method: 'POST',
+      
+      // Determine if we're creating or updating
+      const isEditing = !!documentId;
+      const url = isEditing 
+        ? `${API_BASE_URL}/api/financial-documents/${documentId}`
+        : `${API_BASE_URL}/api/financial-documents`;
+      const method = isEditing ? 'PUT' : 'POST';
+      
+      console.log(`${isEditing ? '✏️ Updating' : '➕ Creating'} document${isEditing ? ` ${documentId}` : ''}`);
+      
+      // Generate proper filename from dates if not provided
+      let filename = formData.filename;
+      if (!filename && formData.startDate) {
+        const startDate = new Date(formData.startDate);
+        const year = startDate.getFullYear();
+        const month = String(startDate.getMonth() + 1).padStart(2, '0');
+        const day = String(startDate.getDate()).padStart(2, '0');
+        filename = `${year}_${month}_${day}_pnl.csv`;
+      } else if (!filename) {
+        filename = `manual_pnl_${Date.now()}.json`;
+      }
+      
+      const response = await fetch(url, {
+        method: method,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -116,8 +144,8 @@ export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({
           },
           confidence_score: 1.0,
           status: 'approved',
-          source: 'manual_entry',
-          filename: `manual_pnl_${Date.now()}.json`
+          source: formData.filename ? 'csv_upload' : 'manual_entry',
+          filename: filename
         }),
       });
 
@@ -126,7 +154,7 @@ export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({
       }
 
       const result = await response.json();
-      console.log('✅ P&L document saved successfully:', result.data?.id);
+      console.log(`✅ P&L document ${isEditing ? 'updated' : 'created'} successfully:`, result.data?.id || documentId);
       
       onSave();
       onClose();
@@ -138,7 +166,7 @@ export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
         </svg>
-        P&L statement saved successfully!
+        P&L statement ${isEditing ? 'updated' : 'saved'} successfully!
       `;
       document.body.appendChild(notification);
       setTimeout(() => {
@@ -181,7 +209,7 @@ export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <DollarSign className="h-6 w-6 text-accent" />
-              Manual P&L Entry
+              {documentId ? 'Edit P&L Entry' : 'Manual P&L Entry'}
             </h2>
             <button
               onClick={onClose}
@@ -191,7 +219,7 @@ export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({
             </button>
           </div>
           <p className="text-muted-foreground mt-2">
-            Enter your P&L data using the same fields as the Business Cash Flow Calculator
+            {documentId ? 'Update your P&L data' : 'Enter your P&L data using the same fields as the Business Cash Flow Calculator'}
           </p>
         </div>
 
@@ -236,7 +264,7 @@ export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Calculator className="h-5 w-5" />
-                Financial Data (Matches Business Cash Flow Calculator)
+                Financial Data
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -349,7 +377,7 @@ export const ManualPLFormSimplified: React.FC<ManualPLFormProps> = ({
               className="flex items-center gap-2"
             >
               <Save className="h-4 w-4" />
-              {isSaving ? 'Saving...' : 'Save P&L Statement'}
+              {isSaving ? (documentId ? 'Updating...' : 'Saving...') : (documentId ? 'Update P&L Statement' : 'Save P&L Statement')}
             </Button>
           </div>
         </form>
