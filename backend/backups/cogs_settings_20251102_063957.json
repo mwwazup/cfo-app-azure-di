@@ -1,0 +1,38 @@
+[
+  {
+    "id": "68e5bef9-5b4f-45f0-b45e-144284d25ba7",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "service_name": "grill",
+    "cost_per_service": 19.2,
+    "created_at": "2025-10-21T12:45:51.548615",
+    "updated_at": "2025-10-21T12:45:51.548615",
+    "service_id": null
+  },
+  {
+    "id": "3c7cc452-2e33-4319-b00b-095feb0901e4",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "service_name": "oven",
+    "cost_per_service": 16.2,
+    "created_at": "2025-10-21T12:45:51.677714",
+    "updated_at": "2025-10-21T12:45:51.677714",
+    "service_id": null
+  },
+  {
+    "id": "df0906f1-3a2d-42b8-b821-3e86c79a9643",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "service_name": "range",
+    "cost_per_service": 9.35,
+    "created_at": "2025-10-21T12:45:51.813618",
+    "updated_at": "2025-10-21T12:45:51.813618",
+    "service_id": null
+  },
+  {
+    "id": "e93c2240-700d-4142-91c7-e61a905ffa47",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "service_name": "ventHood",
+    "cost_per_service": 5.95,
+    "created_at": "2025-10-21T12:45:51.930847",
+    "updated_at": "2025-10-21T12:45:51.930847",
+    "service_id": null
+  }
+]

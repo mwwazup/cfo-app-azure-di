@@ -1,0 +1,13 @@
+[
+  {
+    "id": "a3745623-c7be-4357-a69a-4d53ba2b33e6",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "overhead_percent": 32.0,
+    "bonus_threshold_min": 25.0,
+    "bonus_threshold_max": 100.0,
+    "overtime_hours_daily": 12.0,
+    "overtime_multiplier": 1.5,
+    "created_at": "2025-10-21T02:04:41.197352",
+    "updated_at": "2025-10-21T12:46:03.406092"
+  }
+]

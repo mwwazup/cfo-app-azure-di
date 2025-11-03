@@ -1,0 +1,179 @@
+# WaveRider Project Rules for Cascade AI
+# Rename this file to: .windsurfrules (remove .md extension)
+# These rules guide AI behavior to maintain consistency and prevent unwanted changes
+
+## CRITICAL: Data Safety
+- NEVER use DROP TABLE in migrations - always use ALTER TABLE
+- ALWAYS backup database before running migrations (python backup_database.py)
+- NEVER delete data without explicit user confirmation
+- Check for destructive SQL commands (DROP, DELETE, TRUNCATE) before suggesting migrations
+
+## UI/Styling Guidelines - READ THIS CAREFULLY ⚠️
+- Use existing Tailwind CSS classes - DO NOT create custom CSS unless explicitly asked
+- Match the current design system - professional, clean, financial dashboard aesthetic
+- Color scheme: Blues and grays for primary UI, gold/yellow for highlights (FIR line)
+- NEVER change styling unless user specifically asks for visual changes
+- Keep consistent spacing and layout patterns across all pages
+- If user says "fix the button" - fix functionality, NOT the styling
+- DO NOT add fancy animations, gradients, or "modern" effects without permission
+
+## Component Standards
+- Use existing UI components from /components/ui/ (shadcn/ui library)
+- Follow established component patterns already in the codebase
+- DO NOT create new component libraries or design systems
+- Maintain consistent button styles, card layouts, and form patterns
+- If a component exists, use it - don't create a new one
+
+## Code Style & Conventions
+- TypeScript for all frontend code
+- Python for all backend code
+- Use existing service patterns (e.g., revenueKPIGenerator.ts, kpiRecordsService.ts)
+- Follow existing naming conventions (camelCase for JS/TS, snake_case for Python/DB)
+- Keep functions focused and single-purpose
+- Add comments for complex logic only
+
+## Architecture Rules - DO NOT CHANGE
+- Frontend: React + TypeScript + Vite
+- Backend: FastAPI + Python
+- Database: Supabase (PostgreSQL)
+- Auth: Clerk (working, don't touch)
+- State: React Context API (revenue-context.tsx, auth-context.tsx)
+- DO NOT introduce new frameworks or major libraries without discussion
+- DO NOT suggest "upgrading" to Redux, MobX, or other state management
+
+## Data Flow - Single Source of Truth
+- FIR targets: revenue_entries.desired_revenue (calculated by calculateMonthlyFIRTargets)
+- User ID: Clerk user ID (e.g., user_33fQP5vCktD5cLZwkg7fbysz2JS)
+- All pages must use the same data source
+- NO custom goal overrides (we removed that feature intentionally)
+- KPIs calculate from actual database data, not hardcoded values
+- Master Revenue page is the source of truth for FIR targets
+- No hardcoded values or dates, all data must come from the database
+
+## What NOT to Change Without Permission
+- Database schema (always ask first and create safe migration)
+- Authentication flow (Clerk integration is working perfectly)
+- Core business logic (FIR calculations, KPI generation)
+- File structure (don't reorganize folders without asking)
+- Existing working features (if it ain't broke, don't fix it)
+- Color schemes or visual design
+- Component library (shadcn/ui is our standard)
+
+## When User Says "Fix X" - STAY FOCUSED
+- Fix ONLY X - nothing else
+- Don't refactor surrounding code "while you're at it"
+- Don't change styling "to make it look better"
+- Don't add features that weren't requested
+- Don't reorganize files or folders
+- Ask "Should I also..." if you think something else needs fixing
+
+## Red Flags - STOP AND ASK USER FIRST
+- Changing more than 3 files for a simple fix
+- Adding new npm/pip packages
+- Modifying database schema
+- Changing authentication logic
+- Introducing new design patterns
+- Refactoring working code
+- Changing CSS/styling for non-visual bugs
+- Suggesting "while we're at it, let's also..."
+
+## Testing & Verification
+- Verify TypeScript compiles before suggesting changes
+- Check that database queries match actual schema
+- Test that changes don't break existing functionality
+- Consider edge cases (empty data, missing fields, etc.)
+- Don't assume - check the actual code
+
+## Communication Style
+- Be concise and direct (user prefers brevity)
+- **NO EMOJIS** - User hates emojis, never use them in code, comments, or messages
+- Explain WHY you're making changes
+- Ask for clarification if requirements are unclear
+- Warn about potential breaking changes
+- Show before/after for significant changes
+- Don't over-explain simple changes
+
+## Project-Specific Context
+- This is a CFO dashboard for small business owners
+- Users are not technical - keep UI simple and intuitive
+- Financial accuracy is CRITICAL - double-check all calculations
+- Performance matters - avoid unnecessary re-renders
+- User has limited coding experience - explain technical concepts when needed
+- User has been building this for months - respect existing patterns
+
+## Backup & Safety Protocol
+- Remind user to backup before migrations: `python backup_database.py`
+- Check for dangerous SQL patterns before suggesting
+- Verify data preservation in schema changes
+- Keep backup system documentation updated
+- Backups stored in: backend/backups/
+
+## Git Workflow
+- User works on: feature/comprehensive-ai-advisor branch
+- Repository: https://github.com/mwwazup/cfo-app-azure-di
+- Commits should have clear, descriptive messages
+- Don't suggest force pushes or dangerous Git operations
+- User is not a Git expert - explain Git operations clearly
+- Do not force push or commit changes without user approval
+
+## Known Issues & Patterns to Avoid
+- Don't process years before 2024 (dummy data causes KPI generation to hang)
+- Don't re-enable automatic KPI refresh modals (causes infinite loops)
+- Don't add Edit Goal feature back (intentionally removed for UX reasons)
+- Column is 'period' not 'kpi_period' in kpi_records table
+- Use .maybeSingle() not .single() for Supabase queries (prevents 406 errors)
+- FIR targets auto-sync on page load (don't suggest manual sync)
+
+## Database Tables & Schema
+- revenue_entries: user_id (TEXT), year, month, actual_revenue, desired_revenue, profit_margin, owner_draws
+- kpi_records: user_id (TEXT), kpi_name, kpi_value, period (not kpi_period!), target_value, status, goal_value
+- financial_documents: user_id (TEXT), document metadata
+- services: user_id (TEXT), service definitions
+- employee_info: user_id (TEXT), employee data
+
+## Common User Requests & How to Handle
+- "Fix the KPI dashboard" → Check data loading, don't change styling
+- "The chart isn't showing" → Debug data flow, don't redesign chart
+- "Add a feature" → Implement exactly what's asked, nothing more
+- "This is broken" → Fix the bug, don't refactor the file
+- "Make it look better" → NOW you can suggest styling changes
+
+## When You're Unsure
+- ASK the user instead of guessing
+- Show options: "I can do A or B, which do you prefer?"
+- Explain trade-offs: "This approach is faster but less flexible"
+- Admit uncertainty: "I'm not sure about X, let me check the code"
+- Don't hallucinate features or APIs that don't exist
+
+## Remember - Core Principles
+1. **User has been building this for months** - respect existing patterns
+2. **If something looks "old" or "could be better"** - user is willing to listen to suggestions but otherwise, leave it alone unless asked
+3. **Consistency > Perfection** - match what's there, don't "improve" it
+4. **Working code > "Best practices"** - don't break things to follow trends
+5. **User's vision > AI's assumptions** - they know their business better than you
+6. **Focus > Feature creep** - do what's asked, nothing more
+7. **Safety first** - backup before destructive operations
+8. **Ask > Assume** - when in doubt, ask the user
+
+## Success Metrics
+- User says "perfect, that's exactly what I needed"
+- Changes work on first try
+- No unintended side effects
+- Styling matches existing design
+- User doesn't have to say "no, not like that"
+- Code is maintainable and follows existing patterns
+
+## Failure Patterns to Avoid
+- "Why did you change the styling? I didn't ask for that"
+- "This looks nothing like the rest of the app"
+- "You broke something that was working"
+- "I just wanted X fixed, why did you change Y and Z?"
+- "This is way more complicated than it needs to be"
+- "Where did all my data go?" (from DROP TABLE)
+
+---
+
+**Last Updated:** November 2, 2025
+**Project:** WaveRider CFO Dashboard
+**User:** Non-technical business owner learning to code
+**AI Assistant:** Cascade (be helpful, focused, and respectful of existing work)

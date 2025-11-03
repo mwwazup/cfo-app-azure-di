@@ -1,0 +1,1140 @@
+[
+  {
+    "id": "aec6de1f-a5bb-4ce6-a6f9-db1ac732d0df",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_01_january_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-10-31T02:54:38.469182+00:00",
+    "created_at": "2025-10-31T02:54:38.469182+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-01-01T07:00:00.000Z",
+    "end_date": "2024-01-31T07:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": -2567,
+      "gross_profit": 27912,
+      "total_revenue": 42291,
+      "cost_of_goods_sold": 14379,
+      "operating_expenses": 30479
+    },
+    "raw_json": {
+      "net_income": {
+        "value": -2567,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 27912,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 42291,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 14379,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 30479,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "e7d1d10d-a9b5-4fdf-847f-8ff8ec9f7c11",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_10_october_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:06:38.419118+00:00",
+    "created_at": "2025-11-01T12:06:38.419118+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-10-01T06:00:00.000Z",
+    "end_date": "2024-10-31T06:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 4699,
+      "gross_profit": 36202,
+      "total_revenue": 54851,
+      "cost_of_goods_sold": 18649,
+      "operating_expenses": 31503,
+      "owner_distributions": 1500
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 4699,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 36202,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 54851,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 18649,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 31503,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 1500,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "57012da6-c488-4046-b45b-8310278f3cfb",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_11_november_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:06:53.477321+00:00",
+    "created_at": "2025-11-01T12:06:53.477321+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-11-01T06:00:00.000Z",
+    "end_date": "2024-11-30T07:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": -1575,
+      "gross_profit": 29134,
+      "total_revenue": 44143,
+      "cost_of_goods_sold": 15009,
+      "operating_expenses": 30709
+    },
+    "raw_json": {
+      "net_income": {
+        "value": -1575,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 29134,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 44143,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 15009,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 30709,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "ca8bf85a-2973-489b-9880-67b0114bfab3",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_12_december_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:07:10.635828+00:00",
+    "created_at": "2025-11-01T12:07:10.635828+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-12-01T07:00:00.000Z",
+    "end_date": "2024-12-31T07:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": -5484,
+      "gross_profit": 24311,
+      "total_revenue": 36835,
+      "cost_of_goods_sold": 12524,
+      "operating_expenses": 29795
+    },
+    "raw_json": {
+      "net_income": {
+        "value": -5484,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 24311,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 36835,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 12524,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 29795,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "c7478960-c296-4ea6-98aa-e2dab3a589b2",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_01_january_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:34:14.697535+00:00",
+    "created_at": "2025-11-01T12:34:14.697535+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-01-01T07:00:00.000Z",
+    "end_date": "2025-01-31T07:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": -2910,
+      "gross_profit": 31735,
+      "total_revenue": 48084,
+      "cost_of_goods_sold": 16349,
+      "operating_expenses": 34645
+    },
+    "raw_json": {
+      "net_income": {
+        "value": -2910,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 31735,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 48084,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 16349,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 34645,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "bddafbe6-909b-4685-9aef-3409405fb1e3",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_08_august_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:38:15.798221+00:00",
+    "created_at": "2025-11-01T12:38:15.798221+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-08-01T00:00:00.000Z",
+    "end_date": "2025-08-31T23:59:59.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 22100,
+      "gross_profit": 61012,
+      "total_revenue": 92443,
+      "cost_of_goods_sold": 31431,
+      "operating_expenses": 38912,
+      "owner_distributions": 7000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 22100,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 61012,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 92443,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 31431,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 38912,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 7000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "7ac6b95f-02f3-43c2-8a15-3b82a7dc05f7",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_12_december_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-02T02:26:03.841691+00:00",
+    "created_at": "2025-11-02T02:26:03.841691+00:00",
+    "updated_at": "2025-11-02T02:26:03.841691+00:00",
+    "start_date": "2025-12-01",
+    "end_date": "2025-12-31",
+    "confidence_score": 1.0,
+    "analysis_result": null,
+    "summary_metrics": {
+      "netProfit": 7516,
+      "grossProfit": 50311,
+      "totalRevenue": 72835,
+      "totalExpenses": 65319,
+      "cashAfterOwnerPay": -4484
+    },
+    "raw_json": {
+      "cogs": {
+        "value": 22524,
+        "confidence": 1,
+        "boundingBox": []
+      },
+      "taxes": {
+        "value": 0,
+        "confidence": 1,
+        "boundingBox": []
+      },
+      "revenue": {
+        "value": 72835,
+        "confidence": 1,
+        "boundingBox": []
+      },
+      "operatingExpenses": {
+        "value": 42795,
+        "confidence": 1,
+        "boundingBox": []
+      },
+      "ownerDistributions": {
+        "value": 12000,
+        "confidence": 1,
+        "boundingBox": []
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "d5bca78b-7fde-41c9-8b95-d019139cb7c5",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_09_september_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:38:28.998629+00:00",
+    "created_at": "2025-11-01T12:38:28.998629+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-09-01T00:00:00.000Z",
+    "end_date": "2025-09-30T23:59:59.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 14545,
+      "gross_profit": 51394,
+      "total_revenue": 77869,
+      "cost_of_goods_sold": 26475,
+      "operating_expenses": 36849,
+      "owner_distributions": 5000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 14545,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 51394,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 77869,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 26475,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 36849,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 5000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "c1239eef-a6ab-4d23-90a7-6dcfe42a99aa",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_10_october_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:38:43.070425+00:00",
+    "created_at": "2025-11-01T12:38:43.070425+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-10-01T00:00:00.000Z",
+    "end_date": "2025-10-31T23:59:59.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 5339,
+      "gross_profit": 41158,
+      "total_revenue": 62361,
+      "cost_of_goods_sold": 21203,
+      "operating_expenses": 35819,
+      "owner_distributions": 2000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 5339,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 41158,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 62361,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 21203,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 35819,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 2000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "6969b679-be67-453d-b3a3-44ae13c4e50e",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_02_february_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:40:31.626894+00:00",
+    "created_at": "2025-11-01T12:40:31.626894+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-02-01T00:00:00.000Z",
+    "end_date": "2025-02-28T23:59:59.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": -5540,
+      "gross_profit": 28591,
+      "total_revenue": 43319,
+      "cost_of_goods_sold": 14728,
+      "operating_expenses": 34131
+    },
+    "raw_json": {
+      "net_income": {
+        "value": -5540,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 28591,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 43319,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 14728,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 34131,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "aae97b48-b5b3-4fc3-873a-5a66493aaeba",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_02_february_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T02:30:11.072724+00:00",
+    "created_at": "2025-11-01T02:30:11.072724+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-02-01T07:00:00.000Z",
+    "end_date": "2024-02-29T07:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": -4886,
+      "gross_profit": 25141,
+      "total_revenue": 38092,
+      "cost_of_goods_sold": 12951,
+      "operating_expenses": 30027
+    },
+    "raw_json": {
+      "net_income": {
+        "value": -4886,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 25141,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 38092,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 12951,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 30027,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "0b0d418b-9997-4e44-9267-b359b8ff28bc",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_04_april_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:00:29.501306+00:00",
+    "created_at": "2025-11-01T12:00:29.501306+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-04-01T06:00:00.000Z",
+    "end_date": "2024-04-30T06:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 18513,
+      "gross_profit": 52176,
+      "total_revenue": 79054,
+      "cost_of_goods_sold": 26878,
+      "operating_expenses": 33663,
+      "owner_distributions": 5000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 18513,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 52176,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 79054,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 26878,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 33663,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 5000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "70db8911-0a93-4a52-8920-7f9a65a75ec4",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_05_may_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:01:42.301017+00:00",
+    "created_at": "2025-11-01T12:01:42.301017+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-05-01T06:00:00.000Z",
+    "end_date": "2024-05-31T06:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 26003,
+      "gross_profit": 62160,
+      "total_revenue": 94182,
+      "cost_of_goods_sold": 32022,
+      "operating_expenses": 36157,
+      "owner_distributions": 8000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 26003,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 62160,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 94182,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 32022,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 36157,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 8000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "91eed3f9-3fff-4c55-9e0c-a277e198567b",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_06_june_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:05:26.040775+00:00",
+    "created_at": "2025-11-01T12:05:26.040775+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-06-01T06:00:00.000Z",
+    "end_date": "2024-06-30T06:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 23629,
+      "gross_profit": 58996,
+      "total_revenue": 89388,
+      "cost_of_goods_sold": 30392,
+      "operating_expenses": 35367,
+      "owner_distributions": 8000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 23629,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 58996,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 89388,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 30392,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 35367,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 8000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "9e8b5163-8fde-4ce2-9654-63a295e2928c",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_07_july_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:05:44.718595+00:00",
+    "created_at": "2025-11-01T12:05:44.718595+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-07-01T06:00:00.000Z",
+    "end_date": "2024-07-31T06:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 21855,
+      "gross_profit": 56533,
+      "total_revenue": 85656,
+      "cost_of_goods_sold": 29123,
+      "operating_expenses": 34678,
+      "owner_distributions": 7000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 21855,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 56533,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 85656,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 29123,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 34678,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 7000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "36151a71-85a2-406b-9fca-808afb9c7bc1",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_08_august_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:06:03.796403+00:00",
+    "created_at": "2025-11-01T12:06:03.796403+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-08-01T06:00:00.000Z",
+    "end_date": "2024-08-31T06:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 19431,
+      "gross_profit": 53661,
+      "total_revenue": 81304,
+      "cost_of_goods_sold": 27643,
+      "operating_expenses": 34230,
+      "owner_distributions": 6000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 19431,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 53661,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 81304,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 27643,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 34230,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 6000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "00d1fd00-a6be-49a1-9ad1-5a0407f17598",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_09_september_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:06:22.283824+00:00",
+    "created_at": "2025-11-01T12:06:22.283824+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-09-01T06:00:00.000Z",
+    "end_date": "2024-09-30T06:00:00.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 12791,
+      "gross_profit": 45200,
+      "total_revenue": 68485,
+      "cost_of_goods_sold": 23285,
+      "operating_expenses": 32409,
+      "owner_distributions": 4000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 12791,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 45200,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 68485,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 23285,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 32409,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 4000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "b40767ec-0f45-4c43-ba36-ca1faee15e56",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2024_03_march_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T11:58:06.334654+00:00",
+    "created_at": "2025-11-01T11:58:06.334654+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2024-03-01T00:00:00.000Z",
+    "end_date": "2024-03-31T23:59:59.000Z",
+    "confidence_score": 1.0,
+    "analysis_result": null,
+    "summary_metrics": {
+      "netProfit": 8868,
+      "grossProfit": 40603,
+      "totalRevenue": 61519,
+      "totalExpenses": 52651,
+      "cashAfterOwnerPay": 8868
+    },
+    "raw_json": {
+      "cogs": {
+        "value": 20916,
+        "confidence": 1,
+        "boundingBox": []
+      },
+      "taxes": {
+        "value": 0,
+        "confidence": 1,
+        "boundingBox": []
+      },
+      "revenue": {
+        "value": 61519,
+        "confidence": 1,
+        "boundingBox": []
+      },
+      "operatingExpenses": {
+        "value": 31735,
+        "confidence": 1,
+        "boundingBox": []
+      },
+      "ownerDistributions": {
+        "value": 0,
+        "confidence": 1,
+        "boundingBox": []
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "manual_entry"
+  },
+  {
+    "id": "f8a8406c-4582-4d89-bd87-ebadc4aef920",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_03_march_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:36:58.849773+00:00",
+    "created_at": "2025-11-01T12:36:58.849773+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-03-01T00:00:00.000Z",
+    "end_date": "2025-03-31T23:59:59.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 10099,
+      "gross_profit": 46172,
+      "total_revenue": 69957,
+      "cost_of_goods_sold": 23785,
+      "operating_expenses": 36073
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 10099,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 46172,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 69957,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 23785,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 36073,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "0f298114-bdd0-4329-a3c0-0d90d0a3c7b0",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_04_april_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:37:18.746051+00:00",
+    "created_at": "2025-11-01T12:37:18.746051+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-04-01T00:00:00.000Z",
+    "end_date": "2025-04-30T23:59:59.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 21073,
+      "gross_profit": 59337,
+      "total_revenue": 89904,
+      "cost_of_goods_sold": 30567,
+      "operating_expenses": 38264,
+      "owner_distributions": 6000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 21073,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 59337,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 89904,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 30567,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 38264,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 6000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "8d0fb86b-0843-49f0-958c-6f4b65d7d586",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_05_may_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:37:31.349348+00:00",
+    "created_at": "2025-11-01T12:37:31.349348+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-05-01T00:00:00.000Z",
+    "end_date": "2025-05-31T23:59:59.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 29598,
+      "gross_profit": 70697,
+      "total_revenue": 107117,
+      "cost_of_goods_sold": 36420,
+      "operating_expenses": 41099,
+      "owner_distributions": 10000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 29598,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 70697,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 107117,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 36420,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 41099,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 10000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "93eed459-9f98-4e6d-b361-01f9501d9228",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_06_june_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:37:47.050338+00:00",
+    "created_at": "2025-11-01T12:37:47.050338+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-06-01T00:00:00.000Z",
+    "end_date": "2025-06-30T23:59:59.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 26881,
+      "gross_profit": 67073,
+      "total_revenue": 101626,
+      "cost_of_goods_sold": 34553,
+      "operating_expenses": 40192,
+      "owner_distributions": 9000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 26881,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 67073,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 101626,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 34553,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 40192,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 9000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  },
+  {
+    "id": "4a861862-8f17-4645-a881-e98a45e80eb3",
+    "user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS",
+    "filename": "2025_07_july_pnl.csv",
+    "document_type": "pnl",
+    "status": "approved",
+    "uploaded_at": "2025-11-01T12:38:02.864877+00:00",
+    "created_at": "2025-11-01T12:38:02.864877+00:00",
+    "updated_at": "2025-11-01T19:06:49.577995+00:00",
+    "start_date": "2025-07-01T00:00:00.000Z",
+    "end_date": "2025-07-31T23:59:59.000Z",
+    "confidence_score": 0.9,
+    "analysis_result": null,
+    "summary_metrics": {
+      "net_income": 24895,
+      "gross_profit": 64318,
+      "total_revenue": 97421,
+      "cost_of_goods_sold": 33103,
+      "operating_expenses": 39423,
+      "owner_distributions": 8000
+    },
+    "raw_json": {
+      "net_income": {
+        "value": 24895,
+        "confidence": 0.9
+      },
+      "gross_profit": {
+        "value": 64318,
+        "confidence": 1
+      },
+      "total_revenue": {
+        "value": 97421,
+        "confidence": 0.9
+      },
+      "cost_of_goods_sold": {
+        "value": 33103,
+        "confidence": 0.9
+      },
+      "operating_expenses": {
+        "value": 39423,
+        "confidence": 0.9
+      },
+      "owner_distributions": {
+        "value": 8000,
+        "confidence": 0.9
+      }
+    },
+    "file_size": null,
+    "mime_type": null,
+    "source": "csv_upload"
+  }
+]

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "a15c5a4c-6f1c-48a2-8977-1398ca2bdf6f",
+    "first_name": "Mike",
+    "last_name": "Wainwright",
+    "email": "dev@example.com",
+    "avatar_url": null,
+    "created_at": "2025-09-18T16:33:36.899508+00:00",
+    "updated_at": "2025-09-18T16:33:36.931133+00:00",
+    "clerk_user_id": null
+  },
+  {
+    "id": "f55cbadc-2ecc-4ec3-8732-3ecd9dabf04f",
+    "first_name": "Krista",
+    "last_name": "Wain",
+    "email": "mwwazup@yahoo.com",
+    "avatar_url": null,
+    "created_at": "2025-10-06T01:28:41.760654+00:00",
+    "updated_at": "2025-10-23T16:08:34.058666+00:00",
+    "clerk_user_id": "user_33fQP5vCktD5cLZwkg7fbysz2JS"
+  }
+]

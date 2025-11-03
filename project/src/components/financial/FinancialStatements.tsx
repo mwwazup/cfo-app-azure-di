@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, CheckCircle, AlertCircle, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, RotateCcw, Calendar, ChevronLeft, ChevronRight, Settings, Edit3, X, Edit2, Save } from 'lucide-react';
+import { Upload, FileText, Eye, Trash2, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, TrendingUp, X, Edit2, Save } from 'lucide-react';
 import { useAuthContext } from '../../contexts/auth-context';
-import type { DocumentType, FinancialDocument, FinancialMetric } from '../../models/FinancialStatement';
-import { deleteFinancialDocument, createManualFinancialDocument } from '../../api/financialDocuments';
+import type { DocumentType, FinancialDocument } from '../../models/FinancialStatement';
+import { deleteFinancialDocument } from '../../api/financialDocuments';
 import { WhereDidTheMoneyGo } from './WhereDidTheMoneyGo';
 import { ManualPLFormSimplified } from './ManualPLFormSimplified';
 import { ManualBalanceSheetForm } from './ManualBalanceSheetForm';
@@ -11,12 +11,6 @@ import { parseFinancialCSV } from '../../utils/csvParser';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
-
-interface ProcessingResult {
-  document: Omit<FinancialDocument, 'id' | 'user_id'> & { user_id: string };
-  metrics: Array<Omit<FinancialMetric, 'id' | 'document_id'>>;
-  confidence_score: number;
-}
 
 export const FinancialStatements: React.FC = () => {
   const { dbUserId } = useAuthContext();
@@ -48,14 +42,12 @@ export const FinancialStatements: React.FC = () => {
   const savedFilters = getSavedFilters();
   const [filterYear, setFilterYear] = useState<number>(savedFilters.filterYear);
   const [filterMonth, setFilterMonth] = useState<number | 'ytd'>(savedFilters.filterMonth);
-  const [filterStatus, setFilterStatus] = useState<string>(savedFilters.filterStatus);
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // desc = newest first
+  const [filterStatus] = useState<string>(savedFilters.filterStatus);
+  const [sortOrder] = useState<'asc' | 'desc'>('desc'); // desc = newest first
   // const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
   const [documents, setDocuments] = useState<FinancialDocument[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedDocumentType, setSelectedDocumentType] = useState<DocumentType>('pnl');
-  const [processingResult, setProcessingResult] = useState<ProcessingResult | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewPeriodStart, setReviewPeriodStart] = useState('');
   const [reviewPeriodEnd, setReviewPeriodEnd] = useState('');
@@ -63,24 +55,8 @@ export const FinancialStatements: React.FC = () => {
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingDocument, setEditingDocument] = useState<FinancialDocument | null>(null);
-  const [documentMetrics, setDocumentMetrics] = useState<Array<FinancialMetric>>([]);
-  const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [isDocumentsCollapsed, setIsDocumentsCollapsed] = useState(false);
-  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [lastExtractedData, setLastExtractedData] = useState<any | null>(null);
-  const [showStatusDropdown, setShowStatusDropdown] = useState<string | null>(null);
-  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState<{
-    document: FinancialDocument;
-    onConfirm: () => void;
-  } | null>(null);
-  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
-  const [showCalendar, setShowCalendar] = useState(false);
-  const [calendarView, setCalendarView] = useState<{ month: number; year: number }>({
-    month: currentDate.getMonth(),
-    year: currentDate.getFullYear()
-  });
-  const [selectedStartDate, setSelectedStartDate] = useState<Date | null>(null);
-  const [selectedEndDate, setSelectedEndDate] = useState<Date | null>(null);
   const [showManualPLForm, setShowManualPLForm] = useState(false);
   const [showManualBalanceSheetForm, setShowManualBalanceSheetForm] = useState(false);
   const [showManualCashFlowForm, setShowManualCashFlowForm] = useState(false);
@@ -179,7 +155,6 @@ export const FinancialStatements: React.FC = () => {
     if (!file || !dbUserId) return;
 
     setIsUploading(true);
-    setUploadProgress(0);
 
     try {
       console.log('📤 Processing file:', file.name);
@@ -244,7 +219,6 @@ export const FinancialStatements: React.FC = () => {
         setLastExtractedData(documentData);
         setShowReviewModal(true);
         setIsUploading(false);
-        setUploadProgress(0);
         
         console.log('Document ready for review');
         return; // Don't auto-save, wait for user review
@@ -252,7 +226,6 @@ export const FinancialStatements: React.FC = () => {
         // For PDF/PNG files, you'll need to implement Azure DI processing
         alert('PDF and PNG processing coming soon. Please use CSV files for now.');
         setIsUploading(false);
-        setUploadProgress(0);
         return;
       }
 
@@ -269,126 +242,10 @@ export const FinancialStatements: React.FC = () => {
       alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
-      setUploadProgress(0);
     }
   };
 
-  // Manual document creation
-  const handleCreateManualDocument = async (documentData: any) => {
-    if (!dbUserId) return;
-
-    try {
-      console.log('📝 Creating manual document...');
-      const result = await createManualFinancialDocument({
-        ...documentData,
-        userId: dbUserId,
-        document_type: selectedDocumentType,
-        source: 'manual_entry'
-      });
-
-      if (result.success) {
-        console.log('✅ Manual document created successfully');
-        await loadDocuments();
-      } else {
-        throw new Error(result.error || 'Failed to create document');
-      }
-
-    } catch (error) {
-      console.error('❌ Error creating manual document:', error);
-      alert(`Error creating document: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
-  // CSV upload handler
-  const handleCSVUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !dbUserId) return;
-
-    setIsUploading(true);
-    setUploadProgress(0);
-
-    try {
-      console.log('📊 Processing CSV file:', file.name);
-      
-      // Parse CSV
-      const csvData = await parseFinancialCSV(file);
-      console.log('📋 Parsed CSV data:', csvData);
-
-      // Create document from CSV data
-      await handleCreateManualDocument({
-        start_date: csvData.data?.document?.start_date || '',
-        end_date: csvData.data?.document?.end_date || '',
-        raw_json: csvData.data?.extractedFields || {},
-        summary_metrics: csvData.data?.summary || {},
-        confidence_score: 0.95,
-        status: 'approved',
-        filename: file.name
-      });
-
-      // Clear file input
-      if (event.target) {
-        event.target.value = '';
-      }
-
-    } catch (error) {
-      console.error('❌ CSV processing error:', error);
-      alert(`CSV processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsUploading(false);
-      setUploadProgress(0);
-    }
-  };
-
-  // Handle document approval/rejection
-  const handleApproveDocument = async () => {
-    if (!processingResult || !dbUserId) return;
-
-    try {
-      console.log('✅ Approving document...');
-      
-      // Create the approved document
-      const result = await createManualFinancialDocument({
-        userId: dbUserId,
-        document_type: processingResult.document.document_type,
-        start_date: processingResult.document.start_date,
-        end_date: processingResult.document.end_date,
-        raw_json: processingResult.document.raw_json || {},
-        summary_metrics: processingResult.document.summary_metrics || {},
-        confidence_score: processingResult.document.confidence_score,
-        status: 'approved',
-        source: 'test_server_upload',
-        filename: processingResult.document.filename
-      });
-
-      if (result.success) {
-        console.log('✅ Document approved successfully');
-        
-        // Create metrics for the document
-        if (processingResult.metrics.length > 0) {
-          console.log('📊 Creating metrics for document...');
-          // Metrics creation would go here
-        }
-        
-        // Reload documents
-        await loadDocuments();
-        
-        // Close modal and reset
-        setShowReviewModal(false);
-        setProcessingResult(null);
-      } else {
-        throw new Error(result.error || 'Failed to approve document');
-      }
-
-    } catch (error) {
-      console.error('❌ Error approving document:', error);
-      alert(`Error approving document: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
-  const handleRejectDocument = () => {
-    setShowReviewModal(false);
-    setProcessingResult(null);
-  };
+  // Legacy manual document creation and approval handlers removed - now using ManualPLFormSimplified component
 
   const handleEditDocument = (document: FinancialDocument) => {
     setEditingDocument(document);
@@ -405,60 +262,18 @@ export const FinancialStatements: React.FC = () => {
       return;
     }
     
-    setDeletingDocumentId(documentId);
     try {
       await deleteFinancialDocument(documentId, dbUserId);
       await loadDocuments(); // Reload documents after deletion
     } catch (error) {
       console.error('Error deleting document:', error);
       alert('Failed to delete document');
-    } finally {
-      setDeletingDocumentId(null);
     }
   };
 
   const viewDocument = async (document: FinancialDocument) => {
     setSelectedDocument(document);
     setShowViewModal(true);
-  };
-
-  const getDocumentTypeLabel = (type: string): string => {
-    switch (type) {
-      case 'pnl':
-        return 'Profit & Loss';
-      case 'balance_sheet':
-        return 'Balance Sheet';
-      case 'cash_flow':
-        return 'Cash Flow Statement';
-      default:
-        return type || 'Unknown';
-    }
-  };
-
-  const getStatusColor = (status: string): string => {
-    switch (status) {
-      case 'approved':
-        return 'text-green-600';
-      case 'reviewed':
-        return 'text-yellow-600';
-      case 'rejected':
-        return 'text-red-600';
-      default:
-        return 'text-gray-600';
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'approved':
-        return <CheckCircle className="h-4 w-4" />;
-      case 'reviewed':
-        return <AlertCircle className="h-4 w-4" />;
-      case 'rejected':
-        return <X className="h-4 w-4" />;
-      default:
-        return <AlertCircle className="h-4 w-4" />;
-    }
   };
 
   const formatPeriod = (startDate: string, endDate: string): string => {
@@ -476,37 +291,7 @@ export const FinancialStatements: React.FC = () => {
     return `${monthNames[month - 1]} ${year}`;
   };
 
-  // Filter documents based on the same criteria as WhereDidTheMoneyGo
-  const filteredDocuments = documents.filter(doc => {
-    // Status filter
-    if (filterStatus !== 'all') {
-      return doc.status === filterStatus;
-    }
-    
-    // Date filter - use UTC methods to avoid timezone issues
-    if (doc.start_date) {
-      const docDate = new Date(doc.start_date);
-      const docYear = docDate.getUTCFullYear();
-      const docMonth = docDate.getUTCMonth() + 1; // JavaScript months are 0-based
-      
-      if (filterMonth === 'ytd') {
-        // Year to date filter
-        return docYear === filterYear && docMonth <= currentDate.getMonth() + 1;
-      } else {
-        // Specific month filter
-        return docYear === filterYear && docMonth === filterMonth;
-      }
-    }
-    
-    return true;
-  });
-
-  // Sort documents
-  const sortedDocuments = [...filteredDocuments].sort((a, b) => {
-    const dateA = new Date(a.start_date || '');
-    const dateB = new Date(b.start_date || '');
-    return sortOrder === 'desc' ? dateB.getTime() - dateA.getTime() : dateA.getTime() - dateB.getTime();
-  });
+  // Filtering and sorting moved inline to avoid duplicate calculations
 
   // Shared filter state for WhereDidTheMoneyGo component
   const [selectedPeriod, setSelectedPeriod] = useState<string>('current_month');
