@@ -13,6 +13,7 @@ node_modules
 # Backup files
 *.backup*
 *.bak
+backend/backups/
 
 # Logs
 logs
