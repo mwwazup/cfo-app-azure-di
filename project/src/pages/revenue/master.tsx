@@ -24,8 +24,6 @@ export function MasterRevenuePage() {
     });
   };
 
-  const shouldShowImport = currentYear.isSample || currentYear.data.every(d => d.revenue === 0);
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -37,6 +35,12 @@ export function MasterRevenuePage() {
             Track your actual monthly and desired future growth revenue and let's ride your wave to close your gap!
           </p>
         </div>
+        <button
+          className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-white rounded hover:bg-accent/90"
+          onClick={() => setWizardOpen(true)}
+        >
+          Import Revenue
+        </button>
       </div>
 
       {/* Sample Data Banner */}
@@ -60,17 +64,6 @@ export function MasterRevenuePage() {
           </div>
         );
       })()}
-
-      {shouldShowImport && (
-        <div>
-          <button
-            className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-accent text-white rounded hover:bg-accent/90"
-            onClick={() => setWizardOpen(true)}
-          >
-            Import Revenue
-          </button>
-        </div>
-      )}
 
       <MasterChart />
 
@@ -163,7 +156,11 @@ export function MasterRevenuePage() {
           {!isPerformanceCollapsed && (
             <CardContent>
               <div className="space-y-6">
-                {historicalYears.slice(-3).reverse().map((year) => {
+                {historicalYears
+                  .filter(year => !year.isSample && year.data.some(d => d.revenue > 0))
+                  .slice(-3)
+                  .reverse()
+                  .map((year) => {
                   const yearTotal = year.data.reduce((sum, item) => sum + item.revenue, 0);
                   
                   // Calculate financial metrics (using placeholder percentages for demo)

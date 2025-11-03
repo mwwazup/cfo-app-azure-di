@@ -319,15 +319,7 @@ export function MasterChart() {
           setShowMonthlyInputs(true);
         }
         
-        // Scroll to monthly inputs section
-        setTimeout(() => {
-          if (monthlyInputsRef.current) {
-            monthlyInputsRef.current.scrollIntoView({ 
-              behavior: 'smooth', 
-              block: 'center' 
-            });
-          }
-        }, 100);
+        // No scroll needed - Quick Edit dialog overlays on top
       }
     }
   };
@@ -983,7 +975,7 @@ export function MasterChart() {
             </div>
 
             {/* Controls and Total Revenue Section */}
-            <div className="flex flex-col items-center gap-6">
+            <div className="flex flex-col items-center gap-6 relative">
               {/* Three Metric Cards Row - Only for non-historical years */}
               {!isHistoricalYear && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
@@ -1075,9 +1067,9 @@ export function MasterChart() {
                 </div>
               )}
 
-              {/* Quick Edit Section - positioned below Total Current Revenue */}
+              {/* Quick Edit Section - overlays on top without pushing content */}
               {editingMonthIndex !== null && !isHistoricalYear && (
-                <div className="bg-accent/10 border-2 border-accent/20 rounded-lg p-4 w-full max-w-md">
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 z-10 bg-background border-2 border-accent rounded-lg p-4 w-full max-w-md shadow-lg">
                   <div className="flex items-center gap-2 mb-3">
                     <TrendingUp className="h-5 w-5 text-accent" />
                     <h4 className="font-medium text-accent">
@@ -1089,7 +1081,6 @@ export function MasterChart() {
                     onChange={handleQuickEditChange}
                     onKeyPress={handleQuickEditKeyPress}
                     className="w-full mb-3"
-                    autoFocus
                   />
                   <div className="flex gap-2">
                     <Button
@@ -1100,7 +1091,7 @@ export function MasterChart() {
                       Done
                     </Button>
                   </div>
-                  <p className="text-xs text-gray-400 mt-2 text-center">
+                  <p className="text-xs text-muted-foreground mt-2 text-center">
                     Updates live as you type • Press Enter or Escape to close
                   </p>
                 </div>
