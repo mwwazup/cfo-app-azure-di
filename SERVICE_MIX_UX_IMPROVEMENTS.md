@@ -2,7 +2,7 @@
 
 **Date:** November 4, 2025  
 **Branch:** feature/comprehensive-ai-advisor  
-**Commit:** de412e0
+**Commits:** de412e0, 1e258be
 
 ## Problems Identified
 
@@ -20,6 +20,11 @@
 - Users didn't understand the sequence: Add Services → Track Activities
 - No progress indicators
 - No empty states to guide first-time users
+
+### 4. No Year/Month Filter
+- Page only showed current year data
+- No way to view previous years or specific months
+- Inconsistent with KPI Dashboard and Financial Documents filters
 
 ## Solutions Implemented
 
@@ -55,6 +60,14 @@ Added a visual progress indicator at the top of the page showing:
 - Clear call-to-action button: "Add Your First Service"
 - Explains what will happen after adding services
 - Replaces chart with helpful guidance
+
+### 6. Year/Month Filter (Commit 1e258be)
+- Added period filter dropdown matching KPI Dashboard pattern
+- Shows current month + last 11 months (rolling 12-month view)
+- Includes "Year to Date" option
+- Clear (X) button to reset to current month
+- Dynamically generates options based on current date
+- Updates all components (chart, track activities, analytics) with selected year
 
 **Visual Design:**
 ```
@@ -94,6 +107,47 @@ Added a visual progress indicator at the top of the page showing:
 - Added `initiallyExpanded` prop
 - Card respects initial expansion state from parent
 
+### Period Filter Implementation
+
+**Dynamic Period Generation:**
+```typescript
+const generatePeriodOptions = () => {
+  const options: { value: string; label: string }[] = [];
+  const now = new Date();
+  
+  // Current Month
+  options.push({
+    value: 'current_month',
+    label: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  });
+  
+  // Last 11 months (rolling)
+  for (let i = 1; i <= 11; i++) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    options.push({
+      value: `${year}-${String(month).padStart(2, '0')}`,
+      label: date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    });
+  }
+  
+  // Year to Date
+  options.push({
+    value: 'ytd',
+    label: `Year to Date ${now.getFullYear()}`
+  });
+  
+  return options;
+};
+```
+
+**Benefits:**
+- Automatically includes previous years when viewing last 11 months
+- Always shows current month first
+- Consistent with Financial Documents and KPI Dashboard
+- No hardcoded dates - dynamically updates based on current date
+
 ## User Experience Flow
 
 ### Before:
@@ -106,15 +160,17 @@ Added a visual progress indicator at the top of the page showing:
 7. User doesn't know what to do next
 
 ### After:
-1. See workflow steps: Step 1 incomplete, Step 2 locked
-2. Click "Add Service" → Modal opens
-3. Fill form → Click "Add Service" button
-4. Alert shows "Service added successfully! You can now track activities..."
-5. **Modal auto-closes**
-6. Green banner appears: "Services saved successfully! Now scroll down..."
-7. Workflow steps update: Step 1 complete ✓, Step 2 ready
-8. Track Activities card **auto-expands**
-9. User clearly sees next step
+1. Select period from filter (e.g., "October 2024" to view last year)
+2. See workflow steps: Step 1 incomplete, Step 2 locked
+3. Click "Add Service" → Modal opens
+4. Fill form → Click "Add Service" button
+5. Alert shows "Service added successfully! You can now track activities..."
+6. **Modal auto-closes**
+7. Green banner appears: "Services saved successfully! Now scroll down..."
+8. Workflow steps update: Step 1 complete ✓, Step 2 ready
+9. Track Activities card **auto-expands**
+10. User clearly sees next step
+11. Can switch between years/months to view historical data
 
 ## Benefits
 
@@ -135,6 +191,9 @@ Added a visual progress indicator at the top of the page showing:
 - Clear visual hierarchy
 - Consistent feedback patterns
 - Professional, polished experience
+- **Historical data access** - View any month from last 12 months
+- **Consistent filtering** - Matches KPI Dashboard and Financial Documents
+- **Year-over-year analysis** - Compare current year to previous years
 
 ## Design Patterns Used
 
@@ -181,6 +240,7 @@ Added a visual progress indicator at the top of the page showing:
 
 ## Testing Checklist
 
+### Workflow & UX
 - [ ] First-time user sees empty state
 - [ ] Clicking "Add Your First Service" opens modal
 - [ ] Adding service closes modal automatically
@@ -192,12 +252,38 @@ Added a visual progress indicator at the top of the page showing:
 - [ ] Chart appears when services exist
 - [ ] Empty state disappears when services exist
 
-## Git Commit
+### Period Filter
+- [ ] Filter dropdown shows current month + last 11 months
+- [ ] Selecting different period updates chart
+- [ ] Selecting different period updates Track Activities year
+- [ ] Selecting different period updates Analytics year
+- [ ] Clear (X) button appears when not on current month
+- [ ] Clear button resets to current month
+- [ ] YTD option appears in dropdown
+- [ ] Previous year months appear (e.g., December 2024 when in November 2025)
+- [ ] Period label displays correctly (e.g., "October 2024")
 
-**Branch:** feature/comprehensive-ai-advisor  
-**Commit:** de412e0  
+## Git Commits
+
+### Commit 1: de412e0
 **Message:** "Improve Service Mix page UX with workflow steps and auto-close modal"  
 **Files Changed:** 3 files, 108 insertions(+), 9 deletions(-)
+**Changes:**
+- Added workflow steps indicator
+- Auto-close modal after save
+- Success message banner
+- Auto-expand Track Activities
+- Empty state for no services
+
+### Commit 2: 1e258be
+**Message:** "Add year/month filter to Service Mix page matching KPI Dashboard pattern"  
+**Files Changed:** 2 files, 299 insertions(+), 5 deletions(-)
+**Changes:**
+- Added period filter dropdown
+- Dynamic period generation (current + last 11 months)
+- Year to Date option
+- Clear button to reset filter
+- Updated all child components to use filterYear
 
 ## Related Memories
 
