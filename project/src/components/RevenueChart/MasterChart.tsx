@@ -131,6 +131,21 @@ export function MasterChart() {
     }
   }, [activeMonthIndex, editingMonthIndex]);
 
+  // Global keyboard handler for Quick Edit dialog
+  useEffect(() => {
+    if (editingMonthIndex === null) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === 'Escape') {
+        e.preventDefault();
+        closeQuickEdit();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editingMonthIndex]);
+
   // Debounce timer for FIR target changes
   const firDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -1069,32 +1084,41 @@ export function MasterChart() {
 
               {/* Quick Edit Section - overlays on top without pushing content */}
               {editingMonthIndex !== null && !isHistoricalYear && (
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 z-10 bg-background border-2 border-accent rounded-lg p-4 w-full max-w-md shadow-lg">
-                  <div className="flex items-center gap-2 mb-3">
-                    <TrendingUp className="h-5 w-5 text-accent" />
-                    <h4 className="font-medium text-accent">
-                      Edit {months[editingMonthIndex]} Revenue
-                    </h4>
-                  </div>
-                  <CurrencyInput
-                    value={monthlyRevenue[editingMonthIndex]}
-                    onChange={handleQuickEditChange}
-                    onKeyPress={handleQuickEditKeyPress}
-                    className="w-full mb-3"
+                <>
+                  {/* Backdrop - click to close */}
+                  <div 
+                    className="fixed inset-0 z-[9]" 
+                    onClick={closeQuickEdit}
                   />
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={closeQuickEdit}
-                      className="flex-1 bg-accent hover:bg-accent/90"
-                      size="sm"
-                    >
-                      Done
-                    </Button>
+                  
+                  {/* Dialog */}
+                  <div 
+                    className="absolute top-0 left-1/2 -translate-x-1/2 z-10 bg-background border border-accent/40 rounded-lg shadow-lg w-full max-w-md"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="pt-6 px-6 pb-6">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 rounded-lg bg-accent/20">
+                            <TrendingUp className="h-5 w-5 text-accent" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-muted-foreground">Edit {months[editingMonthIndex]} Revenue</p>
+                            <CurrencyInput
+                              value={monthlyRevenue[editingMonthIndex]}
+                              onChange={handleQuickEditChange}
+                              onKeyDown={handleQuickEditKeyPress}
+                              className="text-xl font-bold text-foreground mt-1"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Updates live as you type • Press Enter or Escape to close
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2 text-center">
-                    Updates live as you type • Press Enter or Escape to close
-                  </p>
-                </div>
+                </>
               )}
             </div>
           </div>

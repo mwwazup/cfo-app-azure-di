@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { useWeeklyBudget } from '../hooks/useWeeklyBudget';
-import { Calendar, TrendingUp, TrendingDown, DollarSign, CheckCircle, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { useWeeklyBudget, useYTDBudget } from '../hooks/useWeeklyBudget';
+import { Calendar, TrendingUp, TrendingDown, DollarSign, CheckCircle, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronUp, Filter } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -10,8 +10,7 @@ const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'Jul
 export function BudgetVsActualPage() {
   const currentDate = new Date();
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth() + 1);
-  const [selectedPeriod, setSelectedPeriod] = useState(`${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`);
+  const [selectedMonth, setSelectedMonth] = useState<number | 'ytd'>(currentDate.getMonth() + 1);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [localWeekData, setLocalWeekData] = useState<Record<string, { revenue: number; jobs: number; target: number }>>({});
@@ -19,9 +18,17 @@ export function BudgetVsActualPage() {
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [monthlyFirTotal, setMonthlyFirTotal] = useState<number>(0);
   const [isWeeklyBreakdownExpanded, setIsWeeklyBreakdownExpanded] = useState(true);
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<number>>(new Set());
 
-  const { weeklyData, loading, initializeMonthlyBudget, updateWeeklyActual, updateWeeklyBudgetTarget, syncFromServiceMix } = 
-    useWeeklyBudget(selectedYear, selectedMonth);
+  // Fetch data based on mode (single month or YTD)
+  const actualMonth = selectedMonth === 'ytd' ? currentDate.getMonth() + 1 : selectedMonth;
+  const { weeklyData: singleMonthData, loading: singleMonthLoading, initializeMonthlyBudget, updateWeeklyActual, updateWeeklyBudgetTarget, syncFromServiceMix } = 
+    useWeeklyBudget(selectedYear, actualMonth);
+  const { ytdData, loading: ytdLoading } = useYTDBudget(selectedYear);
+  
+  // Use YTD data when in YTD mode, otherwise use single month data
+  const weeklyData = selectedMonth === 'ytd' ? ytdData : singleMonthData;
+  const loading = selectedMonth === 'ytd' ? ytdLoading : singleMonthLoading;
 
   // Sync local state with fetched data
   useEffect(() => {
@@ -43,6 +50,12 @@ export function BudgetVsActualPage() {
   }, [weeklyData]);
 
   const handleInitialize = async () => {
+    // Don't allow initialization in YTD mode
+    if (selectedMonth === 'ytd') {
+      alert('Please select a specific month to initialize budget targets.');
+      return;
+    }
+    
     try {
       setIsInitializing(true);
       await initializeMonthlyBudget(selectedYear, selectedMonth);
@@ -56,6 +69,12 @@ export function BudgetVsActualPage() {
   };
 
   const handleSync = async () => {
+    // Don't allow sync in YTD mode
+    if (selectedMonth === 'ytd') {
+      alert('Please select a specific month to sync with Service Mix.');
+      return;
+    }
+    
     try {
       setIsSyncing(true);
       await syncFromServiceMix(selectedYear, selectedMonth);
@@ -138,16 +157,94 @@ export function BudgetVsActualPage() {
     }
   };
 
-  // Use local data for calculations to show real-time updates
-  const totalBudget = Math.round(Object.values(localWeekData).reduce((sum, week) => sum + (week.target || 0), 0));
-  const totalActual = Math.round(Object.values(localWeekData).reduce((sum, week) => sum + (week.revenue || 0), 0));
-  const totalVariance = totalActual - totalBudget;
-  const totalJobs = Object.values(localWeekData).reduce((sum, week) => sum + (week.jobs || 0), 0);
-  const percentageComplete = totalBudget > 0 ? (totalActual / totalBudget) * 100 : 0;
-  
-  const adjustedTargetTotal = calculateAdjustedTargetTotal();
-  const targetDifference = adjustedTargetTotal - monthlyFirTotal;
-  const showTargetWarning = hasUnsavedChanges && Math.abs(targetDifference) > 1;
+  // Toggle month collapse/expand
+  const toggleMonthCollapse = (month: number) => {
+    setCollapsedMonths(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(month)) {
+        newSet.delete(month);
+      } else {
+        newSet.add(month);
+      }
+      return newSet;
+    });
+  };
+
+  // Calculate monthly summaries for YTD mode
+  const monthlySummaries = useMemo(() => {
+    if (selectedMonth !== 'ytd') return {};
+    
+    const summaries: Record<number, {
+      budget: number;
+      actual: number;
+      variance: number;
+      jobs: number;
+      weeksOnTrack: number;
+      totalWeeks: number;
+    }> = {};
+    
+    weeklyData.forEach(week => {
+      if (!summaries[week.month]) {
+        summaries[week.month] = {
+          budget: 0,
+          actual: 0,
+          variance: 0,
+          jobs: 0,
+          weeksOnTrack: 0,
+          totalWeeks: 0
+        };
+      }
+      
+      const weekVariance = week.actualRevenue - week.weeklyBudgetTarget;
+      summaries[week.month].budget += week.weeklyBudgetTarget;
+      summaries[week.month].actual += week.actualRevenue;
+      summaries[week.month].variance += weekVariance;
+      summaries[week.month].jobs += week.jobsCompleted;
+      summaries[week.month].totalWeeks += 1;
+      if (weekVariance >= 0) {
+        summaries[week.month].weeksOnTrack += 1;
+      }
+    });
+    
+    return summaries;
+  }, [selectedMonth, weeklyData]);
+
+  // Calculate totals - use direct weeklyData for YTD mode, localWeekData for single month
+  const { totalBudget, totalActual, totalVariance, totalJobs, percentageComplete, adjustedTargetTotal, targetDifference, showTargetWarning } = useMemo(() => {
+    if (selectedMonth === 'ytd') {
+      // YTD mode: aggregate all weeks from weeklyData
+      const budget = Math.round(weeklyData.reduce((sum, week) => sum + week.weeklyBudgetTarget, 0));
+      const actual = Math.round(weeklyData.reduce((sum, week) => sum + week.actualRevenue, 0));
+      const jobs = weeklyData.reduce((sum, week) => sum + week.jobsCompleted, 0);
+      return {
+        totalBudget: budget,
+        totalActual: actual,
+        totalVariance: actual - budget,
+        totalJobs: jobs,
+        percentageComplete: budget > 0 ? (actual / budget) * 100 : 0,
+        adjustedTargetTotal: budget,
+        targetDifference: 0,
+        showTargetWarning: false
+      };
+    } else {
+      // Single month mode: use local data for real-time updates
+      const budget = Math.round(Object.values(localWeekData).reduce((sum, week) => sum + (week.target || 0), 0));
+      const actual = Math.round(Object.values(localWeekData).reduce((sum, week) => sum + (week.revenue || 0), 0));
+      const jobs = Object.values(localWeekData).reduce((sum, week) => sum + (week.jobs || 0), 0);
+      const adjustedTotal = calculateAdjustedTargetTotal();
+      const diff = adjustedTotal - monthlyFirTotal;
+      return {
+        totalBudget: budget,
+        totalActual: actual,
+        totalVariance: actual - budget,
+        totalJobs: jobs,
+        percentageComplete: budget > 0 ? (actual / budget) * 100 : 0,
+        adjustedTargetTotal: adjustedTotal,
+        targetDifference: diff,
+        showTargetWarning: hasUnsavedChanges && Math.abs(diff) > 1
+      };
+    }
+  }, [selectedMonth, weeklyData, localWeekData, monthlyFirTotal, hasUnsavedChanges]);
 
   return (
     <div className="space-y-6">
@@ -166,39 +263,63 @@ export function BudgetVsActualPage() {
       {/* Filters and Actions */}
       <Card>
         <CardContent className="pt-6">
+          {/* Active Viewing Display */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+            <span>Viewing:</span>
+            <span className="font-medium text-foreground">
+              {selectedMonth === 'ytd' ? 'Year to Date' : fullMonths[(selectedMonth as number) - 1]}
+            </span>
+            <span className="font-medium text-foreground">{selectedYear}</span>
+          </div>
+          
           <div className="flex flex-wrap items-center gap-4">
+            {/* Year Filter */}
             <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-accent" />
+              <Calendar className="h-4 w-4 text-accent" />
               <Select 
-                value={selectedPeriod} 
-                onValueChange={(value) => {
-                  setSelectedPeriod(value);
-                  const [year, month] = value.split('-').map(Number);
-                  setSelectedYear(year);
-                  setSelectedMonth(month);
-                }}
+                value={selectedYear.toString()} 
+                onValueChange={(value) => setSelectedYear(Number(value))}
               >
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Select Period" />
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Year" />
                 </SelectTrigger>
                 <SelectContent>
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const year = currentDate.getFullYear();
-                    const month = 12 - i;
-                    const value = `${year}-${String(month).padStart(2, '0')}`;
+                  {Array.from({ length: 6 }, (_, i) => {
+                    const year = currentDate.getFullYear() - (5 - i);
                     return (
-                      <SelectItem key={value} value={value}>
-                        {fullMonths[month - 1]} {year}
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
                       </SelectItem>
                     );
                   })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Month Filter */}
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-accent" />
+              <Select 
+                value={selectedMonth.toString()} 
+                onValueChange={(value) => {
+                  if (value === 'ytd') {
+                    setSelectedMonth('ytd');
+                  } else {
+                    setSelectedMonth(Number(value));
+                  }
+                }}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Month" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ytd">Year to Date</SelectItem>
                   {Array.from({ length: 12 }, (_, i) => {
-                    const year = currentDate.getFullYear() - 1;
-                    const month = 12 - i;
-                    const value = `${year}-${String(month).padStart(2, '0')}`;
+                    const month = i + 1;
+                    const monthName = fullMonths[i];
                     return (
-                      <SelectItem key={value} value={value}>
-                        {fullMonths[month - 1]} {year}
+                      <SelectItem key={month} value={month.toString()}>
+                        {monthName}
                       </SelectItem>
                     );
                   })}
@@ -207,17 +328,18 @@ export function BudgetVsActualPage() {
             </div>
             <button
               onClick={handleInitialize}
-              disabled={isInitializing}
+              disabled={isInitializing || selectedMonth === 'ytd'}
               className="px-4 py-2 bg-accent text-white rounded-md hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              title="Creates or updates weekly budget targets from your monthly FIR"
+              title={selectedMonth === 'ytd' ? 'Select a specific month to initialize' : 'Creates or updates weekly budget targets from your monthly FIR'}
             >
               {isInitializing && <Loader2 className="h-4 w-4 animate-spin" />}
               {weeklyData.length > 0 ? 'Refresh Month' : 'Month Up to Date'}
             </button>
             <button
               onClick={handleSync}
-              disabled={isSyncing || weeklyData.length === 0}
+              disabled={isSyncing || weeklyData.length === 0 || selectedMonth === 'ytd'}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              title={selectedMonth === 'ytd' ? 'Select a specific month to sync' : 'Sync actual revenue from Service Mix'}
             >
               {isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Sync from Service Mix
@@ -239,7 +361,15 @@ export function BudgetVsActualPage() {
                 <div className="text-2xl font-bold text-foreground mt-1">
                   ${Math.round(totalBudget).toLocaleString()}
                 </div>
-                <p className="text-xs text-accent mt-1">From Master Revenue</p>
+                <p className="text-xs text-accent mt-1">
+                  {monthlyFirTotal > 0 && Math.abs(totalBudget - monthlyFirTotal) > 1 ? (
+                    <span className="text-yellow-600">
+                      FIR: ${Math.round(monthlyFirTotal).toLocaleString()} • Click Refresh
+                    </span>
+                  ) : (
+                    'From Master Revenue'
+                  )}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -304,7 +434,10 @@ export function BudgetVsActualPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
-              Weekly Breakdown - {months[selectedMonth - 1]} {selectedYear}
+              {selectedMonth === 'ytd' 
+                ? `Year to Date - ${selectedYear}`
+                : `Weekly Breakdown - ${months[(selectedMonth as number) - 1]} ${selectedYear}`
+              }
             </CardTitle>
             <div className="flex items-center gap-2">
               {weeklyData.length > 0 && weeklyData.some(w => w.isAutoPopulated) && (
@@ -356,78 +489,167 @@ export function BudgetVsActualPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {weeklyData.map((week) => {
+                  {weeklyData.map((week, index) => {
                     const localData = localWeekData[week.id!] || { revenue: week.actualRevenue, jobs: week.jobsCompleted, target: week.weeklyBudgetTarget };
                     const variance = localData.revenue - localData.target;
                     const variancePercent = localData.target > 0 ? (variance / localData.target) * 100 : 0;
+                    const isYTDMode = selectedMonth === 'ytd';
+                    
+                    // Show month header in YTD mode when month changes
+                    const showMonthHeader = isYTDMode && (index === 0 || weeklyData[index - 1].month !== week.month);
+                    const isMonthCollapsed = collapsedMonths.has(week.month);
+                    const monthSummary = monthlySummaries[week.month];
                     
                     return (
-                      <tr key={week.id} className="border-b border-border hover:bg-accent/5 transition-colors">
-                        <td className="py-3 px-4 font-medium text-foreground">
-                          Week {week.weekOfMonth}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-muted">
-                          {new Date(week.weekStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(week.weekEndDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <input
-                            type="number"
-                            value={localData.target}
-                            onChange={(e) => handleInputChange(week.id!, 'target', Math.round(Number(e.target.value)))}
-                            className="w-32 px-2 py-1 border border-border rounded text-right bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent font-medium"
-                            step="1"
-                            title="Adjust weekly target (must sum to monthly FIR)"
-                          />
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <input
-                            type="number"
-                            value={localData.revenue}
-                            onChange={(e) => handleInputChange(week.id!, 'revenue', Math.round(Number(e.target.value)))}
-                            className="w-32 px-2 py-1 border border-border rounded text-right bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                            step="1"
-                          />
-                        </td>
-                        <td className={`py-3 px-4 text-right font-semibold ${
-                          variance >= 0 ? 'text-green-500' : 'text-red-500'
-                        }`}>
-                          <div>
-                            {variance >= 0 ? '+' : ''}${Math.abs(variance).toLocaleString()}
-                          </div>
-                          <div className="text-xs font-normal">
-                            ({variance >= 0 ? '+' : ''}{variancePercent.toFixed(1)}%)
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <input
-                            type="number"
-                            value={localData.jobs}
-                            onChange={(e) => handleInputChange(week.id!, 'jobs', Number(e.target.value))}
-                            className="w-20 px-2 py-1 border border-border rounded text-right bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                            min="0"
-                          />
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          {variance >= 0 ? (
-                            <div className="flex items-center justify-center gap-1">
-                              <CheckCircle className="h-5 w-5 text-green-500" />
-                              <span className="text-xs text-green-600 font-medium">On Track</span>
+                      <>
+                        {showMonthHeader && (
+                          <>
+                            <tr 
+                              key={`month-header-${week.month}`} 
+                              className="bg-accent/10 cursor-pointer hover:bg-accent/20 transition-colors"
+                              onClick={() => toggleMonthCollapse(week.month)}
+                            >
+                              <td colSpan={7} className="py-2 px-4">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-foreground">
+                                    {fullMonths[week.month - 1]} {week.year}
+                                  </span>
+                                  <div className="flex items-center gap-4">
+                                    {isMonthCollapsed ? (
+                                      <ChevronDown className="h-5 w-5 text-foreground" />
+                                    ) : (
+                                      <ChevronUp className="h-5 w-5 text-foreground" />
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                            {isMonthCollapsed && monthSummary && (
+                              <tr key={`month-summary-${week.month}`} className="bg-accent/5 border-b-2 border-border">
+                                <td colSpan={2} className="py-3 px-4 font-semibold text-foreground">
+                                  {monthSummary.totalWeeks} weeks
+                                </td>
+                                <td className="py-3 px-4 text-right font-semibold text-foreground">
+                                  ${Math.round(monthSummary.budget).toLocaleString()}
+                                </td>
+                                <td className="py-3 px-4 text-right font-semibold text-foreground">
+                                  ${Math.round(monthSummary.actual).toLocaleString()}
+                                </td>
+                                <td className={`py-3 px-4 text-right font-semibold ${
+                                  monthSummary.variance >= 0 ? 'text-green-500' : 'text-red-500'
+                                }`}>
+                                  <div>
+                                    {monthSummary.variance >= 0 ? '+' : ''}${Math.abs(Math.round(monthSummary.variance)).toLocaleString()}
+                                  </div>
+                                  <div className="text-xs font-normal">
+                                    ({monthSummary.variance >= 0 ? '+' : ''}{((monthSummary.variance / monthSummary.budget) * 100).toFixed(1)}%)
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4 text-right font-semibold text-foreground">
+                                  {monthSummary.jobs}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  {monthSummary.variance >= 0 ? (
+                                    <div className="flex items-center justify-center gap-1">
+                                      <CheckCircle className="h-5 w-5 text-green-500" />
+                                      <span className="text-xs text-green-600 font-medium">
+                                        {monthSummary.weeksOnTrack}/{monthSummary.totalWeeks} On Track
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-center gap-1">
+                                      <AlertCircle className="h-5 w-5 text-red-500" />
+                                      <span className="text-xs text-red-600 font-medium">
+                                        {monthSummary.weeksOnTrack}/{monthSummary.totalWeeks} On Track
+                                      </span>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        )}
+                        {(!isYTDMode || !isMonthCollapsed) && (
+                        <tr key={week.id} className="border-b border-border hover:bg-accent/5 transition-colors">
+                          <td className="py-3 px-4 font-medium text-foreground">
+                            {isYTDMode ? `${months[week.month - 1]} W${week.weekOfMonth}` : `Week ${week.weekOfMonth}`}
+                          </td>
+                          <td className="py-3 px-4 text-sm text-muted">
+                            {new Date(week.weekStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(week.weekEndDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {isYTDMode ? (
+                              <span className="font-medium text-foreground">${Math.round(week.weeklyBudgetTarget).toLocaleString()}</span>
+                            ) : (
+                              <input
+                                type="number"
+                                value={localData.target}
+                                onChange={(e) => handleInputChange(week.id!, 'target', Math.round(Number(e.target.value)))}
+                                className="w-32 px-2 py-1 border border-border rounded text-right bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent font-medium"
+                                step="1"
+                                title="Adjust weekly target (must sum to monthly FIR)"
+                              />
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {isYTDMode ? (
+                              <span className="text-foreground">${Math.round(week.actualRevenue).toLocaleString()}</span>
+                            ) : (
+                              <input
+                                type="number"
+                                value={localData.revenue}
+                                onChange={(e) => handleInputChange(week.id!, 'revenue', Math.round(Number(e.target.value)))}
+                                className="w-32 px-2 py-1 border border-border rounded text-right bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                                step="1"
+                              />
+                            )}
+                          </td>
+                          <td className={`py-3 px-4 text-right font-semibold ${
+                            variance >= 0 ? 'text-green-500' : 'text-red-500'
+                          }`}>
+                            <div>
+                              {variance >= 0 ? '+' : ''}${Math.abs(variance).toLocaleString()}
                             </div>
-                          ) : (
-                            <div className="flex items-center justify-center gap-1">
-                              <AlertCircle className="h-5 w-5 text-red-500" />
-                              <span className="text-xs text-red-600 font-medium">Behind</span>
+                            <div className="text-xs font-normal">
+                              ({variance >= 0 ? '+' : ''}{variancePercent.toFixed(1)}%)
                             </div>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {isYTDMode ? (
+                              <span className="text-foreground">{week.jobsCompleted}</span>
+                            ) : (
+                              <input
+                                type="number"
+                                value={localData.jobs}
+                                onChange={(e) => handleInputChange(week.id!, 'jobs', Number(e.target.value))}
+                                className="w-20 px-2 py-1 border border-border rounded text-right bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                                min="0"
+                              />
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {variance >= 0 ? (
+                              <div className="flex items-center justify-center gap-1">
+                                <CheckCircle className="h-5 w-5 text-green-500" />
+                                <span className="text-xs text-green-600 font-medium">On Track</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-1">
+                                <AlertCircle className="h-5 w-5 text-red-500" />
+                                <span className="text-xs text-red-600 font-medium">Behind</span>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                        )}
+                      </>
                     );
                   })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-border bg-accent/5">
                     <td colSpan={2} className="py-3 px-4 font-bold text-foreground">
-                      Monthly Total
+                      {selectedMonth === 'ytd' ? 'YTD Total' : 'Monthly Total'}
                     </td>
                     <td className="py-3 px-4 text-right font-bold text-foreground">
                       ${totalBudget.toLocaleString()}

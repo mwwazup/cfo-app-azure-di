@@ -93,6 +93,7 @@ export function getWeeksInMonth(year: number, month: number): {
 
 /**
  * Calculate weekly budget targets from monthly FIR and historical patterns
+ * Uses smart rounding to ensure weekly targets sum exactly to monthly total
  */
 function calculateWeeklyTargets(
   monthlyFirTotal: number,
@@ -101,6 +102,7 @@ function calculateWeeklyTargets(
   previousYearData?: WeeklyBudgetData[]
 ): number[] {
   const weeksInMonth = getWeeksInMonth(year, month);
+  let weeklyTargets: number[];
   
   // If we have previous year data, use that pattern
   if (previousYearData && previousYearData.length > 0) {
@@ -108,7 +110,7 @@ function calculateWeeklyTargets(
     
     if (totalPreviousRevenue > 0) {
       // Calculate each week's percentage of total previous year revenue
-      return weeksInMonth.map((_, index) => {
+      weeklyTargets = weeksInMonth.map((_, index) => {
         const previousWeek = previousYearData[index];
         if (previousWeek) {
           const percentage = previousWeek.actualRevenue / totalPreviousRevenue;
@@ -116,11 +118,26 @@ function calculateWeeklyTargets(
         }
         return monthlyFirTotal / weeksInMonth.length;
       });
+    } else {
+      // Fallback: Even distribution
+      weeklyTargets = weeksInMonth.map(() => monthlyFirTotal / weeksInMonth.length);
     }
+  } else {
+    // Fallback: Even distribution
+    weeklyTargets = weeksInMonth.map(() => monthlyFirTotal / weeksInMonth.length);
   }
   
-  // Fallback: Even distribution
-  return weeksInMonth.map(() => monthlyFirTotal / weeksInMonth.length);
+  // Smart rounding: Round each value and adjust last week to ensure exact sum
+  const roundedTargets = weeklyTargets.map(val => Math.round(val));
+  const roundedSum = roundedTargets.reduce((sum, val) => sum + val, 0);
+  const difference = monthlyFirTotal - roundedSum;
+  
+  // Adjust the last week to make the sum exact
+  if (difference !== 0 && roundedTargets.length > 0) {
+    roundedTargets[roundedTargets.length - 1] += difference;
+  }
+  
+  return roundedTargets;
 }
 
 /**
@@ -195,7 +212,8 @@ export function useWeeklyBudget(year?: number, month?: number) {
 
     // Get monthly FIR from revenue context
     const monthlyFirTargets = currentYear.monthlyFIRTargets || [];
-    const monthlyFirTotal = monthlyFirTargets[targetMonth - 1] || currentYear.targetRevenue / 12;
+    // Round to nearest dollar to match Master Revenue display
+    const monthlyFirTotal = Math.round(monthlyFirTargets[targetMonth - 1] || currentYear.targetRevenue / 12);
 
     // Get previous year data for pattern matching
     const { data: previousYearData } = await supabase
@@ -404,4 +422,80 @@ export function useMonthlyBudgetSummary(year: number, month: number) {
   }, [dbUserId, year, month]);
 
   return { summary, loading, error };
+}
+
+/**
+ * Hook for getting YTD budget data (all months in a year)
+ */
+export function useYTDBudget(year: number) {
+  const { dbUserId } = useAuthContext();
+  const [ytdData, setYtdData] = useState<WeeklyBudgetData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchYTDData = async () => {
+      if (!dbUserId) return;
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch all weekly data for the year up to current month
+        const currentDate = new Date();
+        const currentYear = currentDate.getFullYear();
+        const currentMonth = currentDate.getMonth() + 1;
+        
+        // If viewing current year, only fetch up to current month
+        // If viewing past year, fetch all 12 months
+        const maxMonth = year === currentYear ? currentMonth : 12;
+
+        const { data, error: fetchError } = await supabase
+          .from('weekly_budget_tracking')
+          .select('*')
+          .eq('user_id', dbUserId)
+          .eq('year', year)
+          .lte('month', maxMonth)
+          .order('month', { ascending: true })
+          .order('week_of_month', { ascending: true });
+
+        if (fetchError) throw fetchError;
+        
+        // Map snake_case database columns to camelCase
+        const mappedData = (data || []).map((item: any) => ({
+          id: item.id,
+          userId: item.user_id,
+          year: item.year,
+          month: item.month,
+          weekOfMonth: item.week_of_month,
+          weekStartDate: item.week_start_date,
+          weekEndDate: item.week_end_date,
+          weeklyBudgetTarget: Number(item.weekly_budget_target || 0),
+          monthlyFirTotal: item.monthly_fir_total ? Number(item.monthly_fir_total) : undefined,
+          monthlyRevenuePercentage: item.monthly_revenue_percentage ? Number(item.monthly_revenue_percentage) : undefined,
+          actualRevenue: Number(item.actual_revenue || 0),
+          jobsCompleted: item.jobs_completed || 0,
+          varianceAmount: item.variance_amount ? Number(item.variance_amount) : undefined,
+          variancePercentage: item.variance_percentage ? Number(item.variance_percentage) : undefined,
+          isOnTrack: item.is_on_track,
+          isAutoPopulated: item.is_auto_populated,
+          lastServiceSyncAt: item.last_service_sync_at,
+          notes: item.notes,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+        }));
+        
+        setYtdData(mappedData);
+      } catch (err) {
+        console.error('Error fetching YTD budget:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch YTD budget');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchYTDData();
+  }, [dbUserId, year]);
+
+  return { ytdData, loading, error };
 }

@@ -231,7 +231,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
   // Use props if provided, otherwise use local state
   // Default to current year and month
   const [localFilterYear, setLocalFilterYear] = useState<number>(currentDate.getFullYear());
-  const [localFilterMonth, setLocalFilterMonth] = useState<number>(currentDate.getMonth() + 1);
+  const [localFilterMonth, setLocalFilterMonth] = useState<number | 'ytd'>(currentDate.getMonth() + 1);
   const [localFilterStatus, setLocalFilterStatus] = useState<string>('all');
   const [localSelectedPeriod, setLocalSelectedPeriod] = useState<string>('current_month');
   
@@ -835,8 +835,11 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
 
   // Process KPIs into radial chart data using memoization with guards
   const radialChartsData = useMemo(() => {
-    // Guard: only process if we have KPIs and a selected document
-    if (!kpis || !selectedDocumentId) {
+    // Guard: only process if we have KPIs
+    // For YTD mode, we don't need a selectedDocumentId (data is aggregated)
+    // For single month mode, we need a selectedDocumentId
+    const isYTDMode = filterMonth === 'ytd';
+    if (!kpis || (!isYTDMode && !selectedDocumentId)) {
       return null;
     }
 
@@ -897,7 +900,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
         if (!doc.start_date) return false;
         const docYear = new Date(doc.start_date).getFullYear();
         const docMonth = new Date(doc.start_date).getMonth() + 1;
-        return docYear === filterYear - 1 && docMonth <= (filterMonth === 0 || filterMonth === 'ytd' ? new Date().getMonth() + 1 : filterMonth);
+        return docYear === filterYear - 1 && docMonth <= (filterMonth === 'ytd' ? new Date().getMonth() + 1 : filterMonth);
       });
 
       if (previousYearDocs.length > 0) {
@@ -1098,7 +1101,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
     const hasValidData = totalRevenue > 0 || totalExpenses > 0 || netProfit !== 0;
     
     return { charts, hasData: hasValidData, isYTD };
-  }, [kpis, selectedDocumentId, documents]);
+  }, [kpis, selectedDocumentId, documents, filterMonth, filterYear]);
 
 
 
@@ -1180,7 +1183,7 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>Viewing:</span>
             <span className="font-medium text-foreground">
-              {filterMonth === 0 || filterMonth === 'ytd' ? 'Year to Date' : new Date(filterYear, (filterMonth as number) - 1).toLocaleDateString('en-US', { month: 'long' })}
+              {filterMonth === 'ytd' ? 'Year to Date' : new Date(filterYear, (filterMonth as number) - 1).toLocaleDateString('en-US', { month: 'long' })}
             </span>
             <span className="font-medium text-foreground">{filterYear}</span>
             {filterStatus !== 'all' && (
@@ -1221,13 +1224,20 @@ export const WhereDidTheMoneyGo: React.FC<WhereDidTheMoneyGoProps> = (props) => 
               <Filter className="h-4 w-4 text-accent" />
               <Select 
                 value={filterMonth.toString()} 
-                onValueChange={(value) => setFilterMonth(Number(value))}
+                onValueChange={(value) => {
+                  // Handle YTD as string 'ytd', otherwise convert to number
+                  if (value === 'ytd') {
+                    setFilterMonth('ytd');
+                  } else {
+                    setFilterMonth(Number(value));
+                  }
+                }}
               >
                 <SelectTrigger className="w-40">
                   <SelectValue placeholder="Month" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="0">Year to Date</SelectItem>
+                  <SelectItem value="ytd">Year to Date</SelectItem>
                   {Array.from({ length: 12 }, (_, i) => {
                     const month = i + 1;
                     const monthName = new Date(2024, i, 1).toLocaleDateString('en-US', { month: 'long' });

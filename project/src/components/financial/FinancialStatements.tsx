@@ -159,17 +159,48 @@ export const FinancialStatements: React.FC = () => {
     try {
       console.log('📤 Processing file:', file.name);
       
-      // Use the current filter period (filterYear and filterMonth)
-      // If filterMonth is 'ytd' or invalid, default to current month
-      const currentDate = new Date();
-      let year = filterYear;
-      let month = typeof filterMonth === 'number' ? filterMonth : currentDate.getMonth() + 1;
+      // Try to extract date from filename (e.g., "2021_05_may_pnl.csv" or "May_2021.csv")
+      const filenameMatch = file.name.match(/(\d{4})[_-](\d{1,2})|(\d{1,2})[_-](\d{4})/);
+      const monthMatch = file.name.match(/(january|february|march|april|may|june|july|august|september|october|november|december)/i);
+      
+      let year: number;
+      let month: number;
+      
+      if (filenameMatch) {
+        // Extract year and month from filename pattern
+        if (filenameMatch[1]) {
+          // Format: YYYY_MM
+          year = parseInt(filenameMatch[1]);
+          month = parseInt(filenameMatch[2]);
+        } else {
+          // Format: MM_YYYY
+          year = parseInt(filenameMatch[4]);
+          month = parseInt(filenameMatch[3]);
+        }
+        console.log(`📅 Extracted from filename: Year ${year}, Month ${month}`);
+      } else if (monthMatch) {
+        // Try to extract month name and look for year
+        const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 
+                           'july', 'august', 'september', 'october', 'november', 'december'];
+        month = monthNames.indexOf(monthMatch[1].toLowerCase()) + 1;
+        
+        // Look for year in filename
+        const yearMatch = file.name.match(/\b(20\d{2})\b/);
+        year = yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear();
+        console.log(`📅 Extracted from month name: Year ${year}, Month ${month}`);
+      } else {
+        // Fallback to current filter period
+        const currentDate = new Date();
+        year = filterYear;
+        month = typeof filterMonth === 'number' ? filterMonth : currentDate.getMonth() + 1;
+        console.log(`📅 Using filter period (no date in filename): Year ${year}, Month ${month}`);
+      }
       
       let startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
-      const lastDay = new Date(year, month, 0).getDate(); // month is 1-indexed, so this gets last day correctly
+      const lastDay = new Date(year, month, 0).getDate();
       let endDate = `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
       
-      console.log(`📅 Using filter period: ${startDate} to ${endDate} (Year: ${year}, Month: ${month})`);
+      console.log(`📅 Period set to: ${startDate} to ${endDate}`);
 
       // Generate standardized filename regardless of upload filename
       const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 
@@ -201,6 +232,7 @@ export const FinancialStatements: React.FC = () => {
           start_date: startDate,
           end_date: endDate,
           filename: standardizedFilename,
+          originalFilename: file.name, // Store original filename for display
           source: 'csv_upload',
           status: 'pending_review',
           raw_json: extractedData,
@@ -215,12 +247,16 @@ export const FinancialStatements: React.FC = () => {
         };
 
         // Show review modal instead of immediately posting
-        console.log('Setting extracted data:', documentData);
+        console.log('📋 CSV parsed - Opening review modal');
+        console.log('  Original file:', file.name);
+        console.log('  Extracted dates:', { startDate, endDate });
+        console.log('  Standardized filename:', standardizedFilename);
+        console.log('  Extracted data:', documentData);
         setLastExtractedData(documentData);
         setShowReviewModal(true);
         setIsUploading(false);
         
-        console.log('Document ready for review');
+        console.log('✅ Document ready for review - dates can be edited before saving');
         return; // Don't auto-save, wait for user review
       } else {
         // For PDF/PNG files, you'll need to implement Azure DI processing
@@ -445,7 +481,7 @@ export const FinancialStatements: React.FC = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">Viewing:</span>
                 <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent">
-                  {filterMonth === 0 || filterMonth === 'ytd' ? `Year to Date ${filterYear}` : new Date(filterYear, (filterMonth as number) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  {filterMonth === 'ytd' ? `Year to Date ${filterYear}` : new Date(filterYear, (filterMonth as number) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                 </div>
                 {filterStatus !== 'all' && (
                   <div className="px-3 py-1 bg-accent/20 rounded-full text-xs font-medium text-accent capitalize">
@@ -482,8 +518,8 @@ export const FinancialStatements: React.FC = () => {
               const docMonth = docDate.getUTCMonth() + 1; // JavaScript months are 0-based
               
               if (filterMonth === 'ytd') {
-                // Year to date filter
-                return docYear === filterYear && docMonth <= currentDate.getMonth() + 1;
+                // Year to date filter - show ALL months for the selected year
+                return docYear === filterYear;
               } else {
                 // Specific month filter
                 return docYear === filterYear && docMonth === filterMonth;
@@ -507,7 +543,7 @@ export const FinancialStatements: React.FC = () => {
                   <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <p className="text-foreground font-medium">No documents for selected period</p>
                   <p className="text-sm text-muted-foreground">
-                    {filterMonth === 0 || filterMonth === 'ytd' 
+                    {filterMonth === 'ytd' 
                       ? `No documents found for year to date ${filterYear}`
                       : `No documents found for ${new Date(filterYear, (filterMonth as number) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
                     }

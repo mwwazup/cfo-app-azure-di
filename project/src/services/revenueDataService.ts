@@ -118,9 +118,10 @@ export class RevenueDataService {
       
       for (let i = 0; i < months.length; i++) {
         const month = months[i];
-        const monthlyAmount = monthlyTargets[i];
+        // Round to nearest dollar to ensure consistency between Master Revenue and Budget vs Actual
+        const monthlyAmount = Math.round(monthlyTargets[i]);
         
-        console.log(`  Month ${month}: $${monthlyAmount.toFixed(2)}`);
+        console.log(`  Month ${month}: $${monthlyAmount.toLocaleString()}`);
         
         await upsertMonthlyRevenue({
           userId: userId, // Let backend handle user ID conversion
