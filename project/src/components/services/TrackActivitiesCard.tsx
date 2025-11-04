@@ -7,6 +7,7 @@ import { Input } from '../ui/input';
 
 interface TrackActivitiesCardProps {
   year: number;
+  initiallyExpanded?: boolean;
 }
 
 const months = [
@@ -14,8 +15,8 @@ const months = [
   "July", "August", "September", "October", "November", "December"
 ];
 
-export function TrackActivitiesCard({ year }: TrackActivitiesCardProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function TrackActivitiesCard({ year, initiallyExpanded = false }: TrackActivitiesCardProps) {
+  const [isOpen, setIsOpen] = useState(initiallyExpanded);
   const { services } = useServices();
   const { activities, createActivity } = useServiceActivities(year);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);

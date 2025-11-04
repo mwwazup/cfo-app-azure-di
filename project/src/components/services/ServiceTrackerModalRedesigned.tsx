@@ -7,6 +7,7 @@ interface ServiceTrackerModalProps {
   open: boolean;
   onClose: () => void;
   defaultTab?: 'services' | 'activities';
+  onServiceAdded?: () => void;
 }
 
 // Gold accent color for all services
@@ -23,7 +24,7 @@ const SERVICE_CATEGORIES = [
   'Consultation',
 ];
 
-export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }: ServiceTrackerModalProps) {
+export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities', onServiceAdded }: ServiceTrackerModalProps) {
   const { services, createService, updateService, deleteService, refreshServices } = useServices();
   const [filterYear, setFilterYear] = useState<number>(new Date().getFullYear());
   const { createActivity, activities } = useServiceActivities(filterYear);
@@ -64,6 +65,7 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }
 
     try {
       setIsSaving(true);
+      const savedServiceName = serviceName;
       await createService({
         serviceName,
         serviceCategory: serviceCategory || undefined,
@@ -84,7 +86,14 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities' }
       // Refresh services list
       await refreshServices();
       
-      alert(`${serviceName} added successfully`);
+      // Show success message and close modal
+      alert(`${savedServiceName} added successfully! You can now track activities for this service.`);
+      
+      // Trigger callback and close modal
+      if (onServiceAdded) {
+        onServiceAdded();
+      }
+      onClose();
     } catch (error) {
       alert(`Failed to add service: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
