@@ -5,6 +5,7 @@ import { useServices, useServiceRevenueData } from '../../hooks/useServices';
 
 interface ServiceAnalyticsSectionProps {
   year: number;
+  month?: number | 'ytd';
 }
 
 const months = [
@@ -12,15 +13,13 @@ const months = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ];
 
-export function ServiceAnalyticsSection({ year: initialYear }: ServiceAnalyticsSectionProps) {
+export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalyticsSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
-  const [selectedYear, setSelectedYear] = useState(initialYear);
-  const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
   const [activityOpen, setActivityOpen] = useState(true);
   const [contributionOpen, setContributionOpen] = useState(true);
   const [distributionOpen, setDistributionOpen] = useState(true);
   const { services } = useServices();
-  const { revenueData } = useServiceRevenueData(selectedYear);
+  const { revenueData } = useServiceRevenueData(year);
 
   // Calculate total revenue per month across all services
   const monthlyTotals = Array.from({ length: 12 }, (_, monthIndex) => {
@@ -108,35 +107,6 @@ export function ServiceAnalyticsSection({ year: initialYear }: ServiceAnalyticsS
 
       {isOpen && (
         <CardContent className="space-y-6">
-          {/* Year and Month Filter */}
-          <div className="flex items-center gap-4 p-3 bg-card border border-border rounded-lg">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">Year:</label>
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="px-3 py-1.5 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-              >
-                <option value={new Date().getFullYear()}>{new Date().getFullYear()}</option>
-                <option value={new Date().getFullYear() - 1}>{new Date().getFullYear() - 1}</option>
-                <option value={new Date().getFullYear() - 2}>{new Date().getFullYear() - 2}</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">Month:</label>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                className="px-3 py-1.5 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-              >
-                <option value="all">All Months</option>
-                {months.map((month, idx) => (
-                  <option key={month} value={idx + 1}>{month}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Total Services Card */}
@@ -162,7 +132,7 @@ export function ServiceAnalyticsSection({ year: initialYear }: ServiceAnalyticsS
                     <DollarSign className="h-5 w-5 text-accent" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Total Revenue ({selectedYear})</p>
+                    <p className="text-sm text-muted-foreground">Total Revenue ({year})</p>
                     <p className="text-2xl font-bold text-foreground">
                       ${Math.round(grandTotal).toLocaleString()}
                     </p>

@@ -212,15 +212,16 @@ export function ServiceMixPage() {
           </div>
         </div>
       ) : (
-        <ServiceMixBarChart year={filterYear} />
+        <ServiceMixBarChart year={filterYear} month={filterMonth} />
       )}
 
       <TrackActivitiesCard 
-        year={filterYear} 
+        year={filterYear}
+        month={filterMonth}
         initiallyExpanded={trackActivitiesExpanded}
       />
 
-      <ServiceAnalyticsSection year={filterYear} />
+      <ServiceAnalyticsSection year={filterYear} month={filterMonth} />
 
       <ServiceTrackerModal
         open={modalOpen}

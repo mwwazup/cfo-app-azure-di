@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { useServices, useServiceRevenueData } from '../../hooks/useServices';
 import { useRevenue } from '../../contexts/revenue-context';
-import { ChevronDown, ChevronUp, BarChart3, Calendar } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { ChevronDown, ChevronUp, BarChart3 } from 'lucide-react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -35,23 +34,15 @@ const months = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ];
 
-const fullMonths = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
-
 interface ServiceMixBarChartProps {
   year: number;
+  month?: number | 'ytd';
 }
 
-export function ServiceMixBarChart({ year }: ServiceMixBarChartProps) {
+export function ServiceMixBarChart({ year, month = 'ytd' }: ServiceMixBarChartProps) {
   const { services } = useServices();
-  const currentDate = new Date();
-  const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
-  const [filterYear, setFilterYear] = useState<number>(year);
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
   
-  const { revenueData } = useServiceRevenueData(filterYear);
+  const { revenueData } = useServiceRevenueData(year);
   const { currentYear } = useRevenue();
   const [selectedServices, setSelectedServices] = useState<Set<string>>(new Set());
   const [showServiceMix, setShowServiceMix] = useState(true); // Open by default
@@ -87,10 +78,10 @@ export function ServiceMixBarChart({ year }: ServiceMixBarChartProps) {
   // Generate chart data - horizontal stacked bars (one bar per service, months stacked)
   const selectedServiceData = revenueData.filter(service => selectedServices.has(service.serviceId));
   
-  // Filter data by selected month
+  // Filter data by parent's month filter
   const filteredServiceData = selectedServiceData.map(service => {
     const filteredRevenue = service.monthlyRevenue.filter(m => 
-      filterMonth === 'all' || m.month === filterMonth
+      month === 'ytd' || m.month === month
     );
     const total = filteredRevenue.reduce((sum, m) => sum + m.revenue, 0);
     return {
@@ -101,7 +92,7 @@ export function ServiceMixBarChart({ year }: ServiceMixBarChartProps) {
 
   // Create single dataset with gold accent color
   const monthDatasets = [{
-    label: filterMonth === 'all' ? 'Total Revenue' : months[filterMonth - 1],
+    label: month === 'ytd' ? 'Total Revenue' : (typeof month === 'number' ? months[month - 1] : 'Total Revenue'),
     data: filteredServiceData.map(s => s.totalRevenue),
     backgroundColor: 'rgba(208, 180, 106, 0.8)', // Gold accent
     borderColor: 'rgba(208, 180, 106, 1)',
@@ -246,54 +237,6 @@ export function ServiceMixBarChart({ year }: ServiceMixBarChartProps) {
 
       {showServiceMix && (
         <CardContent className="space-y-4">
-          {/* Period Filter */}
-          <div className="flex items-center gap-4 p-3 bg-card border border-border rounded-lg">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-accent" />
-              <Select 
-                value={selectedPeriod} 
-                onValueChange={(value) => {
-                  setSelectedPeriod(value);
-                  if (value === 'all') {
-                    setFilterMonth('all');
-                    setFilterYear(currentDate.getFullYear());
-                  } else {
-                    const [year, month] = value.split('-').map(Number);
-                    setFilterYear(year);
-                    setFilterMonth(month);
-                  }
-                }}
-              >
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Select Period" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Time</SelectItem>
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const year = currentDate.getFullYear();
-                    const month = 12 - i;
-                    const value = `${year}-${String(month).padStart(2, '0')}`;
-                    return (
-                      <SelectItem key={value} value={value}>
-                        {fullMonths[month - 1]} {year}
-                      </SelectItem>
-                    );
-                  })}
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const year = currentDate.getFullYear() - 1;
-                    const month = 12 - i;
-                    const value = `${year}-${String(month).padStart(2, '0')}`;
-                    return (
-                      <SelectItem key={value} value={value}>
-                        {fullMonths[month - 1]} {year}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
           {/* Service Selection */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">

@@ -7,6 +7,7 @@ import { Input } from '../ui/input';
 
 interface TrackActivitiesCardProps {
   year: number;
+  month?: number | 'ytd';
   initiallyExpanded?: boolean;
 }
 
@@ -15,11 +16,12 @@ const months = [
   "July", "August", "September", "October", "November", "December"
 ];
 
-export function TrackActivitiesCard({ year, initiallyExpanded = false }: TrackActivitiesCardProps) {
+export function TrackActivitiesCard({ year, month, initiallyExpanded = false }: TrackActivitiesCardProps) {
   const [isOpen, setIsOpen] = useState(initiallyExpanded);
   const { services } = useServices();
   const { activities, createActivity } = useServiceActivities(year);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  // Use parent's month filter or default to current month
+  const selectedMonth = typeof month === 'number' ? month : new Date().getMonth() + 1;
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [activityData, setActivityData] = useState<Record<string, { appointments: number; revenue: number }>>({});
 
@@ -130,22 +132,13 @@ export function TrackActivitiesCard({ year, initiallyExpanded = false }: TrackAc
 
       {isOpen && (
         <CardContent className="space-y-4">
-          {/* Month and Week Selection */}
+          {/* Week Selection */}
           <div className="flex items-center gap-4 p-3 bg-card border border-border rounded-lg">
             <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">Month:</label>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                className="px-3 py-1.5 text-sm border border-border rounded-md bg-background text-foreground"
-              >
-                {months.map((month, idx) => (
-                  <option key={idx} value={idx + 1}>{month}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">Week:</label>
+              <Calendar className="h-4 w-4 text-accent" />
+              <span className="text-sm text-muted-foreground">
+                {months[selectedMonth - 1]} {year} - Week:
+              </span>
               <select
                 value={selectedWeek}
                 onChange={(e) => setSelectedWeek(parseInt(e.target.value))}
