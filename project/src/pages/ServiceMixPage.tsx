@@ -16,58 +16,9 @@ export function ServiceMixPage() {
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth() + 1;
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('current_month');
   const [filterYear, setFilterYear] = useState<number>(currentYear);
-  const [filterMonth, setFilterMonth] = useState<number | 'all'>(currentMonth);
+  const [filterMonth, setFilterMonth] = useState<number | 'ytd'>(currentMonth);
   const { services } = useServices();
-
-  // Generate period options dynamically (current year + 2 previous years)
-  const generatePeriodOptions = () => {
-    const options: { value: string; label: string }[] = [];
-    const now = new Date();
-    
-    // Current Month
-    options.push({
-      value: 'current_month',
-      label: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-    });
-    
-    // Last 11 months
-    for (let i = 1; i <= 11; i++) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1;
-      options.push({
-        value: `${year}-${String(month).padStart(2, '0')}`,
-        label: date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-      });
-    }
-    
-    // Year to Date
-    options.push({
-      value: 'ytd',
-      label: `Year to Date ${now.getFullYear()}`
-    });
-    
-    return options;
-  };
-
-  const periodOptions = generatePeriodOptions();
-
-  // Update year and month when period changes
-  useEffect(() => {
-    if (selectedPeriod === 'current_month') {
-      setFilterYear(currentYear);
-      setFilterMonth(currentMonth);
-    } else if (selectedPeriod === 'ytd') {
-      setFilterYear(currentYear);
-      setFilterMonth('all');
-    } else if (selectedPeriod.includes('-')) {
-      const [year, month] = selectedPeriod.split('-');
-      setFilterYear(parseInt(year));
-      setFilterMonth(parseInt(month));
-    }
-  }, [selectedPeriod, currentYear, currentMonth]);
 
   // Auto-expand Track Activities when services exist
   useEffect(() => {
@@ -110,33 +61,87 @@ export function ServiceMixPage() {
         </Button>
       </div>
 
-      {/* Period Filter */}
+      {/* Period Filter - Matching Financial Documents Pattern */}
       <div className="bg-muted/30 border border-border rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-accent" />
-            <span className="text-sm font-medium text-foreground">Period:</span>
-            <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Select period" />
-              </SelectTrigger>
-              <SelectContent>
-                {periodOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selectedPeriod !== 'current_month' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSelectedPeriod('current_month')}
-                className="h-8 px-2"
+        <div className="space-y-4">
+          {/* Active Viewing Display */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>Viewing:</span>
+            <span className="font-medium text-foreground">
+              {filterMonth === 'ytd' ? 'Year to Date' : new Date(filterYear, (filterMonth as number) - 1).toLocaleDateString('en-US', { month: 'long' })}
+            </span>
+            <span className="font-medium text-foreground">{filterYear}</span>
+          </div>
+          
+          {/* Filter Controls */}
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Year Filter */}
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-accent" />
+              <Select 
+                value={filterYear.toString()} 
+                onValueChange={(value) => setFilterYear(Number(value))}
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 6 }, (_, i) => {
+                    const year = currentDate.getFullYear() - (5 - i);
+                    return (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Month Filter */}
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-accent" />
+              <Select 
+                value={filterMonth.toString()} 
+                onValueChange={(value) => {
+                  if (value === 'ytd') {
+                    setFilterMonth('ytd');
+                  } else {
+                    setFilterMonth(Number(value));
+                  }
+                }}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Month" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ytd">Year to Date</SelectItem>
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const month = i + 1;
+                    const monthName = new Date(2024, i, 1).toLocaleDateString('en-US', { month: 'long' });
+                    return (
+                      <SelectItem key={month} value={month.toString()}>
+                        {monthName}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Clear Filter Button */}
+            {(filterYear !== currentDate.getFullYear() || filterMonth !== currentDate.getMonth() + 1) && (
+              <button
+                onClick={() => {
+                  setFilterYear(currentDate.getFullYear());
+                  setFilterMonth(currentDate.getMonth() + 1);
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                title="Clear filters"
               >
                 <X className="h-4 w-4" />
-              </Button>
+                Clear
+              </button>
             )}
           </div>
         </div>
