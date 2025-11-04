@@ -4,16 +4,70 @@ import { TrackActivitiesCard } from '../components/services/TrackActivitiesCard'
 import { ServiceAnalyticsSection } from '../components/services/ServiceAnalyticsSection';
 import { useState, useEffect } from 'react';
 import { Button } from '../components/ui/button';
-import { Plus, CheckCircle2, Circle } from 'lucide-react';
+import { Plus, CheckCircle2, Circle, Calendar, X } from 'lucide-react';
 import { useServices } from '../hooks/useServices';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 export function ServiceMixPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTab, setModalTab] = useState<'services' | 'activities'>('services');
   const [trackActivitiesExpanded, setTrackActivitiesExpanded] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
-  const currentYear = new Date().getFullYear();
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth() + 1;
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('current_month');
+  const [filterYear, setFilterYear] = useState<number>(currentYear);
+  const [filterMonth, setFilterMonth] = useState<number | 'all'>(currentMonth);
   const { services } = useServices();
+
+  // Generate period options dynamically (current year + 2 previous years)
+  const generatePeriodOptions = () => {
+    const options: { value: string; label: string }[] = [];
+    const now = new Date();
+    
+    // Current Month
+    options.push({
+      value: 'current_month',
+      label: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    });
+    
+    // Last 11 months
+    for (let i = 1; i <= 11; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      options.push({
+        value: `${year}-${String(month).padStart(2, '0')}`,
+        label: date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      });
+    }
+    
+    // Year to Date
+    options.push({
+      value: 'ytd',
+      label: `Year to Date ${now.getFullYear()}`
+    });
+    
+    return options;
+  };
+
+  const periodOptions = generatePeriodOptions();
+
+  // Update year and month when period changes
+  useEffect(() => {
+    if (selectedPeriod === 'current_month') {
+      setFilterYear(currentYear);
+      setFilterMonth(currentMonth);
+    } else if (selectedPeriod === 'ytd') {
+      setFilterYear(currentYear);
+      setFilterMonth('all');
+    } else if (selectedPeriod.includes('-')) {
+      const [year, month] = selectedPeriod.split('-');
+      setFilterYear(parseInt(year));
+      setFilterMonth(parseInt(month));
+    }
+  }, [selectedPeriod, currentYear, currentMonth]);
 
   // Auto-expand Track Activities when services exist
   useEffect(() => {
@@ -54,6 +108,38 @@ export function ServiceMixPage() {
           <Plus className="h-4 w-4" />
           Add Service
         </Button>
+      </div>
+
+      {/* Period Filter */}
+      <div className="bg-muted/30 border border-border rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-accent" />
+            <span className="text-sm font-medium text-foreground">Period:</span>
+            <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent>
+                {periodOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedPeriod !== 'current_month' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedPeriod('current_month')}
+                className="h-8 px-2"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Workflow Steps */}
@@ -121,15 +207,15 @@ export function ServiceMixPage() {
           </div>
         </div>
       ) : (
-        <ServiceMixBarChart year={currentYear} />
+        <ServiceMixBarChart year={filterYear} />
       )}
 
       <TrackActivitiesCard 
-        year={currentYear} 
+        year={filterYear} 
         initiallyExpanded={trackActivitiesExpanded}
       />
 
-      <ServiceAnalyticsSection year={currentYear} />
+      <ServiceAnalyticsSection year={filterYear} />
 
       <ServiceTrackerModal
         open={modalOpen}
