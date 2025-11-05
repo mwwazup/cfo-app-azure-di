@@ -313,8 +313,11 @@ export function ServiceMixBarChart({ year, month = 'ytd' }: ServiceMixBarChartPr
                       const totalCogs = filteredServiceData.reduce((sum, serviceData) => {
                         const service = services.find(s => s.id === serviceData.serviceId);
                         if (!service || !service.cogsCost) return sum;
-                        // Get appointment count for this service in the filtered period
-                        const appointments = serviceData.monthlyRevenue.reduce((total, m) => 
+                        // Get appointment count from the already filtered monthly revenue
+                        const filteredMonthlyRevenue = serviceData.monthlyRevenue.filter(m => 
+                          month === 'ytd' || m.month === month
+                        );
+                        const appointments = filteredMonthlyRevenue.reduce((total, m) => 
                           total + (m.appointments || 0), 0
                         );
                         const cogsCost = Number(service.cogsCost);
