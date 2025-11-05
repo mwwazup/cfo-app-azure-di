@@ -305,14 +305,14 @@ export function ServiceMixBarChart({ year, month = 'ytd' }: ServiceMixBarChartPr
           {/* Summary */}
           {selectedServices.size > 0 && (
             <div className="pt-4 border-t border-border">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Services Selected</p>
-                  <p className="text-lg font-semibold text-foreground">{selectedServices.size}</p>
+                  <p className="text-2xl font-bold text-foreground">{selectedServices.size}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Total Service Revenue</p>
-                  <p className="text-lg font-semibold text-accent">
+                  <p className="text-2xl font-bold text-accent">
                     ${revenueData
                       .filter(s => selectedServices.has(s.serviceId))
                       .reduce((sum, s) => sum + s.monthlyRevenue.reduce((m, r) => m + r.revenue, 0), 0)
@@ -320,14 +320,8 @@ export function ServiceMixBarChart({ year, month = 'ytd' }: ServiceMixBarChartPr
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">Total Actual Revenue</p>
-                  <p className="text-lg font-semibold text-foreground">
-                    ${currentYear.data.reduce((sum, item) => sum + item.revenue, 0).toLocaleString()}
-                  </p>
-                </div>
-                <div>
                   <p className="text-xs text-muted-foreground mb-1">Coverage</p>
-                  <p className="text-lg font-semibold text-foreground">
+                  <p className="text-2xl font-bold text-foreground">
                     {(() => {
                       const serviceTotal = revenueData
                         .filter(s => selectedServices.has(s.serviceId))
