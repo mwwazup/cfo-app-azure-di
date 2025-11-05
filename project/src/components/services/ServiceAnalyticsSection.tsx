@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { ChevronDown, ChevronUp, TrendingUp, DollarSign, Hash, PieChart } from 'lucide-react';
+import { ChevronDown, ChevronUp, DollarSign, Hash, PieChart } from 'lucide-react';
 import { useServices, useServiceRevenueData } from '../../hooks/useServices';
 
 interface ServiceAnalyticsSectionProps {
@@ -109,16 +109,24 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
         <CardContent className="space-y-6">
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Total Services Card */}
+            {/* Avg Ticket Card */}
             <Card className="bg-muted/30">
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <div className="p-3 rounded-lg bg-accent/20">
-                    <Hash className="h-5 w-5 text-accent" />
+                    <DollarSign className="h-5 w-5 text-accent" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Active Services</p>
-                    <p className="text-2xl font-bold text-foreground">{services.length}</p>
+                    <p className="text-sm text-muted-foreground">Avg Ticket</p>
+                    <p className="text-2xl font-bold text-foreground">
+                      ${(() => {
+                        const totalAppointments = serviceAppointmentsPerMonth.reduce((sum, service) => 
+                          sum + service.monthlyAppointments.reduce((a: number, b: number) => a + b, 0), 0
+                        );
+                        if (totalAppointments === 0) return '0';
+                        return Math.round(grandTotal / totalAppointments).toLocaleString();
+                      })()}
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -141,21 +149,21 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
               </CardContent>
             </Card>
 
-            {/* Avg Appointments Per Month Card */}
+            {/* Total Appointments Per Month Card */}
             <Card className="bg-muted/30">
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <div className="p-3 rounded-lg bg-accent/20">
-                    <TrendingUp className="h-5 w-5 text-accent" />
+                    <Hash className="h-5 w-5 text-accent" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Avg Appointments/Month</p>
+                    <p className="text-sm text-muted-foreground">Total Appointments/Month</p>
                     <p className="text-2xl font-bold text-foreground">
                       {(() => {
                         const totalAppointments = serviceAppointmentsPerMonth.reduce((sum, service) => 
                           sum + service.monthlyAppointments.reduce((a: number, b: number) => a + b, 0), 0
                         );
-                        return (totalAppointments / 12).toFixed(1);
+                        return Math.round(totalAppointments / 12).toLocaleString();
                       })()}
                     </p>
                   </div>

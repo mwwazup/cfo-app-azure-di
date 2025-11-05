@@ -307,8 +307,22 @@ export function ServiceMixBarChart({ year, month = 'ytd' }: ServiceMixBarChartPr
             <div className="pt-4 border-t border-border">
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-1">Number of Services Performed</p>
-                  <p className="text-2xl font-bold text-foreground">{selectedServices.size}</p>
+                  <p className="text-xs text-muted-foreground mb-1">Total COGS/Month</p>
+                  <p className="text-2xl font-bold text-foreground">
+                    ${(() => {
+                      const totalCogs = filteredServiceData.reduce((sum, serviceData) => {
+                        const service = services.find(s => s.id === serviceData.serviceId);
+                        if (!service || !service.cogsCost) return sum;
+                        // Get appointment count for this service in the filtered period
+                        const appointments = serviceData.monthlyRevenue.reduce((total, m) => 
+                          total + (m.appointments || 0), 0
+                        );
+                        const cogsCost = Number(service.cogsCost);
+                        return sum + (cogsCost * appointments);
+                      }, 0);
+                      return Math.round(totalCogs).toLocaleString();
+                    })()}
+                  </p>
                 </div>
                 <div className="text-center">
                   <p className="text-xs text-muted-foreground mb-1">Total Revenue for all Services</p>
