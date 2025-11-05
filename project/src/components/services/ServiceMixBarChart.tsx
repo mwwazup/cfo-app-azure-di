@@ -306,30 +306,44 @@ export function ServiceMixBarChart({ year, month = 'ytd' }: ServiceMixBarChartPr
           {selectedServices.size > 0 && (
             <div className="pt-4 border-t border-border">
               <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Services Selected</p>
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Number of Services Performed</p>
                   <p className="text-2xl font-bold text-foreground">{selectedServices.size}</p>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Total Service Revenue</p>
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Total Revenue for all Services</p>
                   <p className="text-2xl font-bold text-accent">
-                    ${revenueData
-                      .filter(s => selectedServices.has(s.serviceId))
-                      .reduce((sum, s) => sum + s.monthlyRevenue.reduce((m, r) => m + r.revenue, 0), 0)
+                    ${filteredServiceData
+                      .reduce((sum, s) => sum + s.totalRevenue, 0)
                       .toLocaleString()}
                   </p>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Coverage</p>
-                  <p className="text-2xl font-bold text-foreground">
-                    {(() => {
-                      const serviceTotal = revenueData
-                        .filter(s => selectedServices.has(s.serviceId))
-                        .reduce((sum, s) => sum + s.monthlyRevenue.reduce((m, r) => m + r.revenue, 0), 0);
-                      const actualTotal = currentYear.data.reduce((sum, item) => sum + item.revenue, 0);
-                      return actualTotal > 0 ? Math.round((serviceTotal / actualTotal) * 100) : 0;
-                    })()}%
-                  </p>
+                <div className="text-center">
+                  {(() => {
+                    // Use filteredServiceData which respects the month filter
+                    const topService = filteredServiceData
+                      .sort((a, b) => b.totalRevenue - a.totalRevenue)[0];
+                    
+                    if (!topService || topService.totalRevenue === 0) {
+                      return (
+                        <>
+                          <p className="text-xs text-muted-foreground mb-1">Top Service</p>
+                          <p className="text-sm text-muted-foreground">No data</p>
+                        </>
+                      );
+                    }
+                    
+                    return (
+                      <>
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Top Service: <span className="text-foreground font-medium">{topService.serviceName}</span>
+                        </p>
+                        <p className="text-2xl font-bold text-accent">
+                          ${topService.totalRevenue.toLocaleString()}
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
