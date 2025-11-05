@@ -45,9 +45,17 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
 
   // Calculate service revenue breakdown with percentages
   const serviceBreakdown = revenueData.map(service => {
+    // Calculate revenue for the filtered period
+    const filteredServiceRevenue = month === 'ytd'
+      ? service.monthlyRevenue.reduce((sum, m) => sum + m.revenue, 0)
+      : service.monthlyRevenue.find(m => m.month === month)?.revenue || 0;
+    
     const totalRevenue = service.monthlyRevenue.reduce((sum, m) => sum + m.revenue, 0);
     const grandTotal = monthlyTotals.reduce((sum, total) => sum + total, 0);
-    const percentage = grandTotal > 0 ? (totalRevenue / grandTotal) * 100 : 0;
+    
+    // Calculate percentage based on filtered period
+    const filteredTotal = month === 'ytd' ? grandTotal : monthlyTotals[(month as number) - 1] || 0;
+    const percentage = filteredTotal > 0 ? (filteredServiceRevenue / filteredTotal) * 100 : 0;
 
     // Monthly breakdown
     const monthlyBreakdown = Array.from({ length: 12 }, (_, monthIndex) => {
@@ -68,10 +76,11 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
       serviceId: service.serviceId,
       serviceName: service.serviceName,
       totalRevenue,
+      filteredRevenue: filteredServiceRevenue,
       percentage,
       monthlyBreakdown
     };
-  }).sort((a, b) => b.totalRevenue - a.totalRevenue); // Sort by highest revenue
+  }).sort((a, b) => b.filteredRevenue - a.filteredRevenue); // Sort by highest filtered revenue
 
   const grandTotal = monthlyTotals.reduce((sum, total) => sum + total, 0);
 
@@ -311,7 +320,7 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
                         </div>
                       </td>
                       <td className="text-right p-3 text-sm font-semibold">
-                        ${Math.round(service.totalRevenue).toLocaleString()}
+                        ${Math.round(service.filteredRevenue).toLocaleString()}
                       </td>
                       <td className="text-right p-3 text-sm font-bold text-accent">
                         {service.percentage.toFixed(1)}%
