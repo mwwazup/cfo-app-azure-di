@@ -75,6 +75,19 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
 
   const grandTotal = monthlyTotals.reduce((sum, total) => sum + total, 0);
 
+  // Filter data based on month prop for summary cards
+  const filteredRevenue = month === 'ytd' 
+    ? grandTotal
+    : monthlyTotals[(month as number) - 1] || 0;
+
+  const filteredAppointments = month === 'ytd'
+    ? serviceAppointmentsPerMonth.reduce((sum, service) => 
+        sum + service.monthlyAppointments.reduce((a: number, b: number) => a + b, 0), 0
+      )
+    : serviceAppointmentsPerMonth.reduce((sum, service) => 
+        sum + (service.monthlyAppointments[(month as number) - 1] || 0), 0
+      );
+
   if (services.length === 0) {
     return null;
   }
@@ -120,11 +133,8 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
                     <p className="text-sm text-muted-foreground">Avg Ticket</p>
                     <p className="text-2xl font-bold text-foreground">
                       ${(() => {
-                        const totalAppointments = serviceAppointmentsPerMonth.reduce((sum, service) => 
-                          sum + service.monthlyAppointments.reduce((a: number, b: number) => a + b, 0), 0
-                        );
-                        if (totalAppointments === 0) return '0';
-                        return Math.round(grandTotal / totalAppointments).toLocaleString();
+                        if (filteredAppointments === 0) return '0';
+                        return Math.round(filteredRevenue / filteredAppointments).toLocaleString();
                       })()}
                     </p>
                   </div>
@@ -142,7 +152,7 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
                   <div>
                     <p className="text-sm text-muted-foreground">Total Revenue ({year})</p>
                     <p className="text-2xl font-bold text-foreground">
-                      ${Math.round(grandTotal).toLocaleString()}
+                      ${Math.round(filteredRevenue).toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -157,14 +167,9 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
                     <Hash className="h-5 w-5 text-accent" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Total Appointments/Month</p>
+                    <p className="text-sm text-muted-foreground">Total Appointments</p>
                     <p className="text-2xl font-bold text-foreground">
-                      {(() => {
-                        const totalAppointments = serviceAppointmentsPerMonth.reduce((sum, service) => 
-                          sum + service.monthlyAppointments.reduce((a: number, b: number) => a + b, 0), 0
-                        );
-                        return Math.round(totalAppointments / 12).toLocaleString();
-                      })()}
+                      {filteredAppointments.toLocaleString()}
                     </p>
                   </div>
                 </div>
