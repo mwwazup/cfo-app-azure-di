@@ -131,7 +131,7 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Avg Ticket</p>
-                    <p className="text-2xl font-bold text-foreground">
+                    <p className="text-2xl font-bold text-accent">
                       ${(() => {
                         if (filteredAppointments === 0) return '0';
                         return Math.round(filteredRevenue / filteredAppointments).toLocaleString();
@@ -151,7 +151,7 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Total Revenue ({year})</p>
-                    <p className="text-2xl font-bold text-foreground">
+                    <p className="text-2xl font-bold text-accent">
                       ${Math.round(filteredRevenue).toLocaleString()}
                     </p>
                   </div>
@@ -168,7 +168,7 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Total Appointments</p>
-                    <p className="text-2xl font-bold text-foreground">
+                    <p className="text-2xl font-bold text-accent">
                       {filteredAppointments.toLocaleString()}
                     </p>
                   </div>
@@ -241,6 +241,31 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
                       </tr>
                     );
                   })}
+                  {/* Monthly Totals Row */}
+                  <tr className="border-t-2 border-accent/50 bg-muted/30 font-bold">
+                    <td className="p-3 sticky left-0 bg-muted/30">
+                      <span className="text-sm font-bold">Total</span>
+                    </td>
+                    {Array.from({ length: 12 }, (_, monthIdx) => {
+                      const monthTotal = serviceAppointmentsPerMonth.reduce(
+                        (sum, service) => sum + (service.monthlyAppointments[monthIdx] || 0), 0
+                      );
+                      return (
+                        <td key={monthIdx} className="text-center p-3">
+                          <span className="text-sm font-bold text-accent">
+                            {monthTotal > 0 ? monthTotal : '-'}
+                          </span>
+                        </td>
+                      );
+                    })}
+                    <td className="text-center p-3 bg-accent/10">
+                      <span className="text-sm font-bold text-accent">
+                        {serviceAppointmentsPerMonth.reduce(
+                          (sum, service) => sum + service.monthlyAppointments.reduce((a: number, b: number) => a + b, 0), 0
+                        )}
+                      </span>
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -372,12 +397,9 @@ export function ServiceAnalyticsSection({ year, month = 'ytd' }: ServiceAnalytic
                     </td>
                     {monthlyTotals.map((total, idx) => (
                       <td key={idx} className="text-center p-3">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="text-xs font-bold text-foreground">100%</span>
-                          <span className="text-xs font-semibold text-accent">
-                            ${Math.round(total).toLocaleString()}
-                          </span>
-                        </div>
+                        <span className="text-xs font-semibold text-muted-foreground">
+                          ${Math.round(total).toLocaleString()}
+                        </span>
                       </td>
                     ))}
                   </tr>
