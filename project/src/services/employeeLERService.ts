@@ -11,11 +11,10 @@ export interface EmployeeInfo {
 
 export interface PayPeriod {
   id?: string;
-  employee_id?: string;
+  user_id?: string;  // Clerk user ID (company owner) - company-wide periods
   period_name: string;
   start_date: string;
   end_date: string;
-  base_rate?: number;  // Hourly rate at time of pay period creation
 }
 
 export interface DailyRecord {
@@ -65,6 +64,11 @@ export interface CompanySettings {
   bonusThresholdMax: number;
   overtimeHoursDaily: number;
   overtimeMultiplier: number;
+  // Pay schedule configuration
+  paySchedule?: 'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly' | 'custom';
+  payDayOfWeek?: number;  // 0=Sunday, 5=Friday
+  payReferenceDate?: string;  // For bi-weekly calculations
+  paySemiMonthlyDates?: [number, number];  // e.g., [1, 15]
 }
 
 // ============================================
@@ -218,11 +222,14 @@ export async function updateEmployeeInfo(userId: string, info: EmployeeInfo): Pr
 // PAY PERIODS
 // ============================================
 
-export async function getPayPeriods(employeeId: string): Promise<PayPeriod[]> {
+// Get all company-wide pay periods for a user
+export async function getPayPeriods(userId: string): Promise<PayPeriod[]> {
+  if (!userId) return [];
+  
   const { data, error } = await supabase
     .from('pay_periods')
     .select('*')
-    .eq('employee_id', employeeId)
+    .eq('user_id', userId)
     .order('start_date', { ascending: false });
 
   if (error) {
@@ -233,15 +240,17 @@ export async function getPayPeriods(employeeId: string): Promise<PayPeriod[]> {
   return data || [];
 }
 
-export async function createPayPeriod(employeeId: string, period: PayPeriod, baseRate: number): Promise<PayPeriod | null> {
+// Create a company-wide pay period
+export async function createPayPeriod(userId: string, period: PayPeriod): Promise<PayPeriod | null> {
+  if (!userId) return null;
+  
   const { data, error } = await supabase
     .from('pay_periods')
     .insert([{
-      employee_id: employeeId,
+      user_id: userId,
       period_name: period.period_name,
       start_date: period.start_date,
-      end_date: period.end_date,
-      base_rate: baseRate  // Store the base rate at time of pay period creation
+      end_date: period.end_date
     }])
     .select()
     .single();
@@ -254,7 +263,8 @@ export async function createPayPeriod(employeeId: string, period: PayPeriod, bas
   return data;
 }
 
-export async function updatePayPeriod(payPeriodId: string, updates: { period_name?: string; start_date?: string; end_date?: string; base_rate?: number }): Promise<boolean> {
+// Update a pay period
+export async function updatePayPeriod(payPeriodId: string, updates: { period_name?: string; start_date?: string; end_date?: string }): Promise<boolean> {
   const { error } = await supabase
     .from('pay_periods')
     .update(updates)
@@ -292,6 +302,69 @@ export async function deletePayPeriod(payPeriodId: string): Promise<boolean> {
   }
 
   return true;
+}
+
+// Delete all pay periods for a company (user)
+export async function deleteAllPayPeriodsForUser(userId: string): Promise<{ success: boolean; deletedCount: number; message?: string }> {
+  if (!userId) {
+    return {
+      success: false,
+      deletedCount: 0,
+      message: 'User ID is required.'
+    };
+  }
+  
+  // Get all pay period IDs for this user
+  const { data: periods } = await supabase
+    .from('pay_periods')
+    .select('id')
+    .eq('user_id', userId);
+
+  if (!periods || periods.length === 0) {
+    return {
+      success: true,
+      deletedCount: 0,
+      message: 'No pay periods to delete.'
+    };
+  }
+
+  const periodIds = periods.map(p => p.id);
+  const count = periodIds.length;
+
+  // Check if there are any daily records for these pay periods
+  const { data: records } = await supabase
+    .from('employee_daily_records')
+    .select('id')
+    .in('pay_period_id', periodIds)
+    .limit(1);
+
+  if (records && records.length > 0) {
+    return {
+      success: false,
+      deletedCount: 0,
+      message: 'Cannot delete pay periods that have daily records. Please delete all daily records first.'
+    };
+  }
+
+  // Delete all pay periods for this user
+  const { error } = await supabase
+    .from('pay_periods')
+    .delete()
+    .eq('user_id', userId);
+
+  if (error) {
+    console.error('Error deleting all pay periods:', error);
+    return {
+      success: false,
+      deletedCount: 0,
+      message: 'Error deleting pay periods. Please try again.'
+    };
+  }
+
+  return {
+    success: true,
+    deletedCount: count
+  };
 }
 
 // ============================================
@@ -515,7 +588,11 @@ export async function getCompanySettings(userId: string): Promise<CompanySetting
       bonusThresholdMin: 25,
       bonusThresholdMax: 100,
       overtimeHoursDaily: 12,
-      overtimeMultiplier: 1.5
+      overtimeMultiplier: 1.5,
+      paySchedule: 'bi-weekly',
+      payDayOfWeek: 5,  // Friday
+      payReferenceDate: undefined,
+      paySemiMonthlyDates: [1, 16]
     };
   }
 
@@ -532,7 +609,11 @@ export async function getCompanySettings(userId: string): Promise<CompanySetting
       bonusThresholdMin: 25,
       bonusThresholdMax: 100,
       overtimeHoursDaily: 12,
-      overtimeMultiplier: 1.5
+      overtimeMultiplier: 1.5,
+      paySchedule: 'bi-weekly',
+      payDayOfWeek: 5,  // Friday
+      payReferenceDate: undefined,
+      paySemiMonthlyDates: [1, 16]
     };
   }
 
@@ -542,16 +623,24 @@ export async function getCompanySettings(userId: string): Promise<CompanySetting
       bonusThresholdMin: 25,
       bonusThresholdMax: 100,
       overtimeHoursDaily: 12,
-      overtimeMultiplier: 1.5
+      overtimeMultiplier: 1.5,
+      paySchedule: 'bi-weekly',
+      payDayOfWeek: 5,  // Friday
+      payReferenceDate: undefined,
+      paySemiMonthlyDates: [1, 15]
     };
   }
 
   return {
-    overheadPercent: parseFloat(data.overhead_percent),
-    bonusThresholdMin: parseFloat(data.bonus_threshold_min),
-    bonusThresholdMax: parseFloat(data.bonus_threshold_max),
-    overtimeHoursDaily: parseFloat(data.overtime_hours_daily),
-    overtimeMultiplier: parseFloat(data.overtime_multiplier)
+    overheadPercent: parseFloat(data.overhead_percent) || 32,
+    bonusThresholdMin: parseFloat(data.bonus_threshold_min) || 25,
+    bonusThresholdMax: parseFloat(data.bonus_threshold_max) || 100,
+    overtimeHoursDaily: parseFloat(data.overtime_hours_daily) || 12,
+    overtimeMultiplier: parseFloat(data.overtime_multiplier) || 1.5,
+    paySchedule: data.pay_schedule || 'bi-weekly',
+    payDayOfWeek: data.pay_day_of_week !== null ? parseInt(data.pay_day_of_week) : 5,
+    payReferenceDate: data.pay_reference_date || undefined,
+    paySemiMonthlyDates: data.pay_semi_monthly_dates ? JSON.parse(data.pay_semi_monthly_dates) : [1, 15]
   };
 }
 
@@ -566,7 +655,11 @@ export async function saveCompanySettings(userId: string, settings: CompanySetti
       bonus_threshold_min: settings.bonusThresholdMin,
       bonus_threshold_max: settings.bonusThresholdMax,
       overtime_hours_daily: settings.overtimeHoursDaily,
-      overtime_multiplier: settings.overtimeMultiplier
+      overtime_multiplier: settings.overtimeMultiplier,
+      pay_schedule: settings.paySchedule || 'bi-weekly',
+      pay_day_of_week: settings.payDayOfWeek !== undefined ? settings.payDayOfWeek : 5,
+      pay_reference_date: settings.payReferenceDate || null,
+      pay_semi_monthly_dates: settings.paySemiMonthlyDates ? JSON.stringify(settings.paySemiMonthlyDates) : JSON.stringify([1, 15])
     }, {
       onConflict: 'user_id'
     });

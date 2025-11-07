@@ -24,13 +24,16 @@ import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tool
 import { AddPayPeriodDialog } from '../components/employee/AddPayPeriodDialog';
 import { EditPayPeriodDialog } from '../components/employee/EditPayPeriodDialog';
 import { EditEmployeeDialog } from '../components/employee/EditEmployeeDialog';
-import { AddDailyRecordDialogDynamic } from '../components/employee/AddDailyRecordDialogDynamic';
+import { AddDailyRecordWithServices } from '../components/employee/AddDailyRecordWithServices';
 import { CompanySettingsDialog } from '../components/employee/CompanySettingsDialog';
 import { EmployeeSetupDialog } from '../components/employee/EmployeeSetupDialog';
-import { COMPANY_SETTINGS } from '../components/employee/AddDailyRecordDialogDynamic';
+import { COMPANY_SETTINGS } from '../components/employee/AddDailyRecordWithServices';
 import { Settings } from 'lucide-react';
 import * as employeeLERService from '../services/employeeLERService';
+import * as serviceLaborService from '../services/serviceLaborService';
+import type { ServiceBreakdownItem } from '../services/serviceLaborService';
 import { useAuthContext } from '../contexts/auth-context';
+import { generateYearPayPeriods, getPayScheduleDescription } from '../utils/payPeriodGenerator';
 
 // Types
 interface JobTypes {
@@ -136,6 +139,8 @@ const EmployeeLERPage: React.FC = () => {
   const [showAddDay, setShowAddDay] = useState(false);
   const [showCOGSSettings, setShowCOGSSettings] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
+  const [showAutoGenerate, setShowAutoGenerate] = useState(false);
+  const [selectedGenerateYear, setSelectedGenerateYear] = useState(new Date().getFullYear());
   const [servicesWithCOGS, setServicesWithCOGS] = useState<{ [key: string]: number }>({});
   const [companySettings, setCompanySettings] = useState(COMPANY_SETTINGS);
   const [needsSetup, setNeedsSetup] = useState(false);
@@ -615,19 +620,31 @@ const EmployeeLERPage: React.FC = () => {
   else if (!selectedPeriod) {
     content = (
       <div className="container mx-auto p-6 flex items-center justify-center min-h-[60vh]">
-        <div className="text-center max-w-md">
-          <Users className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+        <div className="text-center max-w-lg">
+          <Calendar className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
           <div className="text-foreground text-xl mb-2">No Pay Periods Found</div>
           <div className="text-muted-foreground mb-6">
             {needsSetup 
               ? 'Complete your employee setup to get started with LER tracking.'
-              : 'Create your first pay period to start tracking employee performance and bonuses.'}
+              : 'Auto-generate pay periods based on your pay schedule, or create them manually.'}
           </div>
           {!needsSetup && (
-            <Button onClick={() => setShowAddPeriod(true)} className="bg-accent hover:bg-accent/90">
-              <Plus className="h-4 w-4 mr-2" />
-              Create First Pay Period
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Button 
+                onClick={() => setShowAutoGenerate(true)} 
+                className="bg-accent hover:bg-accent/90"
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                Auto-Generate Pay Periods
+              </Button>
+              <Button 
+                onClick={() => setShowAddPeriod(true)} 
+                variant="outline"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create Manually
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -648,14 +665,6 @@ const EmployeeLERPage: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setShowCOGSSettings(true)}
-            className="gap-2"
-          >
-            <Settings className="h-4 w-4" />
-            COGS Settings
-          </Button>
           <Button
             variant="outline"
             onClick={() => setShowCompanySettings(true)}
@@ -792,6 +801,36 @@ const EmployeeLERPage: React.FC = () => {
                 className="text-red-600 hover:text-red-700"
               >
                 Delete Period
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={async () => {
+                  if (!employeeInfo.id) return;
+                  
+                  const totalRecords = payPeriodsData.reduce((sum, period) => 
+                    sum + (period.dailyRecords?.length || 0), 0
+                  );
+                  
+                  if (totalRecords > 0) {
+                    alert(`Cannot delete pay periods that have daily records (${totalRecords} records found). Please delete all daily records first.`);
+                    return;
+                  }
+                  
+                  if (confirm(`Are you sure you want to delete ALL ${payPeriods.length} pay periods for ${employeeInfo.name}? This cannot be undone.`)) {
+                    const result = await employeeLERService.deleteAllPayPeriodsForEmployee(employeeInfo.id);
+                    if (result.success) {
+                      alert(`Successfully deleted ${result.deletedCount} pay periods.`);
+                      await loadEmployeeData(selectedEmployeeId);
+                      setSelectedPeriodIndex(0);
+                    } else {
+                      alert(result.message || 'Error deleting pay periods. Please try again.');
+                    }
+                  }
+                }}
+                disabled={payPeriods.length === 0}
+                className="text-red-600 hover:text-red-700 font-semibold"
+              >
+                Delete All Periods
               </Button>
               <Button 
                 onClick={() => setShowAddPeriod(true)}
@@ -1395,7 +1434,7 @@ const EmployeeLERPage: React.FC = () => {
             period_name: period.periodName,
             start_date: period.startDate,
             end_date: period.endDate
-          }, period.baseRate);
+          }, employeeInfo.currentBaseRate);
           
           if (created) {
             setShowAddPeriod(false);
@@ -1462,7 +1501,7 @@ const EmployeeLERPage: React.FC = () => {
             period_name: period.periodName,
             start_date: period.startDate,
             end_date: period.endDate,
-            base_rate: period.baseRate
+            base_rate: selectedPeriod.baseRate || employeeInfo.currentBaseRate
           });
           
           if (success) {
@@ -1474,22 +1513,23 @@ const EmployeeLERPage: React.FC = () => {
         }}
       />
 
-      <AddDailyRecordDialogDynamic
+      <AddDailyRecordWithServices
         open={showAddDay}
         onClose={() => {
           setShowAddDay(false);
           setEditingRecord(null);
         }}
         baseRate={selectedPeriod?.baseRate || employeeInfo.currentBaseRate}
+        enableOvertime={true}
         servicesWithCOGS={servicesWithCOGS}
         editingRecord={editingRecord?.record || null}
-        onUpdate={async (record) => {
+        onUpdate={async (record, serviceBreakdown: ServiceBreakdownItem[]) => {
           if (editingRecord) {
             const currentPeriod = payPeriodsData[selectedPeriodIndex];
             const recordToUpdate = currentPeriod.dailyRecords[editingRecord.index];
             
-            if (!recordToUpdate.id) {
-              alert('Error: Record ID not found');
+            if (!recordToUpdate.id || !currentPeriod.periodId || !employeeInfo.id || !dbUserId) {
+              alert('Error: Missing required data');
               return;
             }
             
@@ -1504,22 +1544,46 @@ const EmployeeLERPage: React.FC = () => {
               }
             }
             
-            const supabaseRecord = convertToSupabaseFormat(record);
-            const success = await employeeLERService.updateDailyRecord(recordToUpdate.id, supabaseRecord);
-            
-            if (success) {
+            try {
+              // Update daily record
+              const supabaseRecord = convertToSupabaseFormat(record);
+              const success = await employeeLERService.updateDailyRecord(recordToUpdate.id, supabaseRecord);
+              
+              if (!success) {
+                alert('Error updating record. Please try again.');
+                return;
+              }
+              
+              // Update service labor records
+              const laborCosts = {
+                basePay: record.employeeBasePay,
+                overtimePay: record.overtimePay,
+                bonuses: record.bonusQualifiedForPercent + record.appointmentBasedBonus,
+                tips: record.tipAmount
+              };
+              
+              await serviceLaborService.updateServiceLaborRecords(
+                dbUserId,
+                employeeInfo.id,
+                currentPeriod.periodId,
+                record.date,
+                serviceBreakdown,
+                laborCosts
+              );
+              
               setShowAddDay(false);
               setEditingRecord(null);
               await loadEmployeeData(selectedEmployeeId);
-            } else {
+            } catch (error) {
+              console.error('Error updating record with service breakdown:', error);
               alert('Error updating record. Please try again.');
             }
           }
         }}
-        onAdd={async (record) => {
+        onAdd={async (record, serviceBreakdown: ServiceBreakdownItem[]) => {
           const currentPeriod = payPeriodsData[selectedPeriodIndex];
-          if (!currentPeriod.periodId) {
-            alert('Error: No pay period selected');
+          if (!currentPeriod.periodId || !employeeInfo.id || !dbUserId) {
+            alert('Error: No pay period selected or missing employee data');
             return;
           }
           
@@ -1530,13 +1594,37 @@ const EmployeeLERPage: React.FC = () => {
             return;
           }
           
-          const supabaseRecord = convertToSupabaseFormat(record);
-          const savedRecord = await employeeLERService.createDailyRecord(currentPeriod.periodId, supabaseRecord);
-          
-          if (savedRecord) {
+          try {
+            // Save daily record
+            const supabaseRecord = convertToSupabaseFormat(record);
+            const savedRecord = await employeeLERService.createDailyRecord(currentPeriod.periodId, supabaseRecord);
+            
+            if (!savedRecord) {
+              alert('Error saving record. Please try again.');
+              return;
+            }
+            
+            // Save service labor records
+            const laborCosts = {
+              basePay: record.employeeBasePay,
+              overtimePay: record.overtimePay,
+              bonuses: record.bonusQualifiedForPercent + record.appointmentBasedBonus,
+              tips: record.tipAmount
+            };
+            
+            await serviceLaborService.createServiceLaborRecords(
+              dbUserId,
+              employeeInfo.id,
+              currentPeriod.periodId,
+              record.date,
+              serviceBreakdown,
+              laborCosts
+            );
+            
             setShowAddDay(false);
             await loadEmployeeData(selectedEmployeeId);
-          } else {
+          } catch (error) {
+            console.error('Error saving record with service breakdown:', error);
             alert('Error saving record. Please try again.');
           }
         }}
@@ -1555,6 +1643,129 @@ const EmployeeLERPage: React.FC = () => {
                 Go to Service Mix → Manage Services to set COGS costs for each service.
               </p>
               <Button onClick={() => setShowCOGSSettings(false)}>Got it</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Auto-Generate Pay Periods Dialog */}
+      {showAutoGenerate && (
+        <Dialog open={showAutoGenerate} onOpenChange={() => setShowAutoGenerate(false)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Auto-Generate Pay Periods</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="bg-muted/30 p-4 rounded-lg">
+                <p className="text-sm text-muted-foreground mb-2">
+                  <strong>Current Pay Schedule:</strong>
+                </p>
+                <p className="text-sm text-foreground">
+                  {getPayScheduleDescription({
+                    schedule: companySettings.paySchedule || 'bi-weekly',
+                    weeklyDayOfWeek: companySettings.payDayOfWeek || 5
+                  })}
+                </p>
+                <button
+                  onClick={() => {
+                    setShowAutoGenerate(false);
+                    setShowCompanySettings(true);
+                  }}
+                  className="text-xs text-accent hover:underline mt-2"
+                >
+                  Change pay schedule settings →
+                </button>
+              </div>
+
+              <div>
+                <Label htmlFor="generate-year" className="text-sm font-medium">
+                  Select Year to Generate
+                </Label>
+                <select
+                  id="generate-year"
+                  className="w-full mt-1 px-3 py-2 border rounded-md bg-background text-foreground"
+                  value={selectedGenerateYear}
+                  onChange={(e) => setSelectedGenerateYear(parseInt(e.target.value))}
+                >
+                  <option value={2021}>2021</option>
+                  <option value={2022}>2022</option>
+                  <option value={2023}>2023</option>
+                  <option value={2024}>2024</option>
+                  <option value={2025}>2025</option>
+                  <option value={2026}>2026</option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Select a year to auto-generate all pay periods based on your pay schedule.
+                  You can generate historical years (2021-2024) or future years.
+                </p>
+              </div>
+
+              <div className="bg-yellow-900/20 border border-yellow-700 rounded-lg p-3">
+                <p className="text-sm text-yellow-300">
+                  <strong>Note:</strong> This will create pay periods in the database. You can still edit or delete them individually if needed.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowAutoGenerate(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={async () => {
+                    if (!employeeInfo.id || !dbUserId) {
+                      alert('Error: Employee not selected');
+                      return;
+                    }
+
+                    const year = selectedGenerateYear;
+                    const periodCount = 
+                      companySettings.paySchedule === 'weekly' ? 52 :
+                      companySettings.paySchedule === 'bi-weekly' ? 26 :
+                      companySettings.paySchedule === 'semi-monthly' ? 24 : 12;
+
+                    if (confirm(`Generate all pay periods for ${year}? This will create ${periodCount} pay periods.`)) {
+                      try {
+                        // Generate pay periods
+                        const periods = generateYearPayPeriods(year, {
+                          schedule: companySettings.paySchedule || 'bi-weekly',
+                          weeklyDayOfWeek: companySettings.payDayOfWeek || 5,
+                          startDate: companySettings.payReferenceDate
+                        });
+
+                        console.log(`🔄 Generating ${periods.length} pay periods for ${year}...`);
+
+                        // Save each period to database
+                        let successCount = 0;
+                        for (const period of periods) {
+                          const newPeriod: employeeLERService.PayPeriod = {
+                            period_name: period.periodName,
+                            start_date: period.startDate,
+                            end_date: period.endDate
+                          };
+
+                          const saved = await employeeLERService.createPayPeriod(
+                            employeeInfo.id,
+                            newPeriod,
+                            employeeInfo.currentBaseRate
+                          );
+                          if (saved) successCount++;
+                        }
+
+                        console.log(`✅ Successfully created ${successCount} of ${periods.length} pay periods`);
+                        alert(`Successfully created ${successCount} of ${periods.length} pay periods for ${year}!`);
+                        setShowAutoGenerate(false);
+                        await loadEmployeeData(selectedEmployeeId);
+                      } catch (error) {
+                        console.error('❌ Error generating pay periods:', error);
+                        alert('Error generating pay periods. Please try again.');
+                      }
+                    }
+                  }}
+                  className="bg-accent hover:bg-accent/90"
+                >
+                  Generate Pay Periods
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>

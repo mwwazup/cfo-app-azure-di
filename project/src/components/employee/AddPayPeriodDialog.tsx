@@ -9,7 +9,7 @@ interface AddPayPeriodDialogProps {
   open: boolean;
   onClose: () => void;
   currentBaseRate: number;
-  onAdd: (period: { periodName: string; startDate: string; endDate: string; baseRate: number }) => void;
+  onAdd: (period: { periodName: string; startDate: string; endDate: string }) => void;
   hasMultipleEmployees?: boolean;
   onAddForAllEmployees?: (period: { periodName: string; startDate: string; endDate: string }) => void;
 }
@@ -25,7 +25,6 @@ export function AddPayPeriodDialog({
   const [periodName, setPeriodName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [baseRate, setBaseRate] = useState(currentBaseRate.toString());
   const [applyToAll, setApplyToAll] = useState(false);
 
   const handleSubmit = () => {
@@ -38,19 +37,13 @@ export function AddPayPeriodDialog({
       // Apply to all employees (each with their own base rate)
       onAddForAllEmployees({ periodName, startDate, endDate });
     } else {
-      // Apply to current employee only
-      const rate = parseFloat(baseRate);
-      if (isNaN(rate) || rate <= 0) {
-        alert('Please enter a valid base rate');
-        return;
-      }
-      onAdd({ periodName, startDate, endDate, baseRate: rate });
+      // Apply to current employee only (uses their current base rate)
+      onAdd({ periodName, startDate, endDate });
     }
     
     setPeriodName('');
     setStartDate('');
     setEndDate('');
-    setBaseRate(currentBaseRate.toString());
     setApplyToAll(false);
     onClose();
   };
@@ -86,22 +79,6 @@ export function AddPayPeriodDialog({
               onChange={(e) => setEndDate(e.target.value)}
             />
           </div>
-          {!applyToAll && (
-            <div>
-              <Label>Base Hourly Rate ($)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="e.g., 32.46"
-                value={baseRate}
-                onChange={(e) => setBaseRate(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Current employee rate: ${currentBaseRate.toFixed(2)}/hr
-              </p>
-            </div>
-          )}
           
           {hasMultipleEmployees && (
             <div className="flex items-center space-x-2 p-3 bg-muted/30 rounded-md">

@@ -29,6 +29,21 @@ export function Select({ value, onValueChange, children }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const selectRef = useRef<HTMLDivElement>(null);
 
+  // Find the label for the selected value
+  const getSelectedLabel = () => {
+    let selectedLabel = '';
+    React.Children.forEach(children, (child) => {
+      if (React.isValidElement(child) && child.type === SelectContent) {
+        React.Children.forEach(child.props.children, (item: any) => {
+          if (React.isValidElement(item) && item.type === SelectItem && item.props.value === value) {
+            selectedLabel = item.props.children as string;
+          }
+        });
+      }
+    });
+    return selectedLabel;
+  };
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
@@ -47,7 +62,8 @@ export function Select({ value, onValueChange, children }: SelectProps) {
           if (child.type === SelectTrigger) {
             return React.cloneElement(child, {
               onClick: () => setIsOpen(!isOpen),
-              isOpen
+              isOpen,
+              selectedLabel: getSelectedLabel()
             });
           }
           if (child.type === SelectContent) {
@@ -66,14 +82,22 @@ export function Select({ value, onValueChange, children }: SelectProps) {
   );
 }
 
-export function SelectTrigger({ className = '', children, onClick, isOpen }: SelectTriggerProps & { onClick?: () => void; isOpen?: boolean }) {
+export function SelectTrigger({ className = '', children, onClick, isOpen, selectedLabel }: SelectTriggerProps & { onClick?: () => void; isOpen?: boolean; selectedLabel?: string }) {
+  // Pass selectedLabel to SelectValue child
+  const childrenWithLabel = React.Children.map(children, (child) => {
+    if (React.isValidElement(child) && child.type === SelectValue) {
+      return React.cloneElement(child, { selectedLabel } as any);
+    }
+    return child;
+  });
+
   return (
     <button
       type="button"
       onClick={onClick}
       className={`flex h-10 w-full items-center justify-between rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent disabled:cursor-not-allowed disabled:opacity-50 transition-colors ${className}`}
     >
-      {children}
+      {childrenWithLabel}
       <ChevronDown className={`h-4 w-4 opacity-50 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
     </button>
   );
@@ -105,6 +129,6 @@ export function SelectItem({ value, children, onSelect, isSelected }: SelectItem
   );
 }
 
-export function SelectValue({ placeholder }: SelectValueProps) {
-  return <span className="text-muted">{placeholder}</span>;
+export function SelectValue({ placeholder, selectedLabel }: SelectValueProps & { selectedLabel?: string }) {
+  return <span className={selectedLabel ? "text-foreground" : "text-muted"}>{selectedLabel || placeholder}</span>;
 }

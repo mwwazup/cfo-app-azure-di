@@ -13,35 +13,30 @@ interface EditPayPeriodDialogProps {
     endDate: string;
     baseRate: number;
   } | null;
-  onUpdate: (period: { periodName: string; startDate: string; endDate: string; baseRate: number }) => void;
+  onUpdate: (period: { periodName: string; startDate: string; endDate: string }) => void;
 }
 
 export function EditPayPeriodDialog({ open, onClose, currentPeriod, onUpdate }: EditPayPeriodDialogProps) {
   const [periodName, setPeriodName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [baseRate, setBaseRate] = useState('');
+  const [baseRate, setBaseRate] = useState(0);
 
   useEffect(() => {
     if (currentPeriod && open) {
       setPeriodName(currentPeriod.periodName);
       setStartDate(currentPeriod.startDate);
       setEndDate(currentPeriod.endDate);
-      setBaseRate(currentPeriod.baseRate.toString());
+      setBaseRate(currentPeriod.baseRate);
     }
   }, [currentPeriod, open]);
 
   const handleSubmit = () => {
-    if (!periodName || !startDate || !endDate || !baseRate) {
+    if (!periodName || !startDate || !endDate) {
       alert('Please fill in all fields');
       return;
     }
-    const rate = parseFloat(baseRate);
-    if (isNaN(rate) || rate <= 0) {
-      alert('Please enter a valid base rate');
-      return;
-    }
-    onUpdate({ periodName, startDate, endDate, baseRate: rate });
+    onUpdate({ periodName, startDate, endDate });
     onClose();
   };
 
@@ -75,20 +70,6 @@ export function EditPayPeriodDialog({ open, onClose, currentPeriod, onUpdate }: 
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
             />
-          </div>
-          <div>
-            <Label>Base Hourly Rate ($)</Label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="e.g., 32.46"
-              value={baseRate}
-              onChange={(e) => setBaseRate(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              This rate will be used for all calculations in this pay period
-            </p>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>Cancel</Button>

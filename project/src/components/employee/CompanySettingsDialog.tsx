@@ -3,7 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { Settings, Percent } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Settings, Percent, Calendar } from 'lucide-react';
 
 interface CompanySettings {
   overheadPercent: number;
@@ -11,6 +12,10 @@ interface CompanySettings {
   bonusThresholdMax: number;
   overtimeHoursDaily: number;
   overtimeMultiplier: number;
+  paySchedule?: 'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly';
+  payDayOfWeek?: number;
+  payReferenceDate?: string;
+  paySemiMonthlyDates?: [number, number];
 }
 
 interface CompanySettingsDialogProps {
@@ -26,6 +31,8 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
   const [bonusThresholdMax, setBonusThresholdMax] = useState(currentSettings.bonusThresholdMax.toString());
   const [overtimeHoursDaily, setOvertimeHoursDaily] = useState(currentSettings.overtimeHoursDaily.toString());
   const [overtimeMultiplier, setOvertimeMultiplier] = useState(currentSettings.overtimeMultiplier.toString());
+  const [paySchedule, setPaySchedule] = useState<'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly' | 'custom'>(currentSettings.paySchedule || 'bi-weekly');
+  const [payDayOfWeek, setPayDayOfWeek] = useState((currentSettings.payDayOfWeek !== undefined ? currentSettings.payDayOfWeek : 5).toString());
 
   useEffect(() => {
     setOverheadPercent(currentSettings.overheadPercent.toString());
@@ -33,6 +40,8 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
     setBonusThresholdMax(currentSettings.bonusThresholdMax.toString());
     setOvertimeHoursDaily(currentSettings.overtimeHoursDaily.toString());
     setOvertimeMultiplier(currentSettings.overtimeMultiplier.toString());
+    setPaySchedule(currentSettings.paySchedule || 'bi-weekly');
+    setPayDayOfWeek((currentSettings.payDayOfWeek !== undefined ? currentSettings.payDayOfWeek : 5).toString());
   }, [currentSettings]);
 
   const handleSubmit = () => {
@@ -73,7 +82,11 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
       bonusThresholdMin: bonusMinValue,
       bonusThresholdMax: bonusMaxValue,
       overtimeHoursDaily: overtimeHoursValue,
-      overtimeMultiplier: overtimeMultValue
+      overtimeMultiplier: overtimeMultValue,
+      paySchedule,
+      payDayOfWeek: parseInt(payDayOfWeek),
+      payReferenceDate: undefined,  // Will be set automatically on first use
+      paySemiMonthlyDates: [1, 15]  // Default semi-monthly dates (1st-15th, 16th-end)
     });
     onClose();
   };
@@ -219,11 +232,68 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
                 </div>
               </div>
             </div>
+
+            <div className="border-t border-muted pt-4">
+              <Label className="flex items-center gap-2 mb-3">
+                <Calendar className="h-4 w-4 text-accent" />
+                Pay Period Schedule
+              </Label>
+              
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="paySchedule" className="text-sm">
+                    How often do you pay employees?
+                  </Label>
+                  <Select value={paySchedule} onValueChange={(value: any) => setPaySchedule(value)}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select pay schedule" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="weekly">Weekly (52 pay periods/year)</SelectItem>
+                      <SelectItem value="bi-weekly">Bi-weekly (26 pay periods/year)</SelectItem>
+                      <SelectItem value="semi-monthly">Semi-monthly (24 pay periods/year)</SelectItem>
+                      <SelectItem value="monthly">Monthly (12 pay periods/year)</SelectItem>
+                      <SelectItem value="custom">Custom / Manual (I'll create my own periods)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {paySchedule === 'custom' 
+                      ? 'You will manually create pay periods with custom dates'
+                      : 'This determines how pay periods are automatically generated'}
+                  </p>
+                </div>
+
+                {(paySchedule === 'weekly' || paySchedule === 'bi-weekly') && (
+                  <div>
+                    <Label htmlFor="payDayOfWeek" className="text-sm">
+                      What day of the week is payday?
+                    </Label>
+                    <Select value={payDayOfWeek} onValueChange={setPayDayOfWeek}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Select payday" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">Sunday</SelectItem>
+                        <SelectItem value="1">Monday</SelectItem>
+                        <SelectItem value="2">Tuesday</SelectItem>
+                        <SelectItem value="3">Wednesday</SelectItem>
+                        <SelectItem value="4">Thursday</SelectItem>
+                        <SelectItem value="5">Friday</SelectItem>
+                        <SelectItem value="6">Saturday</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Pay periods will end on this day
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="bg-yellow-900/20 border border-yellow-700 rounded-lg p-3">
             <div className="text-sm text-yellow-300">
-              <strong>⚠️ Important:</strong> Changes to these settings will affect all future calculations. Consider reviewing annually.
+              <strong>⚠️ Important:</strong> Changes to these settings will only affect new entries going forward. Historical records will remain unchanged unless you manually edit them. Consider reviewing annually.
             </div>
           </div>
 
