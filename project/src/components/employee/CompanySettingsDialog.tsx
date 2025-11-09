@@ -4,7 +4,8 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Settings, Percent, Calendar } from 'lucide-react';
+import { Settings, Percent, Calendar, DollarSign } from 'lucide-react';
+import { Checkbox } from '../ui/checkbox';
 
 interface CompanySettings {
   overheadPercent: number;
@@ -16,6 +17,11 @@ interface CompanySettings {
   payDayOfWeek?: number;
   payReferenceDate?: string;
   paySemiMonthlyDates?: [number, number];
+  enableAppointmentBonus?: boolean;
+  appointmentBonus3Jobs?: number;
+  appointmentBonus4Jobs?: number;
+  appointmentBonus5Jobs?: number;
+  appointmentBonus6PlusJobs?: number;
 }
 
 interface CompanySettingsDialogProps {
@@ -33,6 +39,11 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
   const [overtimeMultiplier, setOvertimeMultiplier] = useState(currentSettings.overtimeMultiplier.toString());
   const [paySchedule, setPaySchedule] = useState<'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly' | 'custom'>(currentSettings.paySchedule || 'bi-weekly');
   const [payDayOfWeek, setPayDayOfWeek] = useState((currentSettings.payDayOfWeek !== undefined ? currentSettings.payDayOfWeek : 5).toString());
+  const [enableAppointmentBonus, setEnableAppointmentBonus] = useState(currentSettings.enableAppointmentBonus ?? true);
+  const [appointmentBonus3Jobs, setAppointmentBonus3Jobs] = useState((currentSettings.appointmentBonus3Jobs ?? 7).toString());
+  const [appointmentBonus4Jobs, setAppointmentBonus4Jobs] = useState((currentSettings.appointmentBonus4Jobs ?? 10).toString());
+  const [appointmentBonus5Jobs, setAppointmentBonus5Jobs] = useState((currentSettings.appointmentBonus5Jobs ?? 15).toString());
+  const [appointmentBonus6PlusJobs, setAppointmentBonus6PlusJobs] = useState((currentSettings.appointmentBonus6PlusJobs ?? 20).toString());
 
   useEffect(() => {
     setOverheadPercent(currentSettings.overheadPercent.toString());
@@ -42,6 +53,11 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
     setOvertimeMultiplier(currentSettings.overtimeMultiplier.toString());
     setPaySchedule(currentSettings.paySchedule || 'bi-weekly');
     setPayDayOfWeek((currentSettings.payDayOfWeek !== undefined ? currentSettings.payDayOfWeek : 5).toString());
+    setEnableAppointmentBonus(currentSettings.enableAppointmentBonus ?? true);
+    setAppointmentBonus3Jobs((currentSettings.appointmentBonus3Jobs ?? 7).toString());
+    setAppointmentBonus4Jobs((currentSettings.appointmentBonus4Jobs ?? 10).toString());
+    setAppointmentBonus5Jobs((currentSettings.appointmentBonus5Jobs ?? 15).toString());
+    setAppointmentBonus6PlusJobs((currentSettings.appointmentBonus6PlusJobs ?? 20).toString());
   }, [currentSettings]);
 
   const handleSubmit = () => {
@@ -50,10 +66,19 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
     const bonusMaxValue = parseFloat(bonusThresholdMax);
     const overtimeHoursValue = parseFloat(overtimeHoursDaily);
     const overtimeMultValue = parseFloat(overtimeMultiplier);
+    const apptBonus3 = parseFloat(appointmentBonus3Jobs);
+    const apptBonus4 = parseFloat(appointmentBonus4Jobs);
+    const apptBonus5 = parseFloat(appointmentBonus5Jobs);
+    const apptBonus6Plus = parseFloat(appointmentBonus6PlusJobs);
 
     if (isNaN(overheadValue) || isNaN(bonusMinValue) || isNaN(bonusMaxValue) || 
         isNaN(overtimeHoursValue) || isNaN(overtimeMultValue)) {
       alert('Please enter valid numbers for all settings');
+      return;
+    }
+
+    if (enableAppointmentBonus && (isNaN(apptBonus3) || isNaN(apptBonus4) || isNaN(apptBonus5) || isNaN(apptBonus6Plus))) {
+      alert('Please enter valid numbers for appointment bonus amounts');
       return;
     }
 
@@ -86,7 +111,12 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
       paySchedule,
       payDayOfWeek: parseInt(payDayOfWeek),
       payReferenceDate: undefined,  // Will be set automatically on first use
-      paySemiMonthlyDates: [1, 15]  // Default semi-monthly dates (1st-15th, 16th-end)
+      paySemiMonthlyDates: [1, 15],  // Default semi-monthly dates (1st-15th, 16th-end)
+      enableAppointmentBonus,
+      appointmentBonus3Jobs: apptBonus3,
+      appointmentBonus4Jobs: apptBonus4,
+      appointmentBonus5Jobs: apptBonus5,
+      appointmentBonus6PlusJobs: apptBonus6Plus
     });
     onClose();
   };
@@ -188,13 +218,27 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
             <div className="border-t border-muted pt-4">
               <Label className="flex items-center gap-2 mb-3">
                 <Settings className="h-4 w-4 text-accent" />
-                Overtime Settings
+                Overtime Settings (Company-Wide)
               </Label>
+              
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-3">
+                <p className="text-xs text-blue-400 font-medium mb-1">Automatic Overtime Rules</p>
+                <p className="text-xs text-muted-foreground">
+                  Overtime is automatically calculated when employees work:
+                </p>
+                <ul className="text-xs text-muted-foreground mt-1 ml-4 space-y-0.5">
+                  <li>• Over <strong>{overtimeHoursDaily}</strong> hours in a single day, OR</li>
+                  <li>• Over <strong>40</strong> hours in a single week</li>
+                </ul>
+                <p className="text-xs text-muted-foreground mt-1">
+                  The system takes the <strong>greater</strong> of the two calculations.
+                </p>
+              </div>
               
               <div className="space-y-3">
                 <div>
                   <Label htmlFor="overtimeHours" className="text-sm">
-                    Overtime After (Hours/Day)
+                    Daily Overtime Threshold
                   </Label>
                   <div className="flex items-center gap-2 mt-1">
                     <Input
@@ -206,8 +250,11 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
                       onChange={(e) => setOvertimeHoursDaily(e.target.value)}
                       placeholder="12"
                     />
-                    <span className="text-sm text-muted-foreground">hours</span>
+                    <span className="text-sm text-muted-foreground">hours/day</span>
                   </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Hours worked beyond this in a single day are paid at overtime rate
+                  </p>
                 </div>
 
                 <div>
@@ -224,12 +271,109 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
                       onChange={(e) => setOvertimeMultiplier(e.target.value)}
                       placeholder="1.5"
                     />
-                    <span className="text-muted-foreground">x</span>
+                    <span className="text-muted-foreground">x base rate</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     Overtime hours are paid at this multiplier (e.g., 1.5x = time and a half)
                   </p>
                 </div>
+                
+                <div className="bg-muted/30 rounded-lg p-3">
+                  <p className="text-xs text-muted-foreground">
+                    <strong>Note:</strong> Weekly overtime (40 hrs/week) is fixed and cannot be changed. 
+                    This follows standard labor law requirements.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-muted pt-4">
+              <Label className="flex items-center gap-2 mb-3">
+                <DollarSign className="h-4 w-4 text-accent" />
+                Appointment-Based Bonus
+              </Label>
+              
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="enableAppointmentBonus"
+                    checked={enableAppointmentBonus}
+                    onCheckedChange={(checked) => setEnableAppointmentBonus(checked as boolean)}
+                  />
+                  <Label htmlFor="enableAppointmentBonus" className="text-sm cursor-pointer">
+                    Enable appointment-based bonus
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Reward employees with fixed bonuses based on number of jobs completed per day
+                </p>
+
+                {enableAppointmentBonus && (
+                  <div className="space-y-3 ml-6 bg-muted/20 p-3 rounded-lg">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label htmlFor="bonus3Jobs" className="text-xs">3 Jobs</Label>
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-xs text-muted-foreground">$</span>
+                          <Input
+                            id="bonus3Jobs"
+                            type="number"
+                            step="1"
+                            min="0"
+                            value={appointmentBonus3Jobs}
+                            onChange={(e) => setAppointmentBonus3Jobs(e.target.value)}
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label htmlFor="bonus4Jobs" className="text-xs">4 Jobs</Label>
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-xs text-muted-foreground">$</span>
+                          <Input
+                            id="bonus4Jobs"
+                            type="number"
+                            step="1"
+                            min="0"
+                            value={appointmentBonus4Jobs}
+                            onChange={(e) => setAppointmentBonus4Jobs(e.target.value)}
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label htmlFor="bonus5Jobs" className="text-xs">5 Jobs</Label>
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-xs text-muted-foreground">$</span>
+                          <Input
+                            id="bonus5Jobs"
+                            type="number"
+                            step="1"
+                            min="0"
+                            value={appointmentBonus5Jobs}
+                            onChange={(e) => setAppointmentBonus5Jobs(e.target.value)}
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label htmlFor="bonus6PlusJobs" className="text-xs">6+ Jobs</Label>
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-xs text-muted-foreground">$</span>
+                          <Input
+                            id="bonus6PlusJobs"
+                            type="number"
+                            step="1"
+                            min="0"
+                            value={appointmentBonus6PlusJobs}
+                            onChange={(e) => setAppointmentBonus6PlusJobs(e.target.value)}
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

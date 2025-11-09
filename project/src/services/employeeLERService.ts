@@ -15,6 +15,7 @@ export interface PayPeriod {
   period_name: string;
   start_date: string;
   end_date: string;
+  year: number;  // Calendar year for filtering (e.g., 2024, 2025)
 }
 
 export interface DailyRecord {
@@ -49,6 +50,15 @@ export interface DailyRecord {
   daily_net_profit_after_bonus: number;
   daily_net_profit_after_bonus_percent: number;
   notes: string;
+  service_breakdown?: {
+    services: Array<{
+      serviceId: string;
+      serviceName: string;
+      jobs: number;
+      hours: number;
+      revenue: number;
+    }>;
+  };
 }
 
 export interface COGSSettings {
@@ -250,7 +260,8 @@ export async function createPayPeriod(userId: string, period: PayPeriod): Promis
       user_id: userId,
       period_name: period.period_name,
       start_date: period.start_date,
-      end_date: period.end_date
+      end_date: period.end_date,
+      year: period.year
     }])
     .select()
     .single();
@@ -264,7 +275,7 @@ export async function createPayPeriod(userId: string, period: PayPeriod): Promis
 }
 
 // Update a pay period
-export async function updatePayPeriod(payPeriodId: string, updates: { period_name?: string; start_date?: string; end_date?: string }): Promise<boolean> {
+export async function updatePayPeriod(payPeriodId: string, updates: { period_name?: string; start_date?: string; end_date?: string; year?: number }): Promise<boolean> {
   const { error } = await supabase
     .from('pay_periods')
     .update(updates)
@@ -417,7 +428,8 @@ export async function createDailyRecord(payPeriodId: string, record: DailyRecord
       daily_hourly_with_tips_and_bonus: record.daily_hourly_with_tips_and_bonus,
       daily_net_profit_after_bonus: record.daily_net_profit_after_bonus,
       daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
-      notes: record.notes
+      notes: record.notes,
+      service_breakdown: record.service_breakdown || { services: [] }
     }])
     .select()
     .single();
@@ -460,7 +472,8 @@ export async function updateDailyRecord(recordId: string, record: DailyRecord): 
       daily_hourly_with_tips_and_bonus: record.daily_hourly_with_tips_and_bonus,
       daily_net_profit_after_bonus: record.daily_net_profit_after_bonus,
       daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
-      notes: record.notes
+      notes: record.notes,
+      service_breakdown: record.service_breakdown || { services: [] }
     })
     .eq('id', recordId);
 
@@ -489,6 +502,29 @@ export async function deleteDailyRecord(recordId: string): Promise<boolean> {
 // ============================================
 // COGS SETTINGS
 // ============================================
+
+// Get services with IDs and names
+export async function getServices(userId: string): Promise<Array<{ id: string; serviceName: string }>> {
+  if (!userId) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('services')
+    .select('id, service_name')
+    .eq('user_id', userId)
+    .eq('is_active', true);
+
+  if (error) {
+    console.error('Error fetching services:', error);
+    return [];
+  }
+
+  return data?.map(service => ({
+    id: service.id,
+    serviceName: service.service_name
+  })) || [];
+}
 
 // Get services with COGS costs from services table
 export async function getServicesWithCOGS(userId: string): Promise<{ [key: string]: number }> {

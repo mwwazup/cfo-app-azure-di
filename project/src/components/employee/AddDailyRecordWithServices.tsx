@@ -17,7 +17,13 @@ export const COMPANY_SETTINGS = {
   paySchedule: 'bi-weekly' as 'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly',
   payDayOfWeek: 5,
   payReferenceDate: undefined as string | undefined,
-  paySemiMonthlyDates: [1, 15] as [number, number]
+  paySemiMonthlyDates: [1, 15] as [number, number],
+  // Appointment-based bonus settings
+  enableAppointmentBonus: true,
+  appointmentBonus3Jobs: 7,
+  appointmentBonus4Jobs: 10,
+  appointmentBonus5Jobs: 15,
+  appointmentBonus6PlusJobs: 20
 };
 
 interface ServiceBreakdownItem {
@@ -66,7 +72,6 @@ interface AddDailyRecordWithServicesProps {
   onClose: () => void;
   onAdd: (record: DailyRecord, serviceBreakdown: ServiceBreakdownItem[]) => void;
   baseRate: number;
-  enableOvertime?: boolean;
   editingRecord?: DailyRecord | null;
   onUpdate?: (record: DailyRecord, serviceBreakdown: ServiceBreakdownItem[]) => void;
   servicesWithCOGS: { [serviceName: string]: number };
@@ -82,7 +87,6 @@ export function AddDailyRecordWithServices({
   onClose, 
   onAdd, 
   baseRate, 
-  enableOvertime = false, 
   editingRecord = null, 
   onUpdate,
   servicesWithCOGS 
@@ -92,7 +96,8 @@ export function AddDailyRecordWithServices({
   const [date, setDate] = useState('');
   const [tips, setTips] = useState('0');
   const [notes, setNotes] = useState('');
-  const [applyOvertime, setApplyOvertime] = useState(enableOvertime);
+  const [applyAppointmentBonus, setApplyAppointmentBonus] = useState(COMPANY_SETTINGS.enableAppointmentBonus);
+  const [totalDailyHours, setTotalDailyHours] = useState<string>(''); // NEW: Total clock in/out hours
   
   // NEW: Service breakdown state
   const [serviceBreakdown, setServiceBreakdown] = useState<ServiceBreakdownItem[]>([]);
@@ -114,28 +119,41 @@ export function AddDailyRecordWithServices({
   // Load editing record data
   useEffect(() => {
     if (editingRecord && open) {
+      console.log('🔍 Loading editing record:', editingRecord);
+      console.log('📦 Service breakdown from record:', editingRecord.serviceBreakdown);
+      
       setDate(editingRecord.date);
       setTips(editingRecord.tipAmount.toString());
       setNotes(editingRecord.notes || '');
+      setTotalDailyHours(editingRecord.totalHoursWorked.toString());
       
       // Load service breakdown if it exists
       if (editingRecord.serviceBreakdown && editingRecord.serviceBreakdown.length > 0) {
+        console.log('✅ Using existing service breakdown:', editingRecord.serviceBreakdown);
         setServiceBreakdown(editingRecord.serviceBreakdown);
       } else {
-        // Convert old format to new format
+        console.log('⚠️ No service breakdown found, using fallback rollup logic');
+        // Convert old format to new format - distribute totals proportionally
         const breakdown: ServiceBreakdownItem[] = [];
-        Object.entries(editingRecord.jobTypes).forEach(([serviceName, jobs]) => {
-          if (jobs > 0) {
+        const jobTypesArray = Object.entries(editingRecord.jobTypes).filter(([_, jobs]) => jobs > 0);
+        const totalJobsInRecord = Object.values(editingRecord.jobTypes).reduce((sum, jobs) => sum + jobs, 0);
+        
+        if (jobTypesArray.length > 0 && totalJobsInRecord > 0) {
+          jobTypesArray.forEach(([serviceName, jobs]) => {
             const service = services.find(s => s.serviceName === serviceName);
+            const jobProportion = jobs / totalJobsInRecord;
+            
             breakdown.push({
               serviceId: service?.id || '',
               serviceName,
               jobs,
-              hours: 0, // Will need to be filled in
-              revenue: 0 // Will need to be filled in
+              // Distribute hours and revenue proportionally based on job count
+              hours: roundToTwo(editingRecord.totalHoursWorked * jobProportion),
+              revenue: roundToTwo(editingRecord.totalJobRevenue * jobProportion)
             });
-          }
-        });
+          });
+        }
+        
         setServiceBreakdown(breakdown.length > 0 ? breakdown : [{
           serviceId: '',
           serviceName: '',
@@ -189,10 +207,12 @@ export function AddDailyRecordWithServices({
   // Calculate totals from service breakdown
   const calculateTotals = () => {
     const totalJobs = serviceBreakdown.reduce((sum, item) => sum + (item.jobs || 0), 0);
-    const totalHours = serviceBreakdown.reduce((sum, item) => sum + (parseFloat(item.hours?.toString() || '0') || 0), 0);
+    const totalJobTime = serviceBreakdown.reduce((sum, item) => sum + (parseFloat(item.hours?.toString() || '0') || 0), 0);
     const totalRevenue = serviceBreakdown.reduce((sum, item) => sum + (parseFloat(item.revenue?.toString() || '0') || 0), 0);
+    const dailyHours = parseFloat(totalDailyHours) || 0;
+    const nonJobTime = dailyHours - totalJobTime;
     
-    return { totalJobs, totalHours, totalRevenue };
+    return { totalJobs, totalJobTime, totalRevenue, dailyHours, nonJobTime };
   };
 
   // Validate service breakdown
@@ -203,14 +223,6 @@ export function AddDailyRecordWithServices({
     const hasServices = serviceBreakdown.some(item => item.serviceId && item.jobs > 0);
     if (!hasServices) {
       setValidationError('Please add at least one service with jobs completed');
-      return false;
-    }
-    
-    // Check for duplicate services
-    const serviceIds = serviceBreakdown.map(item => item.serviceId).filter(id => id);
-    const uniqueIds = new Set(serviceIds);
-    if (serviceIds.length !== uniqueIds.size) {
-      setValidationError('Cannot select the same service multiple times');
       return false;
     }
     
@@ -236,21 +248,23 @@ export function AddDailyRecordWithServices({
   };
 
   const calculatePreview = () => {
-    const { totalJobs, totalHours, totalRevenue } = calculateTotals();
+    const { totalJobs, totalJobTime, totalRevenue, dailyHours, nonJobTime } = calculateTotals();
     
-    // Calculate labor costs with optional overtime
-    let regularHours = totalHours;
+    // Calculate labor costs based on TOTAL DAILY HOURS (clock in/out), not job time
+    let regularHours = dailyHours;
     let overtimeHours = 0;
     let employeeBaseHourlyPay = 0;
     let overtimePay = 0;
     
-    if (applyOvertime && totalHours > COMPANY_SETTINGS.overtimeHoursDaily) {
+    // Overtime automatically applied based on company settings (12 hrs/day)
+    // Weekly overtime (40 hrs/week) is calculated on page load
+    if (dailyHours > COMPANY_SETTINGS.overtimeHoursDaily) {
       regularHours = COMPANY_SETTINGS.overtimeHoursDaily;
-      overtimeHours = totalHours - COMPANY_SETTINGS.overtimeHoursDaily;
+      overtimeHours = dailyHours - COMPANY_SETTINGS.overtimeHoursDaily;
       employeeBaseHourlyPay = regularHours * baseRate;
       overtimePay = overtimeHours * (baseRate * COMPANY_SETTINGS.overtimeMultiplier);
     } else {
-      employeeBaseHourlyPay = totalHours * baseRate;
+      employeeBaseHourlyPay = dailyHours * baseRate;
     }
     
     const basePay = employeeBaseHourlyPay + overtimePay;
@@ -285,24 +299,26 @@ export function AddDailyRecordWithServices({
       grossProfitBeforeBonusPercent >= COMPANY_SETTINGS.bonusThresholdMin && 
       grossProfitBeforeBonusPercent <= COMPANY_SETTINGS.bonusThresholdMax;
     
-    // Calculate Bonus Qualified For
-    const bonusQualifiedForDollars = qualifyForBonus ? ler * totalHours : 0;
+    // Calculate Bonus Qualified For (based on daily hours)
+    const bonusQualifiedForDollars = qualifyForBonus ? ler * dailyHours : 0;
     
-    // Calculate Appointment Based Bonus
+    // Calculate Appointment Based Bonus (if enabled)
     let appointmentBasedBonus = 0;
-    if (totalJobs === 3) {
-      appointmentBasedBonus = 7;
-    } else if (totalJobs === 4) {
-      appointmentBasedBonus = 10;
-    } else if (totalJobs === 5) {
-      appointmentBasedBonus = 15;
-    } else if (totalJobs >= 6) {
-      appointmentBasedBonus = 20;
+    if (applyAppointmentBonus) {
+      if (totalJobs === 3) {
+        appointmentBasedBonus = COMPANY_SETTINGS.appointmentBonus3Jobs;
+      } else if (totalJobs === 4) {
+        appointmentBasedBonus = COMPANY_SETTINGS.appointmentBonus4Jobs;
+      } else if (totalJobs === 5) {
+        appointmentBasedBonus = COMPANY_SETTINGS.appointmentBonus5Jobs;
+      } else if (totalJobs >= 6) {
+        appointmentBasedBonus = COMPANY_SETTINGS.appointmentBonus6PlusJobs;
+      }
     }
     
     const tipsDollars = parseFloat(tips) || 0;
     const totalEmployeePay = basePay + bonusQualifiedForDollars + appointmentBasedBonus + tipsDollars;
-    const dailyHourlyWithTipsAndBonus = totalHours > 0 ? totalEmployeePay / totalHours : 0;
+    const dailyHourlyWithTipsAndBonus = dailyHours > 0 ? totalEmployeePay / dailyHours : 0;
     const dailyNetProfitAfterBonus = totalRevenue - totalCostOfJob - bonusQualifiedForDollars - appointmentBasedBonus;
     const dailyNetProfitAfterBonusPercent = totalRevenue > 0 
       ? (dailyNetProfitAfterBonus / totalRevenue) * 100
@@ -310,7 +326,9 @@ export function AddDailyRecordWithServices({
 
     return {
       totalJobs,
-      totalHours,
+      totalJobTime,
+      dailyHours,
+      nonJobTime,
       totalRevenue,
       basePay: roundToTwo(basePay),
       overtimeHours: roundToTwo(overtimeHours),
@@ -318,6 +336,8 @@ export function AddDailyRecordWithServices({
       cogsNoLabor: roundToTwo(cogsNoLaborDollars),
       cogsNoLaborPercent: roundToTwo(cogsNoLaborPercent),
       overheadCostsPercent: overheadPercent,
+      overheadAllocation: roundToTwo(overheadAllocationRate),
+      totalCostOfJob: roundToTwo(totalCostOfJob),
       grossProfitBeforeBonus: roundToTwo(grossProfitBeforeBonusDollars),
       grossProfitBeforeBonusPercent: roundToTwo(grossProfitBeforeBonusPercent),
       ler: roundToTwo(ler),
@@ -339,17 +359,26 @@ export function AddDailyRecordWithServices({
       return;
     }
     
+    if (!totalDailyHours || parseFloat(totalDailyHours) <= 0) {
+      setValidationError('Please enter total daily hours (clock in/out time)');
+      return;
+    }
+    
     if (!validateBreakdown()) {
       return;
     }
 
-    const { totalJobs, totalHours, totalRevenue } = calculateTotals();
+    const { totalJobs, totalJobTime, dailyHours, totalRevenue } = calculateTotals();
     
-    // Build jobTypes object for backward compatibility
+    // Build jobTypes object for backward compatibility (sum up duplicate services)
     const jobTypes: { [serviceName: string]: number } = {};
     serviceBreakdown.forEach(item => {
       if (item.serviceId && item.jobs > 0) {
-        jobTypes[item.serviceName] = item.jobs;
+        if (jobTypes[item.serviceName]) {
+          jobTypes[item.serviceName] += item.jobs;
+        } else {
+          jobTypes[item.serviceName] = item.jobs;
+        }
       }
     });
 
@@ -364,8 +393,8 @@ export function AddDailyRecordWithServices({
       numberOfJobs: totalJobs,
       jobTypes,
       totalJobRevenue: totalRevenue,
-      totalHoursWorked: totalHours,
-      totalJobTime: totalHours,
+      totalHoursWorked: dailyHours,  // Total daily hours (clock in/out)
+      totalJobTime: totalJobTime,     // Actual time on jobs
       baseRate,
       employeeBasePay: preview.basePay,
       overtimeHours: preview.overtimeHours,
@@ -401,6 +430,7 @@ export function AddDailyRecordWithServices({
     setDate('');
     setTips('0');
     setNotes('');
+    setTotalDailyHours('');
     setServiceBreakdown([{
       serviceId: '',
       serviceName: '',
@@ -497,9 +527,9 @@ export function AddDailyRecordWithServices({
                     />
                   </div>
 
-                  {/* Hours */}
+                  {/* Job Time (hours on this specific service) */}
                   <div>
-                    <Label className="text-sm text-muted-foreground">Hours</Label>
+                    <Label className="text-sm text-muted-foreground">Job Time (hrs)</Label>
                     <Input
                       type="number"
                       step="0.25"
@@ -507,6 +537,7 @@ export function AddDailyRecordWithServices({
                       value={item.hours || ''}
                       onChange={(e) => updateServiceRow(index, 'hours', parseFloat(e.target.value) || 0)}
                       className="bg-background text-foreground border-border"
+                      placeholder="Time on job"
                     />
                   </div>
 
@@ -537,46 +568,79 @@ export function AddDailyRecordWithServices({
 
           {/* Totals Summary */}
           <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
-            <h4 className="font-semibold text-foreground mb-3">Daily Totals</h4>
-            <div className="grid grid-cols-3 gap-4">
+            <h4 className="font-semibold text-foreground mb-3">Daily Summary</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <p className="text-xs text-muted-foreground">Total Jobs</p>
                 <p className="text-lg font-bold text-accent">{preview.totalJobs}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Total Hours</p>
-                <p className="text-lg font-bold text-accent">{preview.totalHours.toFixed(2)}</p>
+                <p className="text-xs text-muted-foreground">Job Time</p>
+                <p className="text-lg font-bold text-accent">{preview.totalJobTime.toFixed(2)} hrs</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Daily Hours</p>
+                <p className="text-lg font-bold text-accent">{preview.dailyHours.toFixed(2)} hrs</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total Revenue</p>
                 <p className="text-lg font-bold text-accent">${preview.totalRevenue.toFixed(2)}</p>
               </div>
             </div>
+            {preview.nonJobTime > 0 && (
+              <div className="mt-3 pt-3 border-t border-accent/20">
+                <p className="text-xs text-muted-foreground">Non-Job Time (travel, breaks, admin)</p>
+                <p className="text-sm font-semibold text-yellow-500">{preview.nonJobTime.toFixed(2)} hrs</p>
+              </div>
+            )}
           </div>
 
-          {/* Tips */}
+          {/* Total Daily Hours Input */}
           <div>
-            <Label htmlFor="tips" className="text-foreground">Tips ($)</Label>
+            <Label htmlFor="totalDailyHours" className="text-foreground font-semibold">
+              Total Daily Hours (Clock In/Out) *
+            </Label>
             <Input
-              id="tips"
+              id="totalDailyHours"
               type="number"
-              step="0.01"
-              value={tips}
-              onChange={(e) => setTips(e.target.value)}
+              step="0.25"
+              min="0"
+              value={totalDailyHours}
+              onChange={(e) => setTotalDailyHours(e.target.value)}
               className="bg-background text-foreground border-border"
+              placeholder="e.g., 8.0"
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              Total hours employee was clocked in (used for pay calculation)
+            </p>
           </div>
 
-          {/* Overtime Toggle */}
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="overtime"
-              checked={applyOvertime}
-              onCheckedChange={(checked) => setApplyOvertime(checked as boolean)}
-            />
-            <Label htmlFor="overtime" className="text-foreground cursor-pointer">
-              Apply overtime (over {COMPANY_SETTINGS.overtimeHoursDaily} hours)
-            </Label>
+          {/* Bonus Options */}
+          <div className="space-y-3 bg-muted/20 rounded-lg p-4 border border-border">
+            <h4 className="font-semibold text-foreground text-sm">Bonus Options</h4>
+            
+            {/* Appointment Bonus Toggle */}
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="appointmentBonus"
+                  checked={applyAppointmentBonus}
+                  onCheckedChange={(checked) => setApplyAppointmentBonus(checked as boolean)}
+                />
+                <Label htmlFor="appointmentBonus" className="text-foreground cursor-pointer">
+                  Apply appointment-based bonus
+                </Label>
+              </div>
+              {applyAppointmentBonus && (
+                <div className="ml-6 text-xs text-muted-foreground space-y-1">
+                  <p>• 3 jobs: ${COMPANY_SETTINGS.appointmentBonus3Jobs}</p>
+                  <p>• 4 jobs: ${COMPANY_SETTINGS.appointmentBonus4Jobs}</p>
+                  <p>• 5 jobs: ${COMPANY_SETTINGS.appointmentBonus5Jobs}</p>
+                  <p>• 6+ jobs: ${COMPANY_SETTINGS.appointmentBonus6PlusJobs}</p>
+                  <p className="text-yellow-500 mt-2">💡 Configure values in Company Settings</p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Notes */}
@@ -598,7 +662,7 @@ export function AddDailyRecordWithServices({
             
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
               <div>
-                <p className="text-muted-foreground">Base Pay</p>
+                <p className="text-muted-foreground">Base Pay (Labor)</p>
                 <p className="font-semibold text-foreground">${preview.basePay.toFixed(2)}</p>
               </div>
               {preview.overtimeHours > 0 && (
@@ -610,6 +674,18 @@ export function AddDailyRecordWithServices({
               <div>
                 <p className="text-muted-foreground">COGS (No Labor)</p>
                 <p className="font-semibold text-foreground">${preview.cogsNoLabor.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Overhead ({preview.overheadCostsPercent}%)</p>
+                <p className="font-semibold text-foreground">${preview.overheadAllocation.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Total Cost of Job</p>
+                <p className="font-semibold text-orange-500">${preview.totalCostOfJob.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Gross Profit Before Bonus</p>
+                <p className="font-semibold text-green-500">${preview.grossProfitBeforeBonus.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Gross Profit %</p>
@@ -637,6 +713,13 @@ export function AddDailyRecordWithServices({
                   {preview.dailyNetProfitAfterBonusPercent.toFixed(1)}%
                 </p>
               </div>
+            </div>
+            
+            {/* Formula Explanation */}
+            <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t border-border">
+              <p><strong>Total Cost of Job:</strong> Labor (${preview.basePay.toFixed(2)}) + COGS (${preview.cogsNoLabor.toFixed(2)}) + Overhead (${preview.overheadAllocation.toFixed(2)}) = ${preview.totalCostOfJob.toFixed(2)}</p>
+              <p><strong>Gross Profit Before Bonus:</strong> Revenue (${preview.totalRevenue.toFixed(2)}) - Total Cost (${preview.totalCostOfJob.toFixed(2)}) = ${preview.grossProfitBeforeBonus.toFixed(2)}</p>
+              <p><strong>LER Formula:</strong> Gross Profit (${preview.grossProfitBeforeBonus.toFixed(2)}) ÷ Labor (${preview.basePay.toFixed(2)}) = {preview.ler.toFixed(2)}</p>
             </div>
           </div>
 

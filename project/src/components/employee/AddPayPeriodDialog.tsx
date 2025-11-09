@@ -9,9 +9,9 @@ interface AddPayPeriodDialogProps {
   open: boolean;
   onClose: () => void;
   currentBaseRate: number;
-  onAdd: (period: { periodName: string; startDate: string; endDate: string }) => void;
+  onAdd: (period: { periodName: string; startDate: string; endDate: string; year: number }) => void;
   hasMultipleEmployees?: boolean;
-  onAddForAllEmployees?: (period: { periodName: string; startDate: string; endDate: string }) => void;
+  onAddForAllEmployees?: (period: { periodName: string; startDate: string; endDate: string; year: number }) => void;
 }
 
 export function AddPayPeriodDialog({ 
@@ -25,6 +25,7 @@ export function AddPayPeriodDialog({
   const [periodName, setPeriodName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [year, setYear] = useState(new Date().getFullYear());
   const [applyToAll, setApplyToAll] = useState(false);
 
   const handleSubmit = () => {
@@ -35,15 +36,16 @@ export function AddPayPeriodDialog({
     
     if (applyToAll && onAddForAllEmployees) {
       // Apply to all employees (each with their own base rate)
-      onAddForAllEmployees({ periodName, startDate, endDate });
+      onAddForAllEmployees({ periodName, startDate, endDate, year });
     } else {
       // Apply to current employee only (uses their current base rate)
-      onAdd({ periodName, startDate, endDate });
+      onAdd({ periodName, startDate, endDate, year });
     }
     
     setPeriodName('');
     setStartDate('');
     setEndDate('');
+    setYear(new Date().getFullYear());
     setApplyToAll(false);
     onClose();
   };
@@ -80,6 +82,23 @@ export function AddPayPeriodDialog({
             />
           </div>
           
+          <div>
+            <Label>Year</Label>
+            <select
+              className="w-full px-3 py-2 border rounded-md bg-background text-foreground"
+              value={year}
+              onChange={(e) => setYear(parseInt(e.target.value))}
+            >
+              <option value={2024}>2024</option>
+              <option value={2025}>2025</option>
+              <option value={2026}>2026</option>
+              <option value={2027}>2027</option>
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Select the calendar year for this pay period
+            </p>
+          </div>
+          
           {hasMultipleEmployees && (
             <div className="flex items-center space-x-2 p-3 bg-muted/30 rounded-md">
               <Checkbox
@@ -97,9 +116,9 @@ export function AddPayPeriodDialog({
           )}
           
           {applyToAll && (
-            <div className="text-sm text-muted-foreground bg-blue-50 dark:bg-blue-950 p-3 rounded-md">
-              <p className="font-medium text-blue-900 dark:text-blue-100 mb-1">📋 Bulk Pay Period</p>
-              <p>This pay period will be created for all employees using their individual base rates.</p>
+            <div className="bg-muted/30 p-3 rounded-md border border-accent/20">
+              <p className="text-sm font-medium text-foreground mb-1">📋 Bulk Pay Period</p>
+              <p className="text-sm text-muted-foreground">This pay period will be created for all employees using their individual base rates.</p>
             </div>
           )}
           <div className="flex justify-end gap-2">
