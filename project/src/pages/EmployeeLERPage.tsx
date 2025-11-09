@@ -325,15 +325,15 @@ const EmployeeLERPage: React.FC = () => {
           : 0;
         const ler = basePay > 0 ? grossProfitBeforeBonus / basePay : 0;
         
-        // Check if qualifies for bonus (using company settings)
-        const qualifyForBonus = 
-          grossProfitBeforeBonusPercent >= COMPANY_SETTINGS.bonusThresholdMin && 
-          grossProfitBeforeBonusPercent <= COMPANY_SETTINGS.bonusThresholdMax;
-        
-        const bonusQualifiedForPercent = qualifyForBonus ? ler * dailyHours : 0;
-        const totalEmployeePay = basePay + bonusQualifiedForPercent + record.appointmentBasedBonus + record.tipAmount;
+        // PRESERVE bonus qualification and amounts from database - don't recalculate them here
+        // This function is only for recalculating overtime, not bonuses
+        // Recalculating qualifyForBonus would be wrong because overtime changes affect the percentage
+        const qualifyForBonus = record.qualifyForBonus;
+        const bonusQualifiedForPercent = record.bonusQualifiedForPercent;
+        const appointmentBasedBonus = record.appointmentBasedBonus;
+        const totalEmployeePay = basePay + bonusQualifiedForPercent + appointmentBasedBonus + record.tipAmount;
         const dailyHourlyWithTipsAndBonus = dailyHours > 0 ? totalEmployeePay / dailyHours : 0;
-        const dailyNetProfitAfterBonus = record.totalJobRevenue - totalCostOfJob - bonusQualifiedForPercent - record.appointmentBasedBonus;
+        const dailyNetProfitAfterBonus = record.totalJobRevenue - totalCostOfJob - bonusQualifiedForPercent - appointmentBasedBonus;
         const dailyNetProfitAfterBonusPercent = record.totalJobRevenue > 0 
           ? (dailyNetProfitAfterBonus / record.totalJobRevenue) * 100 
           : 0;
@@ -414,6 +414,12 @@ const EmployeeLERPage: React.FC = () => {
               if (records.length > 0) {
                 console.log('🗄️ Raw records from database:', records);
                 console.log('🔍 First record service_breakdown:', records[0]?.service_breakdown);
+                console.log('💰 First record bonus fields:', {
+                  bonus_qualified_for_percent: records[0]?.bonus_qualified_for_percent,
+                  appointment_based_bonus: records[0]?.appointment_based_bonus,
+                  qualify_for_bonus: records[0]?.qualify_for_bonus
+                });
+                console.log('💵 First record base_rate:', records[0]?.base_rate);
               }
               const mappedRecords: DailyRecord[] = records.map(r => ({
                   id: r.id,
@@ -450,6 +456,13 @@ const EmployeeLERPage: React.FC = () => {
               // Recalculate overtime considering both daily and weekly thresholds
               const recalculatedRecords = recalculateOvertimeForRecords(mappedRecords);
               console.log(`   ⚡ Overtime recalculated for weekly thresholds`);
+              
+              if (recalculatedRecords.length > 0) {
+                console.log('   💰 After recalculation, first record bonuses:', {
+                  bonusQualifiedForPercent: recalculatedRecords[0].bonusQualifiedForPercent,
+                  appointmentBasedBonus: recalculatedRecords[0].appointmentBasedBonus
+                });
+              }
               
               // Calculate totals from recalculated records
               const workingRecords = recalculatedRecords.filter(r => !r.calledOut && r.numberOfJobs > 0);
@@ -800,23 +813,30 @@ const EmployeeLERPage: React.FC = () => {
             continue;
           }
 
-          // Get service breakdown
-          const serviceBreakdown = record.serviceBreakdown?.services || [];
+          // Get service breakdown (it's already an array in the DailyRecord type)
+          const serviceBreakdown: ServiceBreakdownItem[] = record.serviceBreakdown || [];
           
           if (serviceBreakdown.length === 0) {
             console.log(`Skipping ${record.date} - no services`);
             continue;
           }
 
-          // Recalculate COGS with current settings
-          const totalCOGS = serviceBreakdown.reduce((sum, s) => {
-            const cogsPercent = servicesWithCOGS[s.serviceName] || 0;
-            return sum + (s.revenue * (cogsPercent / 100));
+          // Recalculate COGS with current settings (SAME AS EDIT MODAL)
+          // COGS = jobs × cost per service (NOT revenue × percentage)
+          console.log(`   📦 Service breakdown for ${record.date}:`, serviceBreakdown);
+          const totalCOGS = serviceBreakdown.reduce((sum: number, s: ServiceBreakdownItem) => {
+            const costPerService = servicesWithCOGS[s.serviceName] || 0;
+            const cogsCost = s.jobs * costPerService;
+            console.log(`      ${s.serviceName}: ${s.jobs} jobs × $${costPerService} = $${cogsCost.toFixed(2)}`);
+            return sum + cogsCost;
           }, 0);
+          console.log(`   💰 Total COGS: $${totalCOGS.toFixed(2)}`);
 
           // Recalculate base pay and overtime
-          const baseRate = record.baseRate;
+          // USE EMPLOYEE'S CURRENT BASE RATE, not the stored rate in the record
+          const baseRate = employeeInfo?.currentBaseRate || record.baseRate;
           const totalDailyHours = record.totalHoursWorked;
+          console.log(`   💵 Base rate for ${record.date}: $${baseRate}/hr (employee current: $${employeeInfo?.currentBaseRate}/hr, record stored: $${record.baseRate}/hr)`);
           let regularHours = totalDailyHours;
           let overtimeHours = 0;
           let basePay = 0;
@@ -832,24 +852,39 @@ const EmployeeLERPage: React.FC = () => {
           }
 
           const totalEmployeeBasePay = basePay + overtimePay;
-          const grossProfit = record.totalJobRevenue - totalCOGS - totalEmployeeBasePay;
+          
+          // Calculate overhead allocation (same as Edit modal)
+          const overheadAllocation = record.totalJobRevenue * (companySettings.overheadPercent / 100);
+          
+          // Calculate total cost of job: Labor + COGS + Overhead (same as Edit modal)
+          const totalCostOfJob = totalEmployeeBasePay + totalCOGS + overheadAllocation;
+          
+          // Calculate gross profit BEFORE bonus (Revenue - Total Cost)
+          const grossProfit = record.totalJobRevenue - totalCostOfJob;
           const grossProfitPercent = record.totalJobRevenue > 0 ? (grossProfit / record.totalJobRevenue) * 100 : 0;
           const ler = totalEmployeeBasePay > 0 ? grossProfit / totalEmployeeBasePay : 0;
 
           // Recalculate bonuses with current settings
+          // Bonus qualification is based on gross profit PERCENTAGE, not LER ratio
           let bonusQualified = 0;
           let appointmentBonus = 0;
-          const qualifyForBonus = ler >= companySettings.bonusThresholdMin && ler <= companySettings.bonusThresholdMax;
+          const qualifyForBonus = grossProfitPercent >= companySettings.bonusThresholdMin && 
+                                  grossProfitPercent <= companySettings.bonusThresholdMax;
 
           if (qualifyForBonus) {
-            bonusQualified = grossProfit * 0.10;
+            // CORRECT FORMULA: Bonus = LER × Daily Hours (same as Edit modal)
+            bonusQualified = ler * totalDailyHours;
           }
 
+          // Check if appointment bonus should be applied
+          // NOTE: Edit modal uses a checkbox, but we check company settings here
+          console.log(`   🎯 Appointment bonus check: enabled=${companySettings.enableAppointmentBonus}, jobs=${record.numberOfJobs}`);
           if (companySettings.enableAppointmentBonus && record.numberOfJobs >= 3) {
             if (record.numberOfJobs >= 6) appointmentBonus = companySettings.appointmentBonus6PlusJobs;
             else if (record.numberOfJobs === 5) appointmentBonus = companySettings.appointmentBonus5Jobs;
             else if (record.numberOfJobs === 4) appointmentBonus = companySettings.appointmentBonus4Jobs;
             else if (record.numberOfJobs === 3) appointmentBonus = companySettings.appointmentBonus3Jobs;
+            console.log(`   💰 Appointment bonus awarded: $${appointmentBonus}`);
           }
 
           const totalBonuses = bonusQualified + appointmentBonus;
@@ -857,6 +892,22 @@ const EmployeeLERPage: React.FC = () => {
           const netProfit = grossProfit - totalBonuses;
           const netProfitPercent = record.totalJobRevenue > 0 ? (netProfit / record.totalJobRevenue) * 100 : 0;
           const hourlyWithBonusAndTips = totalDailyHours > 0 ? totalEmployeePay / totalDailyHours : 0;
+
+          console.log(`Recalculating ${record.date}:`, {
+            revenue: record.totalJobRevenue,
+            labor: totalEmployeeBasePay,
+            cogs: totalCOGS,
+            overhead: overheadAllocation,
+            totalCost: totalCostOfJob,
+            grossProfit,
+            grossProfitPercent,
+            ler,
+            qualifyForBonus,
+            bonusQualified,
+            appointmentBonus,
+            totalBonuses,
+            numberOfJobs: record.numberOfJobs
+          });
 
           // Update the record
           const updatedRecord: employeeLERService.DailyRecord = {
@@ -887,13 +938,19 @@ const EmployeeLERPage: React.FC = () => {
             daily_net_profit_after_bonus: netProfit,
             daily_net_profit_after_bonus_percent: netProfitPercent,
             notes: record.notes,
-            service_breakdown: record.serviceBreakdown
+            service_breakdown: { services: serviceBreakdown }
           };
 
           const updated = await employeeLERService.updateDailyRecord(record.id!, updatedRecord);
           if (updated) {
+            console.log(`✅ Saved ${record.date} with bonuses:`, {
+              bonusQualified,
+              appointmentBonus,
+              totalBonuses
+            });
             successCount++;
           } else {
+            console.error(`❌ Failed to save ${record.date}`);
             errorCount++;
             errors.push(`Failed to update ${record.date}`);
           }
@@ -927,7 +984,7 @@ const EmployeeLERPage: React.FC = () => {
   const filteredDailyRecords = useMemo(() => {
     if (!selectedPeriod) return [];
     
-    return selectedPeriod.dailyRecords.filter(record => {
+    const filtered = selectedPeriod.dailyRecords.filter(record => {
       const recordDate = parseLocalDate(record.date);
       
       // Year filter
@@ -942,6 +999,23 @@ const EmployeeLERPage: React.FC = () => {
       
       return true;
     });
+    
+    // Debug: Log first filtered record's bonus values
+    if (filtered.length > 0) {
+      console.log('🎯 First filtered record for display:', {
+        date: filtered[0].date,
+        ler: filtered[0].ler,
+        bonusQualifiedForPercent: filtered[0].bonusQualifiedForPercent,
+        appointmentBasedBonus: filtered[0].appointmentBasedBonus,
+        qualifyForBonus: filtered[0].qualifyForBonus,
+        numberOfJobs: filtered[0].numberOfJobs,
+        netProfitPercent: filtered[0].dailyNetProfitAfterBonusPercent,
+        totalRevenue: filtered[0].totalJobRevenue,
+        basePay: filtered[0].employeeBasePay
+      });
+    }
+    
+    return filtered;
   }, [selectedPeriod, filterYear, filterMonth]);
 
   // Calculate YTD KPIs (across all pay periods in current year)

@@ -79,6 +79,12 @@ export interface CompanySettings {
   payDayOfWeek?: number;  // 0=Sunday, 5=Friday
   payReferenceDate?: string;  // For bi-weekly calculations
   paySemiMonthlyDates?: [number, number];  // e.g., [1, 15]
+  // Appointment bonus configuration
+  enableAppointmentBonus?: boolean;
+  appointmentBonus3Jobs?: number;
+  appointmentBonus4Jobs?: number;
+  appointmentBonus5Jobs?: number;
+  appointmentBonus6PlusJobs?: number;
 }
 
 // ============================================
@@ -676,7 +682,12 @@ export async function getCompanySettings(userId: string): Promise<CompanySetting
     paySchedule: data.pay_schedule || 'bi-weekly',
     payDayOfWeek: data.pay_day_of_week !== null ? parseInt(data.pay_day_of_week) : 5,
     payReferenceDate: data.pay_reference_date || undefined,
-    paySemiMonthlyDates: data.pay_semi_monthly_dates ? JSON.parse(data.pay_semi_monthly_dates) : [1, 15]
+    paySemiMonthlyDates: data.pay_semi_monthly_dates ? JSON.parse(data.pay_semi_monthly_dates) : [1, 15],
+    enableAppointmentBonus: data.enable_appointment_bonus !== undefined ? data.enable_appointment_bonus : true,
+    appointmentBonus3Jobs: parseFloat(data.appointment_bonus_3_jobs) || 7,
+    appointmentBonus4Jobs: parseFloat(data.appointment_bonus_4_jobs) || 10,
+    appointmentBonus5Jobs: parseFloat(data.appointment_bonus_5_jobs) || 15,
+    appointmentBonus6PlusJobs: parseFloat(data.appointment_bonus_6_plus_jobs) || 20
   };
 }
 
@@ -695,7 +706,12 @@ export async function saveCompanySettings(userId: string, settings: CompanySetti
       pay_schedule: settings.paySchedule || 'bi-weekly',
       pay_day_of_week: settings.payDayOfWeek !== undefined ? settings.payDayOfWeek : 5,
       pay_reference_date: settings.payReferenceDate || null,
-      pay_semi_monthly_dates: settings.paySemiMonthlyDates ? JSON.stringify(settings.paySemiMonthlyDates) : JSON.stringify([1, 15])
+      pay_semi_monthly_dates: settings.paySemiMonthlyDates ? JSON.stringify(settings.paySemiMonthlyDates) : JSON.stringify([1, 15]),
+      enable_appointment_bonus: settings.enableAppointmentBonus !== undefined ? settings.enableAppointmentBonus : true,
+      appointment_bonus_3_jobs: settings.appointmentBonus3Jobs || 7,
+      appointment_bonus_4_jobs: settings.appointmentBonus4Jobs || 10,
+      appointment_bonus_5_jobs: settings.appointmentBonus5Jobs || 15,
+      appointment_bonus_6_plus_jobs: settings.appointmentBonus6PlusJobs || 20
     }, {
       onConflict: 'user_id'
     });
