@@ -670,7 +670,7 @@ export function SMSCoachPage() {
 
     try {
       // Enhanced PERL response with Financial Intelligence and safe fallbacks
-      const coachResponse = await generatePERLResponse(content, user?.id || '', currentConversation.messages);
+      const coachResponse = await generatePERLResponse(content, dbUserId || '', currentConversation.messages);
       
       // Simulate API delay for realistic experience
       await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));

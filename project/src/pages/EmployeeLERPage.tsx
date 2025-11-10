@@ -1121,27 +1121,52 @@ const EmployeeLERPage: React.FC = () => {
     });
     const topService = Object.entries(serviceCount).sort((a, b) => b[1] - a[1])[0];
 
-    // Generate insights
+    // Generate insights - Performance Level + Consistency Combined
     if (avgLER >= 1.5) {
-      insights.push({ type: 'success', title: 'Excellent Performance', message: `${employeeInfo.name} is performing exceptionally with an average LER of ${avgLER.toFixed(2)}. Keep up the great work!` });
+      if (lerStdDev < 0.3) {
+        insights.push({ type: 'success', title: 'Excellent & Consistent', message: `${employeeInfo.name} is performing exceptionally with an average LER of ${avgLER.toFixed(2)} and excellent day-to-day consistency. Keep up the great work!` });
+      } else if (lerStdDev > 0.6) {
+        insights.push({ type: 'success', title: 'High Performance, Variable Execution', message: `${employeeInfo.name} averages ${avgLER.toFixed(2)} LER (excellent), but performance varies significantly between days. Best: ${bestDay.ler.toFixed(2)}, focus on consistency.` });
+      } else {
+        insights.push({ type: 'success', title: 'Excellent Performance', message: `${employeeInfo.name} is performing exceptionally with an average LER of ${avgLER.toFixed(2)}. Keep up the great work!` });
+      }
     } else if (avgLER >= 1.0) {
-      insights.push({ type: 'success', title: 'Strong Performance', message: `${employeeInfo.name} is meeting targets with an average LER of ${avgLER.toFixed(2)}. Solid contribution to profitability.` });
+      if (lerStdDev < 0.3) {
+        insights.push({ type: 'success', title: 'Solid & Reliable', message: `${employeeInfo.name} consistently meets targets with ${avgLER.toFixed(2)} LER. Reliable day-to-day execution.` });
+      } else if (lerStdDev > 0.6) {
+        insights.push({ type: 'info', title: 'Inconsistent Performance', message: `Average LER of ${avgLER.toFixed(2)} meets target, but varies significantly day-to-day. Best: ${bestDay.ler.toFixed(2)}. Focus on maintaining peak performance.` });
+      } else {
+        insights.push({ type: 'success', title: 'Strong Performance', message: `${employeeInfo.name} is meeting targets with an average LER of ${avgLER.toFixed(2)}. Solid contribution to profitability.` });
+      }
     } else if (avgLER >= 0.7) {
-      insights.push({ type: 'warning', title: 'Approaching Target', message: `${employeeInfo.name}'s LER of ${avgLER.toFixed(2)} is approaching the 1.0 target. Focus on efficiency to reach profitability goals.` });
+      if (lerStdDev > 0.6) {
+        insights.push({ type: 'warning', title: 'Inconsistent Execution', message: `LER of ${avgLER.toFixed(2)} is below target with high day-to-day variation. Best day: ${bestDay.ler.toFixed(2)}. Identify what works on good days and replicate it.` });
+      } else {
+        insights.push({ type: 'warning', title: 'Approaching Target', message: `${employeeInfo.name}'s LER of ${avgLER.toFixed(2)} is approaching the 1.0 target. Focus on efficiency to reach profitability goals.` });
+      }
     } else {
       insights.push({ type: 'warning', title: 'Below Target', message: `${employeeInfo.name}'s LER of ${avgLER.toFixed(2)} is below target. Consider reviewing job efficiency and time management.` });
-    }
-
-    if (lerStdDev < 0.3) {
-      insights.push({ type: 'success', title: 'Highly Consistent', message: `${employeeInfo.name} shows excellent consistency with minimal performance variation. Reliable day-to-day execution.` });
-    } else if (lerStdDev > 0.6) {
-      insights.push({ type: 'info', title: 'Variable Performance', message: `Performance varies significantly between days. Best day: ${bestDay.ler.toFixed(2)} LER.` });
     }
 
     if (avgProfit >= 40) {
       insights.push({ type: 'success', title: 'High Profit Margin', message: `Excellent ${avgProfit.toFixed(1)}% average profit margin. ${employeeInfo.name} is maximizing profitability per job.` });
     } else if (avgProfit < 30) {
       insights.push({ type: 'warning', title: 'Low Profit Margin', message: `Profit margin of ${avgProfit.toFixed(1)}% is below optimal. Review pricing or reduce job time to improve margins.` });
+    }
+
+    // Time Efficiency Analysis - Revenue per hour worked
+    const totalHours = workingRecords.reduce((sum, r) => sum + r.totalHoursWorked, 0);
+    const revenuePerHour = totalRevenue / totalHours;
+    const avgHoursPerJob = totalHours / totalJobs;
+    
+    if (revenuePerHour >= 150) {
+      insights.push({ type: 'success', title: 'Excellent Time Efficiency', message: `Generating $${revenuePerHour.toFixed(0)}/hour with ${avgHoursPerJob.toFixed(1)} hours per job. ${employeeInfo.name} works efficiently and maximizes billable time.` });
+    } else if (revenuePerHour >= 100) {
+      insights.push({ type: 'info', title: 'Good Time Usage', message: `Producing $${revenuePerHour.toFixed(0)}/hour at ${avgHoursPerJob.toFixed(1)} hours per job. Solid efficiency, room to improve speed on complex jobs.` });
+    } else if (revenuePerHour >= 75) {
+      insights.push({ type: 'warning', title: 'Time Efficiency Concern', message: `Only $${revenuePerHour.toFixed(0)}/hour with ${avgHoursPerJob.toFixed(1)} hours per job. Jobs taking too long - review processes or reduce non-billable time.` });
+    } else {
+      insights.push({ type: 'warning', title: 'Low Time Efficiency', message: `$${revenuePerHour.toFixed(0)}/hour is below target. At ${avgHoursPerJob.toFixed(1)} hours per job, ${employeeInfo.name} may be working slowly or spending too much time on low-value tasks.` });
     }
 
     if (avgJobsPerDay >= 5) {
@@ -1166,7 +1191,7 @@ const EmployeeLERPage: React.FC = () => {
       }
     }
 
-    // Identify service that needs improvement based on LER performance
+    // Identify weakest service - always show if multiple services exist
     const serviceLERData: { [key: string]: { totalLER: number; count: number; jobs: number } } = {};
     workingRecords.forEach(record => {
       Object.entries(record.jobTypes).forEach(([service, jobCount]) => {
@@ -1191,23 +1216,16 @@ const EmployeeLERPage: React.FC = () => {
       }))
       .sort((a, b) => a.avgLER - b.avgLER);
 
+    // Always show weakest service if multiple services exist
     if (serviceAverages.length > 1) {
       const weakestService = serviceAverages[0];
       const strongestService = serviceAverages[serviceAverages.length - 1];
       
-      // Only flag if the weakest service is significantly below average and below 1.0
-      if (weakestService.avgLER < 0.9 && weakestService.avgLER < avgLER - 0.3) {
-        insights.push({ 
-          type: 'warning', 
-          title: 'Improvement Opportunity', 
-          message: `${weakestService.service} shows lower efficiency (${weakestService.avgLER.toFixed(2)} LER avg) compared to ${strongestService.service} (${strongestService.avgLER.toFixed(2)} LER). Consider additional training or process review for this service.` 
-        });
-      }
-    }
-
-    if (bestDay.ler >= 2.0) {
-      const bestDayDate = parseLocalDate(bestDay.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      insights.push({ type: 'success', title: 'Outstanding Day', message: `${bestDayDate} was exceptional with ${bestDay.ler.toFixed(2)} LER and $${bestDay.totalJobRevenue.toFixed(0)} revenue. Replicate this success!` });
+      insights.push({ 
+        type: 'warning', 
+        title: 'Weakest Service', 
+        message: `${weakestService.service} shows lowest efficiency at ${weakestService.avgLER.toFixed(2)} LER (${weakestService.jobs} jobs) vs ${strongestService.service} at ${strongestService.avgLER.toFixed(2)} LER. Focus training here.` 
+      });
     }
 
     return insights;
