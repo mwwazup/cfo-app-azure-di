@@ -5,6 +5,7 @@ import { RevenueProvider } from './contexts/revenue-context';
 import { CashflowSyncProvider } from './contexts/cashflow-sync-context';
 import { KPIRefreshProvider } from './components/kpi/KPIRefreshProvider';
 import { SupabaseSessionBridge } from './components/auth/SupabaseSessionBridge';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { DashboardLayout } from './components/layout/dashboard-layout';
 import HeroSection from './components/landing/hero-section';
 import SignupForm from './components/auth/signup-form';
@@ -69,69 +70,71 @@ function App() {
             </div>
           </header>
           <div className="min-h-screen bg-gray-900">
-            <Routes>
-              {/* Public routes */}
-              <Route path="/" element={<HeroSection />} />
-              <Route path="/sign-in/*" element={<ClerkSignInPage />} />
-              <Route path="/login" element={<Navigate to="/sign-in" replace />} />
-              <Route path="/signup" element={<Navigate to="/sign-in" replace />} />
-              <Route path="/legacy-login" element={<LoginPage />} />
-              <Route path="/legacy-signup" element={<SignupForm />} />
-              <Route path="/callback" element={<CallbackPage />} />
-              <Route path="/onboarding" element={<OnboardingPage />} />
-              
-              {/* Protected dashboard routes */}
-              <Route path="/dashboard" element={<DashboardLayout />}>
-                <Route index element={<DashboardPage />} />
-              </Route>
-              
-              <Route path="/revenue" element={<DashboardLayout />}>
-                <Route path="master" element={<MasterRevenuePage />} />
-                {/* <Route path="playground" element={<PlaygroundPage />} /> */} {/* Hidden - not in use */}
-              </Route>
-              
-              <Route path="/financial-statements" element={<DashboardLayout />}>
-                <Route index element={<FinancialStatementsPage />} />
-              </Route>
-              
-              <Route path="/coach" element={<DashboardLayout />}>
-                <Route path="your-big-fig" element={<YourBigFigPage />} />
-                <Route path="sms" element={<SMSCoachPage />} />
-              </Route>
-              
-              <Route path="/momentum" element={<DashboardLayout />}>
-                <Route index element={<MomentumPage />} />
-                <Route path="wizard" element={<MomentumWizardPage />} />
-              </Route>
-              
-              {/* Service Mix page */}
-              <Route path="/service-mix" element={<DashboardLayout />}>
-                <Route index element={<ServiceMixPage />} />
-              </Route>
-              
-              {/* Test page for Service Mix feature */}
-              <Route path="/service-mix-test" element={<DashboardLayout />}>
-                <Route index element={<ServiceMixTestPage />} />
-              </Route>
-              
-              {/* Budget vs Actual Tracking */}
-              <Route path="/budget-vs-actual" element={<DashboardLayout />}>
-                <Route index element={<BudgetVsActualPage />} />
-              </Route>
-              
-              {/* Employee LER Tracking */}
-              <Route path="/employee-ler" element={<DashboardLayout />}>
-                <Route index element={<EmployeeLERPage />} />
-              </Route>
-              
-              {/* Business Intelligence */}
-              <Route path="/business-intelligence" element={<DashboardLayout />}>
-                <Route index element={<BusinessIntelligencePage />} />
-              </Route>
-              
-              {/* Redirect any unknown routes to dashboard if authenticated, otherwise to home */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            <ErrorBoundary>
+              <Routes>
+                {/* Public routes */}
+                <Route path="/" element={<HeroSection />} />
+                <Route path="/sign-in/*" element={<ClerkSignInPage />} />
+                <Route path="/login" element={<Navigate to="/sign-in" replace />} />
+                <Route path="/signup" element={<Navigate to="/sign-in" replace />} />
+                <Route path="/legacy-login" element={<LoginPage />} />
+                <Route path="/legacy-signup" element={<SignupForm />} />
+                <Route path="/callback" element={<CallbackPage />} />
+                <Route path="/onboarding" element={<OnboardingPage />} />
+                
+                {/* Protected dashboard routes */}
+                <Route path="/dashboard" element={<DashboardLayout />}>
+                  <Route index element={<DashboardPage />} />
+                </Route>
+                
+                <Route path="/revenue" element={<DashboardLayout />}>
+                  <Route path="master" element={<MasterRevenuePage />} />
+                  {/* <Route path="playground" element={<PlaygroundPage />} /> */} {/* Hidden - not in use */}
+                </Route>
+                
+                <Route path="/financial-statements" element={<DashboardLayout />}>
+                  <Route index element={<FinancialStatementsPage />} />
+                </Route>
+                
+                <Route path="/coach" element={<DashboardLayout />}>
+                  <Route path="your-big-fig" element={<YourBigFigPage />} />
+                  <Route path="sms" element={<SMSCoachPage />} />
+                </Route>
+                
+                <Route path="/momentum" element={<DashboardLayout />}>
+                  <Route index element={<MomentumPage />} />
+                  <Route path="wizard" element={<MomentumWizardPage />} />
+                </Route>
+                
+                {/* Service Mix page */}
+                <Route path="/service-mix" element={<DashboardLayout />}>
+                  <Route index element={<ServiceMixPage />} />
+                </Route>
+                
+                {/* Test page for Service Mix feature */}
+                <Route path="/service-mix-test" element={<DashboardLayout />}>
+                  <Route index element={<ServiceMixTestPage />} />
+                </Route>
+                
+                {/* Budget vs Actual Tracking */}
+                <Route path="/budget-vs-actual" element={<DashboardLayout />}>
+                  <Route index element={<BudgetVsActualPage />} />
+                </Route>
+                
+                {/* Employee LER Tracking */}
+                <Route path="/employee-ler" element={<DashboardLayout />}>
+                  <Route index element={<EmployeeLERPage />} />
+                </Route>
+                
+                {/* Business Intelligence */}
+                <Route path="/business-intelligence" element={<DashboardLayout />}>
+                  <Route index element={<BusinessIntelligencePage />} />
+                </Route>
+                
+                {/* Redirect any unknown routes to dashboard if authenticated, otherwise to home */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </ErrorBoundary>
           </div>
           </Router>
           </KPIRefreshProvider>

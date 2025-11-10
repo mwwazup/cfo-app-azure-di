@@ -2,11 +2,24 @@
 // Exports:
 //   - supabase (browser client using ANON key)
 //   - SUPABASE_URL, SUPABASE_ANON_KEY (envs)
-//   - STORAGE_BUCKETS, TABLES
+//   - STORAGE_BUCKETS
 //   - storage helpers (uploadFile, getPublicUrl)
 //   - server-proxy helpers for DB calls
 
 import { createClient } from '@supabase/supabase-js';
+import { 
+  revenueEntrySchema, 
+  upsertKPIRequestSchema, 
+  safeValidateData,
+  formatValidationErrors 
+} from '../types/validation';
+import { 
+  createApiErrorFromResponse,
+  createNetworkError,
+  createValidationError
+} from '../utils/errors';
+import { addCSRFToken } from '../utils/csrf';
+import { fetchWithTimeout } from '../utils/polling';
 
 /* =========================
    ENV SETUP (Vite: must start with VITE_)
@@ -41,32 +54,6 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
-/* =========================
-   CANONICAL NAMES
-   ========================= */
-export const TABLES = {
-  PROFILES: 'profiles',
-  profiles: 'profiles',
-  REVENUE_ENTRIES: 'revenue_entries',
-  revenueEntries: 'revenue_entries',
-  REVENUE_DATA: 'revenue_data',
-  revenueData: 'revenue_data',
-  COACHING_MOMENTS: 'coaching_moments',
-  coachingMoments: 'coaching_moments',
-  KPI_RECORDS: 'kpi_records',
-  kpiRecords: 'kpi_records',
-  MOMENTUM_ENTRIES: 'momentum_entries',
-  momentumEntries: 'momentum_entries',
-  FINANCIAL_STATEMENTS: 'financial_documents',
-  financialDocuments: 'financial_documents',
-  DOCUMENT_METRICS: 'document_metrics',
-  documentMetrics: 'document_metrics',
-  DOCUMENT_KPIS: 'document_kpis',
-  documentKpis: 'document_kpis',
-  REVENUE_KPIS: 'revenue_kpis',
-  revenueKpis: 'revenue_kpis',
-} as const;
-
 export const STORAGE_BUCKETS = {
   documents: import.meta.env.VITE_SUPABASE_BUCKET_DOCUMENTS || 'documents',
   uploads: import.meta.env.VITE_SUPABASE_BUCKET_UPLOADS || 'uploads',
@@ -100,21 +87,46 @@ export function getPublicUrl(
 /* =========================
    SERVER-PROXY HELPERS (DB)
    ========================= */
-async function getJSON<T>(path: string) {
-  const resp = await fetch(`${API_BASE}${path}`, { credentials: 'include' });
-  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText} - ${await resp.text()}`);
-  return (await resp.json()) as T;
+async function getJSON<T>(path: string, timeout: number = 30000) {
+  try {
+    const resp = await fetchWithTimeout(`${API_BASE}${path}`, {
+      credentials: 'include',
+      timeout
+    });
+    if (!resp.ok) {
+      throw await createApiErrorFromResponse(resp, path, 'GET');
+    }
+    return (await resp.json()) as T;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw createNetworkError(path, 'GET', error);
+    }
+    throw error;
+  }
 }
 
-async function sendJSON<T>(path: string, method: 'POST' | 'DELETE' | 'PUT', body?: any) {
-  const resp = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: 'include',
-  });
-  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText} - ${await resp.text()}`);
-  return (await resp.json()) as T;
+async function sendJSON<T>(path: string, method: 'POST' | 'DELETE' | 'PUT', body?: any, timeout: number = 30000) {
+  try {
+    // Add CSRF protection for state-changing operations
+    const headers = addCSRFToken({ 'Content-Type': 'application/json' });
+    
+    const resp = await fetchWithTimeout(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'include',
+      timeout
+    });
+    if (!resp.ok) {
+      throw await createApiErrorFromResponse(resp, path, method);
+    }
+    return (await resp.json()) as T;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw createNetworkError(path, method, error);
+    }
+    throw error;
+  }
 }
 
 // === High-level API used by your UI ===
@@ -141,7 +153,24 @@ export async function upsertMonthlyRevenue(payload: {
   isLocked?: boolean | null;
   notes?: string | null;
 }) {
-  return sendJSON<{ ok: true; row: any }>(`/api/revenue-entries`, 'POST', payload);
+  // Validate payload before sending to backend
+  const validationResult = safeValidateData(revenueEntrySchema, payload);
+  
+  if (!validationResult.success) {
+    const errors = formatValidationErrors(validationResult.error);
+    const fields = validationResult.error.issues.reduce((acc, issue) => {
+      const path = issue.path.join('.');
+      acc[path] = issue.message;
+      return acc;
+    }, {} as Record<string, string>);
+    throw createValidationError(
+      `Validation failed: ${errors.join(', ')}`,
+      fields,
+      { payload }
+    );
+  }
+  
+  return sendJSON<{ ok: true; row: any }>(`/api/revenue-entries`, 'POST', validationResult.data);
 }
 
 export async function getRevenueKpis(userId: string, year: number) {
@@ -159,7 +188,25 @@ export async function getKpiRecords(userId: string, period?: string) {
 
 export async function upsertKpiRecord(userId: string, kpiData: any) {
   const payload = { userId, kpiData };
-  return sendJSON<{ ok: true; record: any }>(`/api/kpi-records`, 'POST', payload);
+  
+  // Validate payload before sending to backend
+  const validationResult = safeValidateData(upsertKPIRequestSchema, payload);
+  
+  if (!validationResult.success) {
+    const errors = formatValidationErrors(validationResult.error);
+    const fields = validationResult.error.issues.reduce((acc, issue) => {
+      const path = issue.path.join('.');
+      acc[path] = issue.message;
+      return acc;
+    }, {} as Record<string, string>);
+    throw createValidationError(
+      `Validation failed: ${errors.join(', ')}`,
+      fields,
+      { payload }
+    );
+  }
+  
+  return sendJSON<{ ok: true; record: any }>(`/api/kpi-records`, 'POST', validationResult.data);
 }
 
 export async function deleteKpiByName(userId: string, kpiName: string) {
@@ -177,7 +224,6 @@ const exported = {
   supabase,
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
-  TABLES,
   STORAGE_BUCKETS,
   uploadFile,
   getPublicUrl,

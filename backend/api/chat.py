@@ -4,6 +4,7 @@ from typing import List, Optional, Literal
 import os
 import time
 from datetime import datetime, timedelta
+from api.validation_models import AICoachRequest, AICoachResponse
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -94,22 +95,12 @@ def get_anthropic_client():
             raise HTTPException(status_code=500, detail=f"Anthropic initialization failed: {str(e)}")
     return _anthropic_client
 
+# Validation models are now imported from validation_models.py
+# This provides comprehensive input validation with clear error messages
+
 class Message(BaseModel):
     role: str
     content: str
-
-class AICoachRequest(BaseModel):
-    userMessage: str
-    userId: str
-    financialContext: Optional[dict] = None
-    conversationHistory: Optional[List[dict]] = None
-    provider: Optional[Literal['claude', 'openai']] = 'claude'
-    temperature: Optional[float] = 0.7
-    max_tokens: Optional[int] = 1024
-
-class AICoachResponse(BaseModel):
-    response: str
-    provider: str
 
 def is_retryable_error(error: Exception) -> bool:
     """

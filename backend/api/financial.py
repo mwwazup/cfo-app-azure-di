@@ -11,6 +11,19 @@ import os
 from pydantic import BaseModel
 from supabase import create_client, Client
 from db.postgres import get_db, FinancialStatement
+from api.validation_models import (
+    UpsertRevenueRequest,
+    RevenueQueryParams,
+    KPIRecordData,
+    UpsertKPIRequest,
+    KPIQueryParams,
+    DeleteKPIParams,
+    UpdateKPIGoalRequest,
+    FinancialDocumentCreate,
+    FinancialDocumentUpdate,
+    UserIdQuery,
+    YearQuery
+)
 
 # Flag to determine if Postgres should be bypassed (e.g. during CI / local tests)
 SKIP_DB = os.getenv("SKIP_DB", "0") in {"1", "true", "True"}
@@ -23,18 +36,8 @@ from api.auth import get_current_user, User, get_supabase_db
 
 router = APIRouter(prefix="/financial", tags=["financial"])
 
-# Pydantic models for revenue operations
-class UpsertRevenueRequest(BaseModel):
-    userId: str
-    year: int
-    month: int
-    actualRevenue: Optional[float] = None
-    desiredRevenue: Optional[float] = None
-    targetRevenue: Optional[float] = None
-    profitMargin: Optional[float] = None
-    ownerDraws: Optional[float] = None
-    isLocked: Optional[bool] = None
-    notes: Optional[str] = None
+# Validation models are now imported from validation_models.py
+# This provides comprehensive input validation with clear error messages
 
 @router.get("/statements")
 async def get_financial_statements(
@@ -234,8 +237,22 @@ async def parse_financial_statement(
 revenue_router = APIRouter(tags=["revenue"])
 
 @revenue_router.get("/api/revenue-entries/years")
-async def get_available_years(userId: str = Query(...)):
-    """Get all available years for a user's revenue data"""
+async def get_available_years(userId: str = Query(..., description="User ID")):
+    """Get all available years for a user's revenue data
+    
+    Args:
+        userId: User ID (required)
+        
+    Returns:
+        List of years with revenue data
+        
+    Raises:
+        HTTPException: If userId is invalid or database error occurs
+    """
+    # Validate userId
+    if not userId or len(userId.strip()) == 0:
+        raise HTTPException(status_code=400, detail="userId cannot be empty")
+    
     try:
         supabase = get_supabase_db()
         result = supabase.table('revenue_entries').select('year').eq('user_id', userId).execute()
@@ -244,16 +261,38 @@ async def get_available_years(userId: str = Query(...)):
         years.sort(reverse=True)
         
         return {"years": years}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @revenue_router.get("/api/revenue-entries")
 async def get_revenue_entries(
-    userId: str = Query(...),
-    year: int = Query(...),
-    month: Optional[int] = Query(None)
+    userId: str = Query(..., description="User ID"),
+    year: int = Query(..., ge=2000, le=2100, description="Year (2000-2100)"),
+    month: Optional[int] = Query(None, ge=1, le=12, description="Month (1-12, optional)")
 ):
-    """Get revenue entries for a user, year, and optionally month"""
+    """Get revenue entries for a user, year, and optionally month
+    
+    Args:
+        userId: User ID (required)
+        year: Year between 2000-2100 (required)
+        month: Month between 1-12 (optional)
+        
+    Returns:
+        List of revenue entries
+        
+    Raises:
+        HTTPException: If parameters are invalid or database error occurs
+    """
+    # Validate inputs
+    if not userId or len(userId.strip()) == 0:
+        raise HTTPException(status_code=400, detail="userId cannot be empty")
+    if year < 2000 or year > 2100:
+        raise HTTPException(status_code=400, detail="year must be between 2000 and 2100")
+    if month is not None and (month < 1 or month > 12):
+        raise HTTPException(status_code=400, detail="month must be between 1 and 12")
+    
     try:
         supabase = get_supabase_db()
         query = supabase.table('revenue_entries').select('*').eq('user_id', userId).eq('year', year)
@@ -263,12 +302,28 @@ async def get_revenue_entries(
         
         result = query.order('month').execute()
         return {"rows": result.data}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @revenue_router.post("/api/revenue-entries")
 async def upsert_monthly_revenue(request: UpsertRevenueRequest):
-    """Create or update a monthly revenue entry"""
+    """Create or update a monthly revenue entry
+    
+    Args:
+        request: Validated revenue entry data
+        
+    Returns:
+        Created/updated revenue entry
+        
+    Raises:
+        HTTPException: If validation fails or database error occurs
+        
+    Note:
+        All input validation is handled by Pydantic UpsertRevenueRequest model.
+        Invalid data will return 422 Unprocessable Entity with detailed error messages.
+    """
     try:
         supabase = get_supabase_db()
         
@@ -304,23 +359,62 @@ async def upsert_monthly_revenue(request: UpsertRevenueRequest):
 
 @revenue_router.get("/api/revenue-kpis")
 async def get_revenue_kpis(
-    userId: str = Query(...),
-    year: int = Query(...)
+    userId: str = Query(..., description="User ID"),
+    year: int = Query(..., ge=2000, le=2100, description="Year (2000-2100)")
 ):
-    """Get revenue KPIs for a user and year"""
+    """Get revenue KPIs for a user and year
+    
+    Args:
+        userId: User ID (required)
+        year: Year between 2000-2100 (required)
+        
+    Returns:
+        List of revenue KPIs
+        
+    Raises:
+        HTTPException: If parameters are invalid or database error occurs
+    """
+    # Validate inputs
+    if not userId or len(userId.strip()) == 0:
+        raise HTTPException(status_code=400, detail="userId cannot be empty")
+    if year < 2000 or year > 2100:
+        raise HTTPException(status_code=400, detail="year must be between 2000 and 2100")
+    
     try:
         supabase = get_supabase_db()
         result = supabase.table('revenue_kpis').select('*').eq('user_id', userId).eq('year', year).execute()
         return {"rows": result.data}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @revenue_router.get("/api/kpi-records")
 async def get_kpi_records(
-    userId: str = Query(...),
-    period: Optional[str] = Query(None)
+    userId: str = Query(..., description="User ID"),
+    period: Optional[str] = Query(None, description="Period filter (YYYY-MM-DD)")
 ):
-    """Get KPI records for a user"""
+    """Get KPI records for a user
+    
+    Args:
+        userId: User ID (required)
+        period: Period filter in YYYY-MM-DD format (optional)
+        
+    Returns:
+        List of KPI records
+        
+    Raises:
+        HTTPException: If parameters are invalid or database error occurs
+    """
+    # Validate inputs
+    if not userId or len(userId.strip()) == 0:
+        raise HTTPException(status_code=400, detail="userId cannot be empty")
+    if period:
+        try:
+            datetime.strptime(period, '%Y-%m-%d')
+        except ValueError:
+            raise HTTPException(status_code=400, detail="period must be in YYYY-MM-DD format")
+    
     try:
         supabase = get_supabase_db()
         query = supabase.table('kpi_records').select('*').eq('user_id', userId)
@@ -330,26 +424,33 @@ async def get_kpi_records(
         
         result = query.execute()
         return {"rows": result.data}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @revenue_router.post("/api/kpi-records")
-async def upsert_kpi_record(
-    request: dict
-):
-    """Create or update a KPI record"""
+async def upsert_kpi_record(request: UpsertKPIRequest):
+    """Create or update a KPI record
+    
+    Args:
+        request: Validated KPI record data
+        
+    Returns:
+        Created/updated KPI record
+        
+    Raises:
+        HTTPException: If validation fails or database error occurs
+        
+    Note:
+        All input validation is handled by Pydantic UpsertKPIRequest model.
+    """
     try:
         supabase = get_supabase_db()
         
-        # Extract data from request
-        user_id = request.get('userId')
-        kpi_data = request.get('kpiData')
-        
-        if not user_id or not kpi_data:
-            raise HTTPException(status_code=400, detail="Missing userId or kpiData")
-        
-        # Add user_id to kpi_data
-        kpi_data['user_id'] = user_id
+        # Convert Pydantic model to dict and add user_id
+        kpi_data = request.kpiData.dict()
+        kpi_data['user_id'] = request.userId
         
         # Use upsert to create or update
         result = supabase.table('kpi_records').upsert(kpi_data).execute()
@@ -358,73 +459,159 @@ async def upsert_kpi_record(
             return {"ok": True, "record": result.data[0]}
         else:
             return {"ok": True, "record": None}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @revenue_router.get("/api/financial-documents")
-async def get_financial_documents(userId: str = Query(...)):
-    """Get financial documents for a user"""
+async def get_financial_documents(userId: str = Query(..., description="User ID")):
+    """Get financial documents for a user
+    
+    Args:
+        userId: User ID (required)
+        
+    Returns:
+        List of financial documents
+        
+    Raises:
+        HTTPException: If userId is invalid or database error occurs
+    """
+    # Validate userId
+    if not userId or len(userId.strip()) == 0:
+        raise HTTPException(status_code=400, detail="userId cannot be empty")
+    
     try:
         supabase = get_supabase_db()
         result = supabase.table('financial_documents').select('*').eq('user_id', userId).order('uploaded_at', desc=True).execute()
         return {"data": result.data}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @revenue_router.post("/api/financial-documents")
-async def create_financial_document(request: dict):
-    """Create a financial document"""
+async def create_financial_document(request: FinancialDocumentCreate):
+    """Create a financial document
+    
+    Args:
+        request: Validated financial document data
+        
+    Returns:
+        Created financial document
+        
+    Raises:
+        HTTPException: If validation fails or database error occurs
+        
+    Note:
+        All input validation is handled by Pydantic FinancialDocumentCreate model.
+    """
     try:
         supabase = get_supabase_db()
         
-        user_id = request.get('userId')
-        if not user_id:
-            raise HTTPException(status_code=400, detail="userId is required")
-        
-        # Prepare document data
-        doc_data = {
-            'user_id': user_id,
-            **{k: v for k, v in request.items() if k != 'userId'}
-        }
+        # Convert Pydantic model to dict
+        doc_data = request.dict(exclude_none=True)
+        # Rename userId to user_id for database
+        doc_data['user_id'] = doc_data.pop('userId')
         
         result = supabase.table('financial_documents').insert(doc_data).execute()
         return {"data": result.data[0] if result.data else None}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @revenue_router.put("/api/financial-documents/{document_id}")
-async def update_financial_document(document_id: str, request: dict):
-    """Update a financial document"""
+async def update_financial_document(
+    document_id: str = Path(..., description="Document ID"),
+    request: FinancialDocumentUpdate = None
+):
+    """Update a financial document
+    
+    Args:
+        document_id: Document ID (required)
+        request: Validated update data
+        
+    Returns:
+        Updated financial document
+        
+    Raises:
+        HTTPException: If validation fails or database error occurs
+    """
+    # Validate document_id
+    if not document_id or len(document_id.strip()) == 0:
+        raise HTTPException(status_code=400, detail="document_id cannot be empty")
+    
     try:
         supabase = get_supabase_db()
         
-        # Remove userId from update data
-        update_data = {k: v for k, v in request.items() if k != 'userId'}
+        # Convert Pydantic model to dict, excluding None values
+        update_data = request.dict(exclude_none=True) if request else {}
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No update data provided")
         
         result = supabase.table('financial_documents').update(update_data).eq('id', document_id).execute()
         return {"data": result.data[0] if result.data else None}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @revenue_router.delete("/api/financial-documents/{document_id}")
-async def delete_financial_document(document_id: str):
-    """Delete a financial document"""
+async def delete_financial_document(document_id: str = Path(..., description="Document ID")):
+    """Delete a financial document
+    
+    Args:
+        document_id: Document ID (required)
+        
+    Returns:
+        Success confirmation
+        
+    Raises:
+        HTTPException: If document_id is invalid or database error occurs
+    """
+    # Validate document_id
+    if not document_id or len(document_id.strip()) == 0:
+        raise HTTPException(status_code=400, detail="document_id cannot be empty")
+    
     try:
         supabase = get_supabase_db()
         result = supabase.table('financial_documents').delete().eq('id', document_id).execute()
         return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @revenue_router.delete("/api/kpi-records")
 async def delete_kpi_by_name(
-    userId: str = Query(...),
-    kpi_name: str = Query(...)
+    userId: str = Query(..., description="User ID"),
+    kpi_name: str = Query(..., min_length=1, description="KPI name to delete")
 ):
-    """Delete a KPI record by name"""
+    """Delete a KPI record by name
+    
+    Args:
+        userId: User ID (required)
+        kpi_name: KPI name to delete (required)
+        
+    Returns:
+        Success confirmation
+        
+    Raises:
+        HTTPException: If parameters are invalid or database error occurs
+    """
+    # Validate inputs
+    if not userId or len(userId.strip()) == 0:
+        raise HTTPException(status_code=400, detail="userId cannot be empty")
+    if not kpi_name or len(kpi_name.strip()) == 0:
+        raise HTTPException(status_code=400, detail="kpi_name cannot be empty")
+    
     try:
         supabase = get_supabase_db()
         result = supabase.table('kpi_records').delete().eq('user_id', userId).eq('kpi_name', kpi_name).execute()
         return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
