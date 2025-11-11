@@ -4,9 +4,13 @@
 -- Solution: Change to UNIQUE(pay_period_id, employee_id, date) to allow multiple employees
 --          while still preventing duplicate records for the same employee on the same date
 
--- Drop the old constraint
+-- Drop the old constraint (if it exists)
 ALTER TABLE employee_daily_records 
 DROP CONSTRAINT IF EXISTS unique_date_per_pay_period;
+
+-- Drop the new constraint if it already exists (for re-running migration)
+ALTER TABLE employee_daily_records 
+DROP CONSTRAINT IF EXISTS unique_employee_date_per_pay_period;
 
 -- Add the new constraint that includes employee_id
 ALTER TABLE employee_daily_records 

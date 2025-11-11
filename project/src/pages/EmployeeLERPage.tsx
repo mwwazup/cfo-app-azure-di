@@ -153,7 +153,7 @@ const EmployeeLERPage: React.FC = () => {
   const [editingRecord, setEditingRecord] = useState<{record: DailyRecord, index: number} | null>(null);
   const [showCSVUpload, setShowCSVUpload] = useState(false);
   const [needsCalculation, setNeedsCalculation] = useState(false);
-  const [filterYear, setFilterYear] = useState<number | 'all'>(new Date().getFullYear());
+  const [filterYear, setFilterYear] = useState<number | 'all'>('all');
   const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
 
   // Helper function to convert DailyRecord to Supabase format
@@ -1737,7 +1737,14 @@ const EmployeeLERPage: React.FC = () => {
         {/* Daily Records Table */}
         <Card className="bg-muted/30">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-foreground">Daily Performance Records</CardTitle>
+            <div className="flex items-center gap-3">
+              <CardTitle className="text-foreground">Daily Performance Records</CardTitle>
+              {selectedPeriod && (
+                <Badge variant="outline" className="text-xs">
+                  {filteredDailyRecords.length} of {selectedPeriod.dailyRecords.length} records
+                </Badge>
+              )}
+            </div>
             <div className="flex gap-2 items-center">
               {/* Year Filter */}
               <select
@@ -1773,6 +1780,21 @@ const EmployeeLERPage: React.FC = () => {
                 <option value="10">November</option>
                 <option value="11">December</option>
               </select>
+
+              {/* Clear Filters Button - only show when filters are active */}
+              {(filterYear !== 'all' || filterMonth !== 'all') && (
+                <Button
+                  onClick={() => {
+                    setFilterYear('all');
+                    setFilterMonth('all');
+                  }}
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs"
+                >
+                  Clear Filters
+                </Button>
+              )}
 
               {/* CSV Upload Button */}
               <Button 
