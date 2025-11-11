@@ -720,11 +720,13 @@ const EmployeeLERPage: React.FC = () => {
             service_breakdown: { services: serviceBreakdown }
           };
 
-          // Check if record already exists for this date (including orphaned records with NULL employee_id)
-          console.log(`🔍 Looking for existing record with date: "${date}" (type: ${typeof date})`);
+          // Check if record already exists for this date AND employee (or orphaned records with NULL employee_id for this date)
+          console.log(`🔍 Looking for existing record with date: "${date}" and employee_id: "${employee.id}" (type: ${typeof date})`);
           const existingRecord = existingDailyRecords.find((r: any) => {
-            console.log(`  Comparing with record date: "${r.date}" (type: ${typeof r.date}) - Match: ${r.date === date}`);
-            return r.date === date;
+            const dateMatch = r.date === date;
+            const employeeMatch = r.employee_id === employee.id || r.employee_id === null;
+            console.log(`  Comparing with record date: "${r.date}", employee_id: "${r.employee_id || 'NULL'}" - Date Match: ${dateMatch}, Employee Match: ${employeeMatch}`);
+            return dateMatch && employeeMatch;
           });
           console.log(`🔍 Found existing record:`, existingRecord ? `YES (id: ${existingRecord.id}, employee_id: ${existingRecord.employee_id || 'NULL'})` : 'NO');
           
