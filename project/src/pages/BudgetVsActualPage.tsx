@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { useWeeklyBudget, useYTDBudget } from '../hooks/useWeeklyBudget';
 import { Calendar, TrendingUp, TrendingDown, DollarSign, CheckCircle, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronUp, Filter } from 'lucide-react';
@@ -501,7 +501,7 @@ export function BudgetVsActualPage() {
                     const monthSummary = monthlySummaries[week.month];
                     
                     return (
-                      <>
+                      <React.Fragment key={week.id}>
                         {showMonthHeader && (
                           <>
                             <tr 
@@ -642,7 +642,7 @@ export function BudgetVsActualPage() {
                           </td>
                         </tr>
                         )}
-                      </>
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

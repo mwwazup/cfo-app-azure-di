@@ -353,7 +353,7 @@ export function AddDailyRecordWithServices({
 
   const preview = calculatePreview();
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!date) {
       setValidationError('Please select a date');
       return;
@@ -366,6 +366,69 @@ export function AddDailyRecordWithServices({
     
     if (!validateBreakdown()) {
       return;
+    }
+
+    // ============================================
+    // CRITICAL: COGS VALIDATION
+    // ============================================
+    // Prevent data entry errors like 85% COGS anomaly
+    const { cogsNoLabor, cogsNoLaborPercent } = preview;
+    
+    // Validation #1: High COGS Percentage (>20%)
+    if (cogsNoLaborPercent > 20) {
+      const confirmed = window.confirm(
+        `⚠️ HIGH COGS ALERT!\n\n` +
+        `COGS: $${cogsNoLabor.toFixed(2)} (${cogsNoLaborPercent.toFixed(1)}%)\n` +
+        `Revenue: $${preview.totalRevenue.toFixed(2)}\n\n` +
+        `Normal COGS range is 2-6%.\n` +
+        `This ${cogsNoLaborPercent.toFixed(1)}% is ${(cogsNoLaborPercent / 5).toFixed(1)}x higher than normal!\n\n` +
+        `Common causes:\n` +
+        `• Decimal point error ($810 instead of $8.10)\n` +
+        `• Equipment purchase entered as daily COGS\n` +
+        `• Subcontractor cost not properly tracked\n\n` +
+        `Are you SURE this is correct?`
+      );
+      if (!confirmed) {
+        setValidationError(`COGS of ${cogsNoLaborPercent.toFixed(1)}% is unusually high. Please verify your entries.`);
+        return;
+      }
+    }
+    
+    // Validation #2: Large COGS Dollar Amount (>$100)
+    if (cogsNoLabor > 100) {
+      const suggestedValue = (cogsNoLabor / 100).toFixed(2);
+      const confirmed = window.confirm(
+        `⚠️ LARGE COGS ENTRY!\n\n` +
+        `COGS Amount: $${cogsNoLabor.toFixed(2)}\n` +
+        `Revenue: $${preview.totalRevenue.toFixed(2)}\n\n` +
+        `This is unusually high for a single day.\n\n` +
+        `Did you mean $${suggestedValue}?\n\n` +
+        `Continue with $${cogsNoLabor.toFixed(2)}?`
+      );
+      if (!confirmed) {
+        setValidationError(`COGS of $${cogsNoLabor.toFixed(2)} is unusually high. Please verify your entries.`);
+        return;
+      }
+    }
+    
+    // Validation #3: Negative Profit Margin
+    if (preview.grossProfitBeforeBonusPercent < 0) {
+      const confirmed = window.confirm(
+        `🔴 NEGATIVE PROFIT MARGIN!\n\n` +
+        `Gross Profit: $${preview.grossProfitBeforeBonus.toFixed(2)}\n` +
+        `Profit Margin: ${preview.grossProfitBeforeBonusPercent.toFixed(1)}%\n\n` +
+        `This job is LOSING MONEY!\n\n` +
+        `Revenue: $${preview.totalRevenue.toFixed(2)}\n` +
+        `Total Costs: $${preview.totalCostOfJob.toFixed(2)}\n` +
+        `  - Labor: $${preview.basePay.toFixed(2)}\n` +
+        `  - COGS: $${cogsNoLabor.toFixed(2)}\n` +
+        `  - Overhead: $${preview.overheadAllocation.toFixed(2)}\n\n` +
+        `Are you SURE you want to save this?`
+      );
+      if (!confirmed) {
+        setValidationError(`Negative profit margin detected. Please review your entries.`);
+        return;
+      }
     }
 
     const { totalJobs, totalJobTime, dailyHours, totalRevenue } = calculateTotals();
@@ -658,7 +721,22 @@ export function AddDailyRecordWithServices({
 
           {/* Preview Section */}
           <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-3">
-            <h4 className="font-semibold text-foreground">Calculation Preview</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-foreground">Calculation Preview</h4>
+              {/* COGS Warning Indicator */}
+              {preview.cogsNoLaborPercent > 20 && (
+                <div className="flex items-center gap-2 text-red-500">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-xs font-semibold">HIGH COGS: {preview.cogsNoLaborPercent.toFixed(1)}%</span>
+                </div>
+              )}
+              {preview.cogsNoLaborPercent >= 10 && preview.cogsNoLaborPercent <= 20 && (
+                <div className="flex items-center gap-2 text-yellow-500">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-xs font-semibold">ELEVATED COGS: {preview.cogsNoLaborPercent.toFixed(1)}%</span>
+                </div>
+              )}
+            </div>
             
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
               <div>
@@ -673,7 +751,16 @@ export function AddDailyRecordWithServices({
               )}
               <div>
                 <p className="text-muted-foreground">COGS (No Labor)</p>
-                <p className="font-semibold text-foreground">${preview.cogsNoLabor.toFixed(2)}</p>
+                <p className={`font-semibold ${
+                  preview.cogsNoLaborPercent > 20 ? 'text-red-500' : 
+                  preview.cogsNoLaborPercent >= 10 ? 'text-yellow-500' : 
+                  'text-foreground'
+                }`}>
+                  ${preview.cogsNoLabor.toFixed(2)} ({preview.cogsNoLaborPercent.toFixed(1)}%)
+                </p>
+                {preview.cogsNoLaborPercent > 20 && (
+                  <p className="text-xs text-red-500 mt-1">⚠️ Unusually high!</p>
+                )}
               </div>
               <div>
                 <p className="text-muted-foreground">Overhead ({preview.overheadCostsPercent}%)</p>

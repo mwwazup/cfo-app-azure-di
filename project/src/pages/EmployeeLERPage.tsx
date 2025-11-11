@@ -152,6 +152,7 @@ const EmployeeLERPage: React.FC = () => {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [editingRecord, setEditingRecord] = useState<{record: DailyRecord, index: number} | null>(null);
   const [showCSVUpload, setShowCSVUpload] = useState(false);
+  const [needsCalculation, setNeedsCalculation] = useState(false);
   const [filterYear, setFilterYear] = useState<number | 'all'>(new Date().getFullYear());
   const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
 
@@ -404,11 +405,11 @@ const EmployeeLERPage: React.FC = () => {
         console.log('📅 Pay periods loaded:', periods.length, 'periods');
         
         if (periods.length > 0) {
-          // Load daily records for each period
+          // Load daily records for each period (filtered by employee)
           const periodsWithRecords = await Promise.all(
             periods.map(async (period) => {
-              const records = await employeeLERService.getDailyRecords(period.id!);
-              console.log(`📊 Period "${period.period_name}":`, records.length, 'daily records');
+              const records = await employeeLERService.getDailyRecords(period.id!, empInfo.id);
+              console.log(`📊 Period "${period.period_name}" for ${empInfo.name}:`, records.length, 'daily records');
               
               // Map records to DailyRecord format
               if (records.length > 0) {
@@ -596,8 +597,11 @@ const EmployeeLERPage: React.FC = () => {
           
           console.log(`✅ Found pay period: ${payPeriod.period_name}`);
           
-          // Load existing daily records for this pay period
+          // Load ALL existing daily records for this pay period (including orphaned ones with NULL employee_id)
+          // We need to check for duplicates across ALL records, not just this employee's records
           const existingDailyRecords = await employeeLERService.getDailyRecords(payPeriod.id!);
+          console.log(`📋 Loaded ${existingDailyRecords.length} existing records for pay period ${payPeriod.period_name}:`, 
+            existingDailyRecords.map(r => ({ date: r.date, employee_id: r.employee_id || 'NULL' })));
 
           // Build service breakdown
           const serviceBreakdown: ServiceBreakdownItem[] = rows.map(row => ({
@@ -716,13 +720,20 @@ const EmployeeLERPage: React.FC = () => {
             service_breakdown: { services: serviceBreakdown }
           };
 
-          // Check if record already exists for this date
-          const existingRecord = existingDailyRecords.find((r: any) => r.date === date);
+          // Check if record already exists for this date (including orphaned records with NULL employee_id)
+          console.log(`🔍 Looking for existing record with date: "${date}" (type: ${typeof date})`);
+          const existingRecord = existingDailyRecords.find((r: any) => {
+            console.log(`  Comparing with record date: "${r.date}" (type: ${typeof r.date}) - Match: ${r.date === date}`);
+            return r.date === date;
+          });
+          console.log(`🔍 Found existing record:`, existingRecord ? `YES (id: ${existingRecord.id}, employee_id: ${existingRecord.employee_id || 'NULL'})` : 'NO');
           
           let recordId: string | undefined;
           
           if (existingRecord && existingRecord.id) {
-            // Update existing record
+            // Record exists - update it and assign employee_id
+            dailyRecord.employee_id = employee.id;
+            console.log(`🔄 Updating existing record for ${employeeName} on ${date} (${existingRecord.employee_id ? 'has employee_id' : 'ORPHANED - assigning employee_id'})`);
             const updated = await employeeLERService.updateDailyRecord(existingRecord.id, dailyRecord);
             if (updated) {
               recordId = existingRecord.id;
@@ -733,9 +744,17 @@ const EmployeeLERPage: React.FC = () => {
               continue;
             }
           } else {
-            // Create new record
-            const createdRecord = await employeeLERService.createDailyRecord(payPeriod.id!, dailyRecord);
+            // No record exists - create new one with employee_id
+            console.log(`📝 Creating new record for ${employeeName} on ${date} with employee_id: ${employee.id}`);
+            const createdRecord = await employeeLERService.createDailyRecord(payPeriod.id!, dailyRecord, employee.id);
             recordId = createdRecord?.id;
+            if (!recordId) {
+              console.error(`❌ Failed to create record for ${employeeName} on ${date}`);
+              errors.push(`Failed to create record for ${employeeName} on ${date}`);
+              errorCount++;
+              continue;
+            }
+            console.log(`✅ Created record with ID: ${recordId}`);
           }
           
           if (recordId) {
@@ -777,6 +796,7 @@ const EmployeeLERPage: React.FC = () => {
       // Show results
       if (successCount > 0) {
         alert(`Successfully imported ${successCount} record(s)${errorCount > 0 ? `, ${errorCount} failed` : ''}`);
+        setNeedsCalculation(true); // Trigger pulsating Calculate All button
         await loadEmployeeData(selectedEmployeeId);
       } else {
         alert(`Import failed. ${errors.slice(0, 5).join('\n')}`);
@@ -793,6 +813,9 @@ const EmployeeLERPage: React.FC = () => {
       alert('Please select a pay period first');
       return;
     }
+    
+    // Clear the pulsating state when Calculate All is clicked
+    setNeedsCalculation(false);
 
     const confirmCalc = window.confirm(
       `This will recalculate all ${selectedPeriod.dailyRecords.length} days in "${selectedPeriod.periodName}".\n\nThis will update LER, bonuses, and profits based on current company settings and COGS values.\n\nContinue?`
@@ -1766,9 +1789,10 @@ const EmployeeLERPage: React.FC = () => {
               {/* Calculate All Days Button */}
               <Button 
                 onClick={handleCalculateAllDays}
-                variant="outline"
+                variant={needsCalculation ? "default" : "outline"}
                 size="sm"
                 disabled={!selectedPeriod || selectedPeriod.dailyRecords.length === 0}
+                className={needsCalculation ? 'animate-pulse bg-accent hover:bg-accent/90 text-background border-accent border-2' : ''}
               >
                 <TrendingUp className="h-4 w-4 mr-2" />
                 Calculate All
@@ -2396,9 +2420,9 @@ const EmployeeLERPage: React.FC = () => {
           }
           
           try {
-            // Save daily record
+            // Save daily record (include employee_id)
             const supabaseRecord = convertToSupabaseFormat(record);
-            const savedRecord = await employeeLERService.createDailyRecord(currentPeriod.periodId, supabaseRecord);
+            const savedRecord = await employeeLERService.createDailyRecord(currentPeriod.periodId, supabaseRecord, employeeInfo.id);
             
             if (!savedRecord) {
               alert('Error saving record. Please try again.');
@@ -2541,13 +2565,13 @@ const EmployeeLERPage: React.FC = () => {
                           const newPeriod: employeeLERService.PayPeriod = {
                             period_name: period.periodName,
                             start_date: period.startDate,
-                            end_date: period.endDate
+                            end_date: period.endDate,
+                            year: year
                           };
 
                           const saved = await employeeLERService.createPayPeriod(
-                            employeeInfo.id,
-                            newPeriod,
-                            employeeInfo.currentBaseRate
+                            dbUserId!,
+                            newPeriod
                           );
                           if (saved) successCount++;
                         }

@@ -33,7 +33,23 @@ interface CSVUploadDialogProps {
 export function CSVUploadDialog({ open, onClose, onImport, employees, services }: CSVUploadDialogProps) {
   const [parsedData, setParsedData] = useState<ParsedData | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [loadingText, setLoadingText] = useState('surfing');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Rotate through surf-themed loading messages
+  React.useEffect(() => {
+    if (!isProcessing) return;
+    
+    const messages = ['surfing', 'swimming', 'board', 'paddling', 'riding'];
+    let index = 0;
+    
+    const interval = setInterval(() => {
+      index = (index + 1) % messages.length;
+      setLoadingText(messages[index]);
+    }, 500);
+    
+    return () => clearInterval(interval);
+  }, [isProcessing]);
 
   const downloadTemplate = () => {
     const template = `Date,Employee Name,Service Name,Jobs,Hours,Revenue,Total Daily Hours,Tips,Notes
@@ -336,7 +352,14 @@ export function CSVUploadDialog({ open, onClose, onImport, employees, services }
             onClick={handleImport}
             disabled={!parsedData || parsedData.rows.length === 0 || parsedData.errors.length > 0 || isProcessing}
           >
-            {isProcessing ? 'Importing...' : `Import ${parsedData?.rows.length || 0} Records`}
+            {isProcessing ? (
+              <span className="flex items-center gap-2">
+                <span className="animate-pulse">{loadingText}</span>
+                <span>...</span>
+              </span>
+            ) : (
+              `Import ${parsedData?.rows.length || 0} Records`
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

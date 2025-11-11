@@ -1,4 +1,4 @@
-import { supabase, TABLES } from '../config/supabaseClient';
+import { supabase } from '../config/supabaseClient';
 import { CoachingMoment, CreateCoachingMomentData } from '../models/CoachingMoment';
 
 export class CoachingService {
@@ -8,7 +8,7 @@ export class CoachingService {
   static async getCoachingMoments(userId: string): Promise<CoachingMoment[]> {
     try {
       const { data, error } = await supabase
-        .from(TABLES.COACHING_MOMENTS)
+        .from('coaching_moments')
         .select('*')
         .eq('user_id', userId)
         .order('date', { ascending: false });
@@ -34,7 +34,7 @@ export class CoachingService {
   ): Promise<{ success: boolean; moment?: CoachingMoment; error?: string }> {
     try {
       const { data, error } = await supabase
-        .from(TABLES.COACHING_MOMENTS)
+        .from('coaching_moments')
         .insert({
           user_id: userId,
           ...momentData,
@@ -67,7 +67,7 @@ export class CoachingService {
   static async deleteCoachingMoment(momentId: string): Promise<boolean> {
     try {
       const { error } = await supabase
-        .from(TABLES.COACHING_MOMENTS)
+        .from('coaching_moments')
         .delete()
         .eq('id', momentId);
 
@@ -92,7 +92,7 @@ export class CoachingService {
   ): Promise<CoachingMoment[]> {
     try {
       const { data, error } = await supabase
-        .from(TABLES.COACHING_MOMENTS)
+        .from('coaching_moments')
         .select('*')
         .eq('user_id', userId)
         .eq('scenario_type', scenarioType)
@@ -119,7 +119,7 @@ export class CoachingService {
   ): Promise<CoachingMoment[]> {
     try {
       const { data, error } = await supabase
-        .from(TABLES.COACHING_MOMENTS)
+        .from('coaching_moments')
         .select('*')
         .eq('user_id', userId)
         .order('date', { ascending: false })
@@ -146,7 +146,7 @@ export class CoachingService {
   ): Promise<{ success: boolean; moment?: CoachingMoment; error?: string }> {
     try {
       const { data, error } = await supabase
-        .from(TABLES.COACHING_MOMENTS)
+        .from('coaching_moments')
         .update(updates)
         .eq('id', momentId)
         .select()

@@ -78,8 +78,9 @@ export const kpiRecordDataSchema = z.object({
   kpi_category: z.enum(['revenue', 'profitability', 'growth', 'efficiency', 'liquidity'], {
     message: 'KPI category must be one of: revenue, profitability, growth, efficiency, liquidity'
   }),
-  actual_value: z.number(),
+  kpi_value: z.number(),
   goal_value: z.number(),
+  status: z.enum(['good', 'warning', 'alert']),
   trend_vs_last_month: z.number().optional(),
   action_suggestion: z.string()
     .max(500, 'Action suggestion must be 500 characters or less')

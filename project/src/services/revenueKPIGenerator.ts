@@ -175,7 +175,7 @@ export class RevenueKPIGenerator {
         kpi_name: 'Revenue Target Based on Profit Margin',
         kpi_value: requiredRevenue,
         period: period,
-        kpi_category: 'Revenue Planning',
+        kpi_category: 'revenue planning',
         goal_value: requiredRevenue,
         status: 'good' as const,
         plain_explanation: `To achieve $${desiredProfitAmount.toLocaleString()} profit at ${targetProfitMargin}% margin, you need $${requiredRevenue.toLocaleString()} in revenue.`
@@ -255,7 +255,7 @@ export class RevenueKPIGenerator {
       kpi_name: 'Monthly Revenue',
       kpi_value: actualRevenue,
       period: period,
-      kpi_category: 'Revenue',
+      kpi_category: 'revenue',
       goal_value: targetRevenue,
       status: status,
       display_format: 'currency',
@@ -315,7 +315,7 @@ export class RevenueKPIGenerator {
       kpi_name: 'YTD Revenue',
       kpi_value: ytdRevenue,
       period: period,
-      kpi_category: 'Revenue',
+      kpi_category: 'revenue',
       goal_value: finalTarget,
       status: status,
       display_format: 'currency',
@@ -383,7 +383,7 @@ export class RevenueKPIGenerator {
       kpi_name: 'Monthly Revenue Contribution',
       kpi_value: contributionPercent,
       period: period,
-      kpi_category: 'Revenue Planning',
+      kpi_category: 'revenue',
       goal_value: lastYearContribution || contributionPercent, // Use last year as baseline
       status: status,
       display_format: 'percent', // Use 'percent' not 'percentage' to match formatValue function
@@ -420,7 +420,7 @@ export class RevenueKPIGenerator {
       kpi_name: 'Profit Margin',
       kpi_value: profitMargin,
       period: period,
-      kpi_category: 'Profitability',
+      kpi_category: 'profitability',
       goal_value: goalProfitMargin,
       status: status,
       display_format: 'percentage',
@@ -481,7 +481,7 @@ export class RevenueKPIGenerator {
       kpi_name: 'Revenue Gap to Target',
       kpi_value: absGap, // Always store as positive number for display
       period: period,
-      kpi_category: 'Revenue',
+      kpi_category: 'revenue',
       goal_value: 0, // Goal is to have no gap (zero)
       status: status,
       display_format: 'currency',
@@ -544,7 +544,7 @@ export class RevenueKPIGenerator {
         kpi_name: 'Revenue Velocity',
         kpi_value: velocityGrowth,
         period: period,
-        kpi_category: 'Growth',
+        kpi_category: 'growth',
         goal_value: 15, // 15% year-over-year growth target
         status: status,
         display_format: 'percentage',
@@ -585,7 +585,7 @@ export class RevenueKPIGenerator {
       kpi_name: 'Net Profit After Owner Draws',
       kpi_value: netProfitAfterDraws,
       period: period,
-      kpi_category: 'Profitability',
+      kpi_category: 'profitability',
       goal_value: goalNetProfitAfterDraws,
       status: status,
       display_format: 'currency',

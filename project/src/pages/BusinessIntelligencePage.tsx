@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { TrendingUp, DollarSign, Calendar, BarChart3, ArrowUpRight, ArrowDownRight, Minus, X } from 'lucide-react';
+import { TrendingUp, DollarSign, Calendar, BarChart3, ArrowUpRight, ArrowDownRight, Minus, X, Sparkles, Building2, Home } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useServiceRevenueData, useServices } from '../hooks/useServices';
 import { useServiceLaborData, useHasServiceLaborData } from '../hooks/useServiceLaborData';
@@ -50,11 +50,11 @@ export function BusinessIntelligencePage() {
   const { revenueData: previousYearData } = useServiceRevenueData(filterYear - 1);
   
   // Fetch service labor data for true profitability
-  const { data: serviceLaborData, loading: laborLoading } = useServiceLaborData(
+  const { data: serviceLaborData } = useServiceLaborData(
     filterYear,
     filterMonth === 'ytd' ? null : filterMonth
   );
-  const { hasData: hasLaborData } = useHasServiceLaborData(
+  useHasServiceLaborData(
     filterYear,
     filterMonth === 'ytd' ? null : filterMonth
   );
@@ -247,6 +247,67 @@ export function BusinessIntelligencePage() {
     upsellRate: 0,
     additionalCrews: 0,
   });
+
+  // Top Services Comparison (Insight #1) - Dynamic for ANY business
+  const topServicesComparison = useMemo(() => {
+    // Need at least 2 services to compare
+    if (serviceMixComparison.length < 2) return null;
+
+    // Get top 2 services by revenue
+    const sortedByRevenue = [...serviceMixComparison]
+      .filter(s => s.currentRevenue > 0 && s.currentAppointments > 0)
+      .sort((a, b) => b.currentRevenue - a.currentRevenue);
+
+    if (sortedByRevenue.length < 2) return null;
+
+    const topService = sortedByRevenue[0];
+    const secondService = sortedByRevenue[1];
+
+    // Helper function to calculate metrics for a service
+    const calculateServiceMetrics = (service: typeof topService) => {
+      const labor = serviceLaborData.find(s => s.serviceName === service.serviceName);
+      const serviceDef = services.find(s => s.serviceName === service.serviceName);
+      
+      const cogs = Number(serviceDef?.cogsCost || 0) * service.currentAppointments;
+      const laborCost = labor?.totalLaborCost || 0;
+      const revenue = service.currentRevenue;
+      const profit = revenue - cogs - laborCost;
+      const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+      const ler = laborCost > 0 ? (revenue - cogs) / laborCost : 0;
+
+      return {
+        name: service.serviceName,
+        revenue,
+        avgRevenue: service.avgTicket,
+        margin,
+        ler,
+        jobs: service.currentAppointments,
+        revenueShare: (revenue / primaryMetrics.revenue) * 100
+      };
+    };
+
+    const top = calculateServiceMetrics(topService);
+    const second = calculateServiceMetrics(secondService);
+
+    // Calculate comparison ratios
+    const revenueMultiplier = second.avgRevenue > 0 ? top.avgRevenue / second.avgRevenue : 0;
+    const marginDifference = top.margin - second.margin;
+    const lerMultiplier = second.ler > 0 ? top.ler / second.ler : 0;
+
+    // Determine which is "better" for messaging
+    const topIsBetter = top.margin > second.margin;
+
+    return {
+      top,
+      second,
+      comparison: {
+        revenueMultiplier,
+        marginDifference,
+        lerMultiplier,
+        topIsBetter
+      }
+    };
+  }, [serviceMixComparison, serviceLaborData, services, primaryMetrics]);
 
   // Service Profitability Analysis (with Labor Costs)
   const serviceProfitability = useMemo(() => {
@@ -594,6 +655,174 @@ export function BusinessIntelligencePage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Insight #1: Top Services Comparison - Universal for ANY Business */}
+      {topServicesComparison && (
+        <Card className="bg-muted/30 border-accent/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-foreground">
+              <TrendingUp className="h-5 w-5 text-accent" />
+              Insight #1: Your Top Services Compared
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Data-driven comparison of your two highest-revenue services
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Comparison Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Top Service */}
+                <div className="bg-card/50 rounded-lg p-4 border-2 border-accent/50">
+                  <div className="flex items-center gap-2 mb-3">
+                    <TrendingUp className="h-5 w-5 text-accent" />
+                    <h3 className="font-semibold text-foreground">{topServicesComparison.top.name}</h3>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Avg Revenue per Job</span>
+                      <span className="text-lg font-bold text-accent">
+                        ${topServicesComparison.top.avgRevenue.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Profit Margin</span>
+                      <span className="text-lg font-bold text-accent">
+                        {topServicesComparison.top.margin.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">LER</span>
+                      <span className="text-lg font-bold text-accent">
+                        {topServicesComparison.top.ler.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t border-border">
+                      <span className="text-xs text-muted-foreground">Total Jobs</span>
+                      <span className="text-sm font-medium text-foreground">
+                        {topServicesComparison.top.jobs}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Revenue Share</span>
+                      <span className="text-sm font-medium text-foreground">
+                        {topServicesComparison.top.revenueShare.toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Second Service */}
+                <div className="bg-card/50 rounded-lg p-4 border border-border">
+                  <div className="flex items-center gap-2 mb-3">
+                    <BarChart3 className="h-5 w-5 text-muted-foreground" />
+                    <h3 className="font-semibold text-foreground">{topServicesComparison.second.name}</h3>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Avg Revenue per Job</span>
+                      <span className="text-lg font-bold text-foreground">
+                        ${topServicesComparison.second.avgRevenue.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Profit Margin</span>
+                      <span className="text-lg font-bold text-foreground">
+                        {topServicesComparison.second.margin.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">LER</span>
+                      <span className="text-lg font-bold text-foreground">
+                        {topServicesComparison.second.ler.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t border-border">
+                      <span className="text-xs text-muted-foreground">Total Jobs</span>
+                      <span className="text-sm font-medium text-foreground">
+                        {topServicesComparison.second.jobs}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Revenue Share</span>
+                      <span className="text-sm font-medium text-foreground">
+                        {topServicesComparison.second.revenueShare.toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Analysis Summary */}
+              <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
+                <h4 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-accent" />
+                  Analysis: {topServicesComparison.top.name} vs {topServicesComparison.second.name}
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-accent mb-1">
+                      {topServicesComparison.comparison.revenueMultiplier.toFixed(1)}x
+                    </div>
+                    <div className="text-sm text-muted-foreground">revenue per job</div>
+                  </div>
+                  <div className="text-center">
+                    <div className={`text-3xl font-bold mb-1 ${
+                      topServicesComparison.comparison.marginDifference > 0 ? 'text-green-500' : 'text-red-500'
+                    }`}>
+                      {topServicesComparison.comparison.marginDifference > 0 ? '+' : ''}
+                      {topServicesComparison.comparison.marginDifference.toFixed(0)}%
+                    </div>
+                    <div className="text-sm text-muted-foreground">margin difference</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-accent mb-1">
+                      {topServicesComparison.comparison.lerMultiplier.toFixed(1)}x
+                    </div>
+                    <div className="text-sm text-muted-foreground">labor efficiency</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recommendation */}
+              <div className="bg-card/50 rounded-lg p-4 border border-border">
+                <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
+                  <span className="text-accent">💡</span>
+                  Strategic Recommendation
+                </h4>
+                <p className="text-sm text-foreground">
+                  <span className="font-semibold text-accent">{topServicesComparison.top.name}</span> is your highest-revenue service ({topServicesComparison.top.revenueShare.toFixed(0)}% of total revenue)
+                  {topServicesComparison.comparison.topIsBetter ? (
+                    <>
+                      {' '}and also your most profitable with {topServicesComparison.comparison.marginDifference.toFixed(0)}% higher margins than {topServicesComparison.second.name}. 
+                      <span className="font-semibold">This is your goldmine - protect it, optimize it, and grow it.</span>
+                    </>
+                  ) : (
+                    <>
+                      , but <span className="font-semibold text-accent">{topServicesComparison.second.name}</span> has {Math.abs(topServicesComparison.comparison.marginDifference).toFixed(0)}% higher profit margins. 
+                      <span className="font-semibold">Consider shifting focus to your more profitable service.</span>
+                    </>
+                  )}
+                </p>
+                <ul className="mt-2 space-y-1 text-sm text-foreground">
+                  <li className="flex items-start gap-2">
+                    <span className="text-accent mt-0.5">•</span>
+                    <span>Allocate marketing budget based on profitability, not just revenue</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-accent mt-0.5">•</span>
+                    <span>Train team on your most profitable service to maintain quality</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-accent mt-0.5">•</span>
+                    <span>Analyze what makes {topServicesComparison.comparison.topIsBetter ? topServicesComparison.top.name : topServicesComparison.second.name} more profitable</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Performance Snapshot */}
       <div>

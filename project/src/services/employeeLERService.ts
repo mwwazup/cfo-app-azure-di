@@ -21,6 +21,7 @@ export interface PayPeriod {
 export interface DailyRecord {
   id?: string;
   pay_period_id?: string;
+  employee_id?: string;
   work_day: string;
   date: string;
   called_out: boolean;
@@ -388,12 +389,18 @@ export async function deleteAllPayPeriodsForUser(userId: string): Promise<{ succ
 // DAILY RECORDS
 // ============================================
 
-export async function getDailyRecords(payPeriodId: string): Promise<DailyRecord[]> {
-  const { data, error } = await supabase
+export async function getDailyRecords(payPeriodId: string, employeeId?: string): Promise<DailyRecord[]> {
+  let query = supabase
     .from('employee_daily_records')
     .select('*')
-    .eq('pay_period_id', payPeriodId)
-    .order('date', { ascending: true });
+    .eq('pay_period_id', payPeriodId);
+  
+  // Filter by employee if provided (for multi-employee support)
+  if (employeeId) {
+    query = query.eq('employee_id', employeeId);
+  }
+  
+  const { data, error } = await query.order('date', { ascending: true });
 
   if (error) {
     console.error('Error fetching daily records:', error);
@@ -403,11 +410,20 @@ export async function getDailyRecords(payPeriodId: string): Promise<DailyRecord[
   return data || [];
 }
 
-export async function createDailyRecord(payPeriodId: string, record: DailyRecord): Promise<DailyRecord | null> {
+export async function createDailyRecord(payPeriodId: string, record: DailyRecord, employeeId?: string): Promise<DailyRecord | null> {
+  console.log('🔧 createDailyRecord called with:', {
+    payPeriodId,
+    employeeId,
+    recordEmployeeId: record.employee_id,
+    finalEmployeeId: employeeId || record.employee_id,
+    date: record.date
+  });
+  
   const { data, error } = await supabase
     .from('employee_daily_records')
     .insert([{
       pay_period_id: payPeriodId,
+      employee_id: employeeId || record.employee_id,
       work_day: record.work_day,
       date: record.date,
       called_out: record.called_out,
@@ -441,17 +457,22 @@ export async function createDailyRecord(payPeriodId: string, record: DailyRecord
     .single();
 
   if (error) {
-    console.error('Error creating daily record:', error);
+    console.error('❌ Error creating daily record:', error);
+    console.error('Error details:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code
+    });
     return null;
   }
 
+  console.log('✅ Daily record created successfully:', data?.id);
   return data;
 }
 
 export async function updateDailyRecord(recordId: string, record: DailyRecord): Promise<boolean> {
-  const { error } = await supabase
-    .from('employee_daily_records')
-    .update({
+  const updateData: any = {
       work_day: record.work_day,
       date: record.date,
       called_out: record.called_out,
@@ -480,7 +501,16 @@ export async function updateDailyRecord(recordId: string, record: DailyRecord): 
       daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
       notes: record.notes,
       service_breakdown: record.service_breakdown || { services: [] }
-    })
+    };
+  
+  // Include employee_id if provided
+  if (record.employee_id) {
+    updateData.employee_id = record.employee_id;
+  }
+  
+  const { error } = await supabase
+    .from('employee_daily_records')
+    .update(updateData)
     .eq('id', recordId);
 
   if (error) {

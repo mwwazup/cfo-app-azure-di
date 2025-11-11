@@ -512,8 +512,8 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
               <SelectValue placeholder="Period" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="current_month">October 2025</SelectItem>
-              <SelectItem value="last_month">September 2025</SelectItem>
+              <SelectItem value="current_month">{new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</SelectItem>
+              <SelectItem value="last_month">{(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); })()}</SelectItem>
               <SelectItem value="2025-08">August 2025</SelectItem>
               <SelectItem value="2025-07">July 2025</SelectItem>
               <SelectItem value="2025-06">June 2025</SelectItem>

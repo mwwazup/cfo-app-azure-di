@@ -15,7 +15,8 @@ import {
   BarChart3,
   Target,
   Users,
-  Brain
+  Brain,
+  TrendingDown
 } from 'lucide-react';
 import { useState } from 'react';
 // import VoiceCoach from '../VoiceCoach'; // DISABLED - Archived for future use
@@ -42,6 +43,7 @@ export function DashboardLayout() {
     { name: 'Service Mix', href: '/service-mix', icon: BarChart3 },
     { name: 'Business Intelligence', href: '/business-intelligence', icon: Brain },
     { name: 'Employee LER', href: '/employee-ler', icon: Users },
+    { name: 'Bonus ROI', href: '/bonus-roi', icon: TrendingDown },
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
     { name: 'Your Big FIG', href: '/coach/your-big-fig', icon: Heart },

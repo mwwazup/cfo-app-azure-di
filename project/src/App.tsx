@@ -20,6 +20,7 @@ import { FinancialStatementsPage } from './pages/financial-statements';
 import { BudgetVsActualPage } from './pages/BudgetVsActualPage';
 import EmployeeLERPage from './pages/EmployeeLERPage';
 import { BusinessIntelligencePage } from './pages/BusinessIntelligencePage';
+import { BonusROIAnalysisPage } from './pages/BonusROIAnalysisPage';
 import { YourBigFigPage } from './pages/coach/your-big-fig';
 import SMSCoachPage from './pages/coach/sms-coach';
 import { MomentumPage } from './pages/momentum';
@@ -129,6 +130,11 @@ function App() {
                 {/* Business Intelligence */}
                 <Route path="/business-intelligence" element={<DashboardLayout />}>
                   <Route index element={<BusinessIntelligencePage />} />
+                </Route>
+                
+                {/* Bonus ROI Analysis */}
+                <Route path="/bonus-roi" element={<DashboardLayout />}>
+                  <Route index element={<BonusROIAnalysisPage />} />
                 </Route>
                 
                 {/* Redirect any unknown routes to dashboard if authenticated, otherwise to home */}
