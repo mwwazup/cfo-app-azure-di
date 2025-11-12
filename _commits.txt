@@ -1,0 +1,94 @@
+a7ad0a7 refactor: improve logging and security
+cacd07e Add clear filters button and totals row for filtered Daily Performance Records
+5d0307b Fix year/month filters in Daily Performance Records - now default to 'all' with clear filters button
+c9d0f0c Add migration 44: Fix database constraint to support multiple employees on same date
+ccba108 Fix: CSV upload now correctly saves employee_id - prevents data overwriting between employees
+9763473 Add Bonus ROI Analysis feature, fix Clerk user ID issues, enhance COGS validation, and improve CSV upload UX
+ae7ca60 feat: comprehensive code quality and security improvements
+ebd9a27 Security and quality audit: Remove Mindee, fix API key exposure, add type safety
+cb3b09e Fix Employee LER service layer and page refinements
+a3e1239 Add CSV upload for employee LER, fix RLS policies, and enhance pay period management
+3cf2c93 Add automatic pay period generation and service-labor integration
+cbd811b Make Revenue Contribution by Service table filter-aware to match Monthly Distribution percentages
+410937b Add monthly totals row to Service Activity table, remove 100% from Monthly Distribution totals, fix color consistency
+5e82993 Fix Total COGS metric to respect month filter
+03ff04f Fix Service Performance Analytics metrics to respect month filter
+172eaba Replace service count metrics with more useful business metrics: Total COGS, Avg Ticket, Total Appointments
+82f7e96 Refine Service Mix metrics: remove redundant metrics, add filter-aware Top Service, center layout
+f1c00cb Remove redundant Total Actual Revenue metric from Service Mix summary
+bb7e7ef Remove duplicate filters from child components - use single parent filter
+d500145 Fix: Use separate Year/Month selectors matching Financial Documents pattern
+e6be137 Update documentation with period filter details
+1e258be Add year/month filter to Service Mix page matching KPI Dashboard pattern
+de412e0 Improve Service Mix page UX with workflow steps and auto-close modal
+a169d9d Backup before Service Mix UX improvements
+4fdfd19 Add backend/backups to gitignore
+67e0028 Fix CSV import and improve chart UX
+63c256d Add AI guidance system and database backup solution
+6c71b6b Fix duplicate documents, malformed filenames, and empty edit modal
+f0e3961 Final-financial-updates
+2e06218 fix
+089679d Add-CSV-upload-functionality
+c55287c typescript-fixes
+cfea235 deletion-fix
+cd19fe1 Fix-financial-filtering-and-charts
+bcb3ca9 Fix: Decode Clerk session token to extract user ID instead of using random UUID
+1b9e55b Fix: Add Clerk authentication tokens to financial document API calls
+7aca8a6 Fix: Add /financial-documents endpoint alias and support Clerk user IDs
+1a23e80 Fix: Use import string for uvicorn reload to work properly
+4a9e8e2 Fix: Add uvicorn startup code to main.py for proper server execution
+7622276 Fix: Add Windows batch file to start backend from correct directory
+591afe8 Fix: Update dev:full to run Python FastAPI backend instead of Node.js server
+aad541a Fix: Enable SKIP_DB mode to bypass PostgreSQL connection
+d110357 Fix: Add Clerk authentication to document deletion - Add Authorization header with Bearer token - Improve error handling for non-JSON responses - Add comprehensive logging for filter state loading - Track localStorage persistence flow
+16484ce Critical fix: Graph data loading and month switching - Fix auto-selection to trigger on filter changes - Add availableDocuments to dependency array - Add owner_distributions extraction for single-month mode - Improve logging for debugging data flow
+68ef213 Fix: Financial document persistence and deletion - Add localStorage persistence for filter state - Fix YTD mode rendering without selectedDocumentId - Add DELETE API endpoint for documents - Enable document deletion in UI - Fix duplicate month keys in filter dropdown - Add comprehensive logging for debugging
+077645e Refactor financial document filtering with YTD aggregation and consistent card layout
+f60429b Fix FIR target sync and add comparison line
+b48e32b Fix timezone bugs and improve KPI system
+ad8059d Remove Edit Goal feature and ensure consistent FIR targets
+5b9ce40 Debounce FIR input and optimize KPI refresh
+f71ee58 Fix: Add validation for employeeId and fix type mismatch in bulk pay period creation
+d611594 Feature: Bulk pay period creation for all employees
+e09bc37 Fix: Pass selectedEmployeeId to loadEmployeeData in daily record handlers
+ce95fdd Fix: Replace legacy employee functions with multi-employee compatible versions
+814fbed Fix: Clear stale data when switching employees and make Add Employee button always visible
+7fda15e Multi-employee support Phase 1 complete
+8899a0b Employee LER improvements
+1ffc81b update
+f10f83d Add pay period edit and delete with base rate tracking
+0355628 Employee LER system with Clerk authentication
+fb8c2c3 Backup before intelligent FIR graph changes
+02ae1df Add Budget vs Actual tracking page with weekly revenue monitoring
+3840659 Add Service Mix Analysis page with horizontal bar charts
+a894d7e Add Service Mix tracking system with tabbed UI
+82cc6ca feat: Implement functional custom KPI goals with UI improvements
+825c6d9 Fix KPI display formatting - percentages now show correctly
+ff1bd0a Replace Big Fig Biz logo with Wave Rider logo
+e90bee3 Dashboard improvements: Financial Performance Snapshot with working chart
+3763d1d feat: Comprehensive financial documents enhancements
+5d00ef4 feat: Complete financial document editing system with floating-point precision fixes
+23b354b Fix: Complete Financial Documents edit functionality with analysis_result integration
+29a8747 feat: Complete P&L integration with smart KPI calculation
+87694ae feat: Implement Clerk-Supabase session bridge and auth improvements
+57974c5 feat: Enhanced backend authentication and frontend improvements
+760e0c4 feat: integrate Clerk authentication with Supabase user linking and UUID mapping
+bf137d4 chore: update Supabase configuration to use DATABASE_URL format
+35a681b feat: enhance Cashflow Calculator with modular architecture and perfect dashboard layout
+23e4796 Implement hybrid KPI refresh system with debounced modal and auto-updates
+ce27438 feat: Complete profit margin integration with KPI system and AI coaching
+a57a6a2 MAJOR: Comprehensive AI Financial Advisor - Complete Intelligence System
+3e0787f FEATURE: Financial Intelligence System - Enhanced PERL Coach
+5173029 BACKUP: Pre-Financial-Intelligence-System - Stable Working Version
+46314b1 Fix: Database corruption resolved - KPIs now working
+799d4b3 Fix login button disabled state and disable VoiceCoach/Gemini features
+1004201 Fix: Resolve login button disabled issue and clean up VoiceAssistant implementation
+293b289 Enable pgvector extension and update wave-rider component
+90e9966 Fix TypeScript errors and warnings
+95ce919 feat: implement ingest-once/fetch-on-demand financial document processing optimization
+02c4404 commit recent changes to github
+1ff4368 Enhanced financial document status management and document details modal
+d38a5fe Fix document upload and save errors
+2933d51 ✅ MILESTONE: Azure Document Intelligence Integration Complete
+ac32450 ✅ MILESTONE: Azure Document Intelligence Integration Complete
+39169dd ✅ STABLE CHECKPOINT: Azure Document Intelligence Integration Complete
