@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Calendar, DollarSign, TrendingUp, TrendingDown, Target, CheckCircle, Filter, Briefcase } from 'lucide-react';
+import { Calendar, DollarSign, TrendingUp, TrendingDown, Target, CheckCircle, Filter, Briefcase, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useAuthContext } from '../contexts/auth-context';
 
@@ -67,13 +67,17 @@ export function BonusROIAnalysisPage() {
   const { dbUserId } = useAuthContext();
   const currentDate = new Date();
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<number | 'ytd' | 'all'>('ytd');
+  const [selectedMonth, setSelectedMonth] = useState<number | 'ytd'>('ytd');
   const [loading, setLoading] = useState(false);
   const [metrics, setMetrics] = useState<BonusMetrics | null>(null);
   
+  // UI State
+  const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set());
+  const [showDetailedMetrics, setShowDetailedMetrics] = useState(false);
+  
   // What-If Simulator State
   const [selectedService, setSelectedService] = useState<string>('');
-  const [priceAdjustment, setPriceAdjustment] = useState<number>(0); // Dollar amount per job
+  const [priceAdjustment, setPriceAdjustment] = useState<number>(0);
   const [targetMargin, setTargetMargin] = useState<number>(25);
 
   // Fetch bonus metrics from API
@@ -85,7 +89,7 @@ export function BonusROIAnalysisPage() {
       try {
         const params = new URLSearchParams({
           year: selectedYear.toString(),
-          ...(selectedMonth !== 'ytd' && selectedMonth !== 'all' && { month: selectedMonth.toString() })
+          ...(selectedMonth !== 'ytd' && { month: selectedMonth.toString() })
         });
 
         const response = await fetch(`http://localhost:8000/api/bonus-roi-analysis?${params}`, {
@@ -112,6 +116,94 @@ export function BonusROIAnalysisPage() {
 
     fetchBonusMetrics();
   }, [dbUserId, selectedYear, selectedMonth]);
+
+  // Calculate health check verdict
+  const healthCheck = useMemo(() => {
+    if (!metrics) return null;
+
+    const profitMargin = metrics.profitMarginAfterBonuses;
+    const bonusQualifyRate = metrics.bonusDaysCount > 0 ? (metrics.bonusDaysCount / metrics.totalEmployeeDays * 100) : 0;
+    const avgBonusAmount = metrics.avgBonusAmount;
+
+    let verdict: 'good' | 'needs-attention' | 'urgent' = 'good';
+    let message = '';
+    let action = '';
+
+    if (profitMargin < 15) {
+      verdict = 'urgent';
+      message = 'Your bonus program is eating too much profit';
+      action = 'Review pricing immediately - you need healthier margins';
+    } else if (profitMargin < 20) {
+      verdict = 'needs-attention';
+      message = 'Profit margins are thin after bonuses';
+      action = 'Consider small price increases on key services';
+    } else if (bonusQualifyRate < 30 && avgBonusAmount < 50) {
+      verdict = 'needs-attention';
+      message = 'Techs rarely qualify for bonuses';
+      action = 'Review if your 25% threshold is too difficult to hit';
+    } else if (metrics.bonusAsPercentOfRevenue > 12) {
+      verdict = 'needs-attention';
+      message = 'Bonus costs are high';
+      action = 'Consider if techs are qualifying too easily';
+    } else {
+      verdict = 'good';
+      message = 'Your bonus program is working well';
+      action = 'Keep monitoring service-level profitability';
+    }
+
+    return { verdict, message, action };
+  }, [metrics]);
+
+  // Calculate priority actions
+  const priorityActions = useMemo(() => {
+    if (!metrics || !metrics.serviceProfitability || metrics.serviceProfitability.length === 0) return [];
+
+    const actions = metrics.serviceProfitability.map(service => {
+      const targetMargin = 25;
+      const currentMargin = service.netMarginAfterBonus;
+      
+      if (currentMargin >= targetMargin) return null;
+
+      const currentRevenue = service.revenue;
+      const currentGrossProfit = service.grossProfit;
+      const currentBonuses = service.totalBonuses;
+      const jobs = service.jobs;
+
+      const targetNetProfit = (currentRevenue * targetMargin / 100);
+      const neededGrossProfit = targetNetProfit + currentBonuses;
+      const neededRevenue = (neededGrossProfit / currentGrossProfit) * currentRevenue;
+      const priceIncreaseNeeded = (neededRevenue - currentRevenue) / jobs;
+      const monthlyImpact = targetNetProfit - (service.netProfitAfterBonus);
+
+      const revenueImpact = currentRevenue;
+      const dollarImprovement = monthlyImpact;
+      const urgencyScore = currentMargin < 15 ? 40 : currentMargin < 25 ? 20 : 0;
+
+      const priorityScore = (revenueImpact / 1000 * 0.4) + (dollarImprovement * 0.4) + urgencyScore;
+
+      return {
+        service: service.serviceName,
+        currentMargin,
+        priceIncrease: priceIncreaseNeeded,
+        targetMargin,
+        monthlyImpact,
+        jobs,
+        priorityScore,
+        isUrgent: currentMargin < 25
+      };
+    }).filter(a => a !== null) as Array<{
+      service: string;
+      currentMargin: number;
+      priceIncrease: number;
+      targetMargin: number;
+      monthlyImpact: number;
+      jobs: number;
+      priorityScore: number;
+      isUrgent: boolean;
+    }>;
+
+    return actions.sort((a, b) => b.priorityScore - a.priorityScore).slice(0, 3);
+  }, [metrics]);
 
   // Calculate insights
   const insights = useMemo(() => {
@@ -204,7 +296,7 @@ export function BonusROIAnalysisPage() {
           <div className="flex items-center gap-2 text-sm text-muted mb-4">
             <span>Analyzing:</span>
             <span className="font-medium text-foreground">
-              {selectedMonth === 'ytd' ? 'Year to Date' : selectedMonth === 'all' ? 'All Time' : new Date(selectedYear, selectedMonth - 1).toLocaleDateString('en-US', { month: 'long' })}
+              {selectedMonth === 'ytd' ? 'Year to Date' : new Date(selectedYear, selectedMonth - 1).toLocaleDateString('en-US', { month: 'long' })}
             </span>
             <span className="font-medium text-foreground">{selectedYear}</span>
           </div>
@@ -239,7 +331,7 @@ export function BonusROIAnalysisPage() {
               <Select 
                 value={selectedMonth.toString()} 
                 onValueChange={(value) => {
-                  if (value === 'ytd' || value === 'all') {
+                  if (value === 'ytd') {
                     setSelectedMonth(value);
                   } else {
                     setSelectedMonth(Number(value));
@@ -251,7 +343,6 @@ export function BonusROIAnalysisPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ytd">Year to Date</SelectItem>
-                  <SelectItem value="all">All Time</SelectItem>
                   {Array.from({ length: 12 }, (_, i) => {
                     const month = i + 1;
                     const monthName = new Date(2024, i).toLocaleDateString('en-US', { month: 'long' });
@@ -278,9 +369,53 @@ export function BonusROIAnalysisPage() {
         </div>
       ) : (
         <>
-          {/* Bonus Cost Analysis */}
+          {/* Bonus Program Health Check */}
+          {healthCheck && (
+            <Card className={`border-2 ${
+              healthCheck.verdict === 'urgent' ? 'border-red-600 bg-red-600/10' :
+              healthCheck.verdict === 'needs-attention' ? 'border-yellow-600 bg-yellow-600/10' :
+              'border-green-600 bg-green-600/10'
+            }`}>
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-4">
+                  <div className={`p-3 rounded-lg ${
+                    healthCheck.verdict === 'urgent' ? 'bg-red-600/20' :
+                    healthCheck.verdict === 'needs-attention' ? 'bg-yellow-600/20' :
+                    'bg-green-600/20'
+                  }`}>
+                    {healthCheck.verdict === 'urgent' ? (
+                      <AlertCircle className="h-6 w-6 text-red-600" />
+                    ) : healthCheck.verdict === 'needs-attention' ? (
+                      <AlertCircle className="h-6 w-6 text-yellow-600" />
+                    ) : (
+                      <CheckCircle className="h-6 w-6 text-green-600" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className={`text-lg font-bold ${
+                      healthCheck.verdict === 'urgent' ? 'text-red-600' :
+                      healthCheck.verdict === 'needs-attention' ? 'text-yellow-600' :
+                      'text-green-600'
+                    }`}>
+                      {healthCheck.verdict === 'urgent' ? 'URGENT' :
+                       healthCheck.verdict === 'needs-attention' ? 'NEEDS ATTENTION' :
+                       'PROGRAM HEALTHY'}
+                    </h3>
+                    <p className="text-foreground text-base font-medium mt-1">
+                      {healthCheck.message}
+                    </p>
+                    <p className="text-muted text-sm mt-2">
+                      {healthCheck.action}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* The Big Picture */}
           <div>
-            <h2 className="text-xl font-semibold text-foreground mb-4">Bonus Cost Analysis</h2>
+            <h2 className="text-xl font-semibold text-foreground mb-4">The Big Picture</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card className="bg-muted/30">
                 <CardContent className="pt-6">
@@ -294,69 +429,8 @@ export function BonusROIAnalysisPage() {
                         ${Math.round(metrics.totalBonusesPaid).toLocaleString()}
                       </div>
                       <p className="text-xs text-muted mt-1">
-                        Total bonus cost
+                        What you paid out in bonuses
                       </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-muted/30">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <div className="p-3 rounded-lg bg-orange-500/20">
-                      <TrendingDown className="h-5 w-5 text-orange-500" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-orange-600 dark:text-orange-400">% of Revenue</p>
-                      <div className="text-2xl font-bold text-foreground mt-1">
-                        {metrics.bonusAsPercentOfRevenue.toFixed(1)}%
-                      </div>
-                      <p className="text-xs text-muted mt-1">
-                        Bonus cost vs revenue
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-muted/30">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <div className="p-3 rounded-lg bg-yellow-500/20">
-                      <Target className="h-5 w-5 text-yellow-500" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-yellow-600 dark:text-yellow-400">% of Gross Profit</p>
-                      <div className="text-2xl font-bold text-foreground mt-1">
-                        {metrics.bonusAsPercentOfGrossProfit.toFixed(1)}%
-                      </div>
-                      <p className="text-xs text-muted mt-1">
-                        Impact on profitability
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          {/* Performance Metrics */}
-          <div>
-            <h2 className="text-xl font-semibold text-foreground mb-4">Performance Metrics</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card className="bg-muted/30">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <div className="p-3 rounded-lg bg-blue-500/20">
-                      <TrendingUp className="h-5 w-5 text-blue-500" />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm text-blue-600 dark:text-blue-400">Revenue/Employee-Day</p>
-                      <div className="text-2xl font-bold text-foreground mt-1">
-                        ${metrics.avgRevenuePerEmployeeDay.toFixed(0)}
-                      </div>
-                      <p className="text-xs text-muted mt-1">avg per employee working day</p>
                     </div>
                   </div>
                 </CardContent>
@@ -369,12 +443,87 @@ export function BonusROIAnalysisPage() {
                       <DollarSign className="h-5 w-5 text-green-500" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm text-green-600 dark:text-green-400">Avg LER</p>
+                      <p className="text-sm text-green-600 dark:text-green-400">Total Profit You Kept</p>
                       <div className="text-2xl font-bold text-foreground mt-1">
-                        {metrics.avgLER.toFixed(2)}
+                        ${Math.round(metrics.netProfitAfterBonuses).toLocaleString()}
                       </div>
                       <p className="text-xs text-muted mt-1">
-                        Labor Efficiency Ratio
+                        Your profit after all bonuses
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-muted/30">
+                <CardContent className="pt-6">
+                  <div className="flex-1">
+                    <p className="text-sm text-accent font-semibold mb-3">Revenue Breakdown</p>
+                    <p className="text-xs text-muted mb-2">For every $100 of revenue:</p>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted">Techs earn in bonuses</span>
+                        <span className="font-bold text-foreground">
+                          ${((metrics.totalBonusesPaid / metrics.totalRevenue) * 100).toFixed(0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Company keeps in profit</span>
+                        <span className="font-bold text-green-600">
+                          ${((metrics.netProfitAfterBonuses / metrics.totalRevenue) * 100).toFixed(0)}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted mt-3">
+                      {metrics.profitMarginAfterBonuses >= 20 ? 
+                        'Healthy profit per dollar' :
+                        metrics.profitMarginAfterBonuses >= 15 ?
+                        'Acceptable profit margin' :
+                        'Thin profit margin - consider price increases'
+                      }
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          {/* Is It Fair To You And Your Techs? */}
+          <div>
+            <h2 className="text-xl font-semibold text-foreground mb-4">Is It Fair To You And Your Techs?</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="bg-muted/30">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-3">
+                    <div className="p-3 rounded-lg bg-blue-500/20">
+                      <CheckCircle className="h-5 w-5 text-blue-500" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm text-blue-600 dark:text-blue-400">How Often Techs Earn Bonuses</p>
+                      <div className="text-2xl font-bold text-foreground mt-1">
+                        {metrics.bonusDaysCount > 0 ? ((metrics.bonusDaysCount / metrics.totalEmployeeDays) * 100).toFixed(0) : 0}%
+                      </div>
+                      <p className="text-xs text-muted mt-1">
+                        of working days qualify for bonuses
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-muted/30">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-3">
+                    <div className="p-3 rounded-lg bg-green-500/20">
+                      <DollarSign className="h-5 w-5 text-green-500" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm text-green-600 dark:text-green-400">Avg Bonus Per Qualifying Day</p>
+                      <div className="text-2xl font-bold text-foreground mt-1">
+                        ${Math.round(metrics.avgBonusAmount).toLocaleString()}
+                      </div>
+                      <p className="text-xs text-muted mt-1">
+                        when they do qualify - is this motivating?
                       </p>
                     </div>
                   </div>
@@ -385,32 +534,15 @@ export function BonusROIAnalysisPage() {
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-3">
                     <div className="p-3 rounded-lg bg-purple-500/20">
-                      <Briefcase className="h-5 w-5 text-purple-500" />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm text-purple-600 dark:text-purple-400">Jobs/Employee-Day</p>
-                      <div className="text-2xl font-bold text-foreground mt-1">
-                        {metrics.avgJobsPerEmployeeDay.toFixed(1)}
-                      </div>
-                      <p className="text-xs text-muted mt-1">avg per employee working day</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-muted/30">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <div className="p-3 rounded-lg bg-teal-500/20">
-                      <TrendingUp className="h-5 w-5 text-teal-500" />
+                      <TrendingUp className="h-5 w-5 text-purple-500" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm text-teal-600 dark:text-teal-400">Profit Margin</p>
+                      <p className="text-sm text-purple-600 dark:text-purple-400">Avg Hourly Pay With Bonuses</p>
                       <div className="text-2xl font-bold text-foreground mt-1">
-                        {metrics.avgProfitMargin.toFixed(1)}%
+                        ${metrics.avgHourlyRateWithBonuses.toFixed(2)}
                       </div>
                       <p className="text-xs text-muted mt-1">
-                        Before bonuses
+                        total compensation per hour worked
                       </p>
                     </div>
                   </div>
@@ -419,67 +551,159 @@ export function BonusROIAnalysisPage() {
             </div>
           </div>
 
-          {/* Bonus Effectiveness */}
+          {/* Detailed Metrics - Collapsible */}
           <div>
-            <h2 className="text-xl font-semibold text-foreground mb-4">Bonus Effectiveness</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card className="bg-muted/30">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <div className="p-3 rounded-lg bg-indigo-500/20">
-                      <DollarSign className="h-5 w-5 text-indigo-500" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-indigo-600 dark:text-indigo-400">Avg Bonus Amount</p>
-                      <div className="text-2xl font-bold text-foreground mt-1">
-                        ${Math.round(metrics.avgBonusAmount).toLocaleString()}
-                      </div>
-                      <p className="text-xs text-muted mt-1">
-                        Per qualifying day - is this motivating?
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            <button
+              onClick={() => setShowDetailedMetrics(!showDetailedMetrics)}
+              className="flex items-center gap-2 text-foreground hover:text-accent transition-colors mb-4"
+            >
+              <h2 className="text-xl font-semibold">Detailed Metrics</h2>
+              {showDetailedMetrics ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+            </button>
+            {showDetailedMetrics && (
+              <>
+                {/* Performance Metrics */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-foreground mb-3">Performance Metrics</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <Card className="bg-muted/30">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-3">
+                          <div className="p-3 rounded-lg bg-blue-500/20">
+                            <TrendingUp className="h-5 w-5 text-blue-500" />
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm text-blue-600 dark:text-blue-400">Revenue/Employee-Day</p>
+                            <div className="text-2xl font-bold text-foreground mt-1">
+                              ${metrics.avgRevenuePerEmployeeDay.toFixed(0)}
+                            </div>
+                            <p className="text-xs text-muted mt-1">avg per employee working day</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
 
-              <Card className="bg-muted/30">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <div className="p-3 rounded-lg bg-pink-500/20">
-                      <TrendingUp className="h-5 w-5 text-pink-500" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-pink-600 dark:text-pink-400">Profit Margin After Bonuses</p>
-                      <div className="text-2xl font-bold text-foreground mt-1">
-                        {metrics.profitMarginAfterBonuses.toFixed(1)}%
-                      </div>
-                      <p className="text-xs text-muted mt-1">
-                        Net profit margin after all bonus costs
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                    <Card className="bg-muted/30">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-3">
+                          <div className="p-3 rounded-lg bg-green-500/20">
+                            <DollarSign className="h-5 w-5 text-green-500" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-green-600 dark:text-green-400">Avg LER</p>
+                            <div className="text-2xl font-bold text-foreground mt-1">
+                              {metrics.avgLER.toFixed(2)}
+                            </div>
+                            <p className="text-xs text-muted mt-1">
+                              Labor Efficiency Ratio
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
 
-              <Card className="bg-muted/30">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <div className="p-3 rounded-lg bg-cyan-500/20">
-                      <DollarSign className="h-5 w-5 text-cyan-500" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-cyan-600 dark:text-cyan-400">Avg Hourly Rate w/ Bonuses</p>
-                      <div className="text-2xl font-bold text-foreground mt-1">
-                        ${metrics.avgHourlyRateWithBonuses.toFixed(2)}
-                      </div>
-                      <p className="text-xs text-muted mt-1">
-                        Base pay + bonuses ÷ total hours
-                      </p>
-                    </div>
+                    <Card className="bg-muted/30">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-3">
+                          <div className="p-3 rounded-lg bg-purple-500/20">
+                            <Briefcase className="h-5 w-5 text-purple-500" />
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm text-purple-600 dark:text-purple-400">Jobs/Employee-Day</p>
+                            <div className="text-2xl font-bold text-foreground mt-1">
+                              {metrics.avgJobsPerEmployeeDay.toFixed(1)}
+                            </div>
+                            <p className="text-xs text-muted mt-1">avg per employee working day</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="bg-muted/30">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-3">
+                          <div className="p-3 rounded-lg bg-teal-500/20">
+                            <TrendingUp className="h-5 w-5 text-teal-500" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-teal-600 dark:text-teal-400">Profit Margin</p>
+                            <div className="text-2xl font-bold text-foreground mt-1">
+                              {metrics.avgProfitMargin.toFixed(1)}%
+                            </div>
+                            <p className="text-xs text-muted mt-1">
+                              Before bonuses
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
+                </div>
+
+                {/* Bonus Effectiveness */}
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-3">Bonus Effectiveness</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card className="bg-muted/30">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-3">
+                          <div className="p-3 rounded-lg bg-orange-500/20">
+                            <DollarSign className="h-5 w-5 text-orange-500" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-orange-600 dark:text-orange-400">Bonus % of Revenue</p>
+                            <div className="text-2xl font-bold text-foreground mt-1">
+                              {metrics.bonusAsPercentOfRevenue.toFixed(1)}%
+                            </div>
+                            <p className="text-xs text-muted mt-1">
+                              Bonus cost vs revenue
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="bg-muted/30">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-3">
+                          <div className="p-3 rounded-lg bg-yellow-500/20">
+                            <Target className="h-5 w-5 text-yellow-500" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-yellow-600 dark:text-yellow-400">Bonus % of Gross Profit</p>
+                            <div className="text-2xl font-bold text-foreground mt-1">
+                              {metrics.bonusAsPercentOfGrossProfit.toFixed(1)}%
+                            </div>
+                            <p className="text-xs text-muted mt-1">
+                              Impact on profitability
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="bg-muted/30">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-3">
+                          <div className="p-3 rounded-lg bg-pink-500/20">
+                            <TrendingUp className="h-5 w-5 text-pink-500" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-pink-600 dark:text-pink-400">Profit Margin After Bonuses</p>
+                            <div className="text-2xl font-bold text-foreground mt-1">
+                              {metrics.profitMarginAfterBonuses.toFixed(1)}%
+                            </div>
+                            <p className="text-xs text-muted mt-1">
+                              Net profit margin after all bonus costs
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* LER Trend */}
@@ -553,56 +777,144 @@ export function BonusROIAnalysisPage() {
                         <th className="text-right py-3 px-4 font-semibold text-foreground">Jobs</th>
                         <th className="text-right py-3 px-4 font-semibold text-foreground">Revenue</th>
                         <th className="text-right py-3 px-4 font-semibold text-foreground">Gross Margin</th>
+                        <th className="text-center py-3 px-4 font-semibold text-foreground">Bonus Status</th>
                         <th className="text-right py-3 px-4 font-semibold text-red-600 dark:text-red-400">Total Bonuses</th>
-                        <th className="text-right py-3 px-4 font-semibold text-red-600 dark:text-red-400">Bonus % of Revenue</th>
                         <th className="text-right py-3 px-4 font-semibold text-accent">Net Margin After Bonus</th>
                         <th className="text-right py-3 px-4 font-semibold text-foreground">Avg Profit/Job</th>
-                        <th className="text-left py-3 px-4 font-semibold text-foreground">Action Needed?</th>
+                        <th className="text-center py-3 px-4 font-semibold text-foreground"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {metrics.serviceProfitability.map((service, index) => {
-                        // Determine health status
-                        let healthColor = 'text-green-600 dark:text-green-400';
-                        let recommendation = 'Profitable - maintain';
+                        const isExpanded = expandedServices.has(service.serviceName);
+                        const qualifiesForBonus = service.grossMargin >= 25;
                         
-                        if (service.netMarginAfterBonus < 0) {
-                          healthColor = 'text-red-600 dark:text-red-400';
-                          recommendation = 'LOSING MONEY - raise prices or adjust bonus';
-                        } else if (service.netMarginAfterBonus < 15) {
-                          healthColor = 'text-orange-600 dark:text-orange-400';
-                          recommendation = 'Thin margins - consider price increase';
-                        } else if (service.bonusAsPercentOfRevenue > 10) {
-                          healthColor = 'text-yellow-600 dark:text-yellow-400';
-                          recommendation = 'High bonus cost - review threshold';
-                        }
+                        const targetMargin = 25;
+                        const currentRevenue = service.revenue;
+                        const currentGrossProfit = service.grossProfit;
+                        const currentBonuses = service.totalBonuses;
+                        const jobs = service.jobs;
+                        const currentPricePerJob = currentRevenue / jobs;
+                        
+                        const targetNetProfit = (currentRevenue * targetMargin / 100);
+                        const neededGrossProfit = targetNetProfit + currentBonuses;
+                        const neededRevenue = (neededGrossProfit / currentGrossProfit) * currentRevenue;
+                        const priceIncreaseNeeded = (neededRevenue - currentRevenue) / jobs;
+                        const profitIncrease = priceIncreaseNeeded * (currentGrossProfit / currentRevenue);
+                        const monthlyImpact = profitIncrease * jobs;
                         
                         return (
-                          <tr key={index} className="border-b border-border hover:bg-muted/20">
-                            <td className="py-3 px-4 font-medium text-foreground">{service.serviceName}</td>
-                            <td className="py-3 px-4 text-right text-muted">{service.jobs}</td>
-                            <td className="py-3 px-4 text-right text-foreground">
-                              ${Math.round(service.revenue).toLocaleString()}
-                            </td>
-                            <td className="py-3 px-4 text-right text-foreground">
-                              {service.grossMargin.toFixed(1)}%
-                            </td>
-                            <td className="py-3 px-4 text-right text-red-600 dark:text-red-400 font-medium">
-                              ${Math.round(service.totalBonuses).toLocaleString()}
-                            </td>
-                            <td className="py-3 px-4 text-right text-red-600 dark:text-red-400">
-                              {service.bonusAsPercentOfRevenue.toFixed(1)}%
-                            </td>
-                            <td className={`py-3 px-4 text-right font-bold ${healthColor}`}>
-                              {service.netMarginAfterBonus.toFixed(1)}%
-                            </td>
-                            <td className="py-3 px-4 text-right text-foreground">
-                              ${Math.round(service.avgProfitPerJob).toLocaleString()}
-                            </td>
-                            <td className={`py-3 px-4 text-sm ${healthColor}`}>
-                              {recommendation}
-                            </td>
-                          </tr>
+                          <>
+                            <tr 
+                              key={index} 
+                              className="border-b border-border hover:bg-muted/20 cursor-pointer"
+                              onClick={() => {
+                                const newSet = new Set(expandedServices);
+                                if (isExpanded) {
+                                  newSet.delete(service.serviceName);
+                                } else {
+                                  newSet.add(service.serviceName);
+                                }
+                                setExpandedServices(newSet);
+                              }}
+                            >
+                              <td className="py-3 px-4 font-medium text-foreground">{service.serviceName}</td>
+                              <td className="py-3 px-4 text-right text-muted">{service.jobs}</td>
+                              <td className="py-3 px-4 text-right text-foreground">
+                                ${Math.round(service.revenue).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-4 text-right text-foreground">
+                                {service.grossMargin.toFixed(1)}%
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                {qualifiesForBonus ? (
+                                  <span className="text-green-600 font-medium flex items-center justify-center gap-1">
+                                    Qualifies <CheckCircle className="h-4 w-4" />
+                                  </span>
+                                ) : (
+                                  <span className="text-red-600 font-medium">Below Threshold</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-right text-red-600 dark:text-red-400 font-medium">
+                                ${Math.round(service.totalBonuses).toLocaleString()}
+                              </td>
+                              <td className={`py-3 px-4 text-right font-bold ${
+                                service.netMarginAfterBonus >= 25 ? 'text-green-600 dark:text-green-400' :
+                                service.netMarginAfterBonus >= 15 ? 'text-yellow-600 dark:text-yellow-400' :
+                                'text-red-600 dark:text-red-400'
+                              }`}>
+                                {service.netMarginAfterBonus.toFixed(1)}%
+                              </td>
+                              <td className="py-3 px-4 text-right text-foreground">
+                                ${Math.round(service.avgProfitPerJob).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                {isExpanded ? <ChevronUp className="h-5 w-5 text-muted" /> : <ChevronDown className="h-5 w-5 text-muted" />}
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr key={`${index}-expanded`}>
+                                <td colSpan={9} className="bg-muted/10 p-6 border-b border-border">
+                                  <div className="space-y-4">
+                                    <div>
+                                      <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
+                                        <AlertCircle className="h-4 w-4 text-accent" />
+                                        What's Happening
+                                      </h4>
+                                      <p className="text-sm text-muted leading-relaxed">
+                                        {qualifiesForBonus ? (
+                                          <>
+                                            Techs are earning bonuses with {service.serviceName}. The gross margin is {service.grossMargin.toFixed(1)}%, 
+                                            which meets the 25% threshold required for bonus qualification.
+                                            {service.netMarginAfterBonus < 15 && (
+                                              <> However, after paying bonuses, your net margin is only {service.netMarginAfterBonus.toFixed(1)}%, 
+                                              which is thin. Consider if the pricing allows for both fair tech bonuses and healthy company profit.</>
+                                            )}
+                                          </>
+                                        ) : (
+                                          <>
+                                            Techs are not earning bonuses with {service.serviceName}. The gross margin is {service.grossMargin.toFixed(1)}%, 
+                                            below the 25% threshold needed for bonuses. This might be due to the average ticket price being lower 
+                                            (${currentPricePerJob.toFixed(0)}/job) or it could be a service techs don't enjoy doing. 
+                                            Evaluate if it's a pricing issue or a motivation issue.
+                                          </>
+                                        )}
+                                      </p>
+                                    </div>
+                                    
+                                    {!qualifiesForBonus && priceIncreaseNeeded > 0 && (
+                                      <div>
+                                        <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
+                                          <Target className="h-4 w-4 text-accent" />
+                                          What To Do
+                                        </h4>
+                                        <ul className="text-sm text-foreground space-y-1 leading-relaxed">
+                                          <li>• Raise prices by ${Math.round(priceIncreaseNeeded)}/job to get to {targetMargin}% margin</li>
+                                          <li>• Techs would qualify for bonuses (happier team)</li>
+                                          <li>• You'd make ${Math.round(profitIncrease)} more per job</li>
+                                          <li>• Total monthly impact: +${Math.round(monthlyImpact).toLocaleString()} profit (based on {jobs} jobs)</li>
+                                        </ul>
+                                      </div>
+                                    )}
+
+                                    {qualifiesForBonus && service.netMarginAfterBonus < 20 && (
+                                      <div>
+                                        <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
+                                          <Target className="h-4 w-4 text-accent" />
+                                          What To Do
+                                        </h4>
+                                        <ul className="text-sm text-foreground space-y-1 leading-relaxed">
+                                          <li>• Consider a small price increase to improve your net margin</li>
+                                          <li>• Current net margin ({service.netMarginAfterBonus.toFixed(1)}%) is acceptable but could be healthier</li>
+                                          <li>• Target: 20-25% net margin for sustainable growth</li>
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </>
                         );
                       })}
                     </tbody>
@@ -611,6 +923,66 @@ export function BonusROIAnalysisPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* What To Do This Week */}
+          {priorityActions.length > 0 && (
+            <Card className="border-2 border-accent/50 bg-accent/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="h-6 w-6 text-accent" />
+                  What To Do This Week
+                </CardTitle>
+                <p className="text-sm text-muted mt-1">
+                  Based on your numbers, here are your top priorities to improve profitability
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {priorityActions.map((action, index) => (
+                    <div 
+                      key={index} 
+                      className={`p-4 rounded-lg border ${
+                        action.isUrgent ? 'border-red-600 bg-red-600/10' : 'border-accent/30 bg-muted/20'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                          action.isUrgent ? 'bg-red-600 text-white' : 'bg-accent text-background'
+                        }`}>
+                          {index + 1}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className={`font-bold text-base mb-2 ${
+                            action.isUrgent ? 'text-red-600' : 'text-foreground'
+                          }`}>
+                            {action.isUrgent && 'URGENT: '}
+                            Raise {action.service} prices by ${Math.round(action.priceIncrease)}/job
+                          </h4>
+                          <div className="space-y-1 text-sm text-foreground">
+                            <p>
+                              <span className="text-muted">Currently:</span> {action.currentMargin < 25 ? 
+                                `No bonuses earned (${action.currentMargin.toFixed(1)}% margin)` :
+                                `Barely profitable (${action.currentMargin.toFixed(1)}% margin after bonuses)`
+                              }
+                            </p>
+                            <p>
+                              <span className="text-muted">After increase:</span> {action.currentMargin < 25 ?
+                                `Techs qualify for bonuses (${action.targetMargin}% margin)` :
+                                `Healthier ${action.targetMargin}% margin`
+                              }
+                            </p>
+                            <p className="font-semibold text-green-600">
+                              Monthly impact: +${Math.round(action.monthlyImpact).toLocaleString()} profit ({action.jobs} jobs)
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Insights */}
           <Card>
