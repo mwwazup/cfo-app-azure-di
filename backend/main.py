@@ -47,7 +47,7 @@ async def shutdown_event():
     close_neo4j_driver()
 
 # Configure CORS - use environment variable for allowed origins
-allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
 allowed_origins = [origin.strip() for origin in allowed_origins]
 
 logger.info(f"CORS configured for origins: {allowed_origins}")
