@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Calendar, DollarSign, TrendingUp, TrendingDown, Target, CheckCircle, Filter, Briefcase, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useAuthContext } from '../contexts/auth-context';
+import { useAuth } from '@clerk/clerk-react';
 
 interface TrendData {
   date: string;
@@ -65,6 +66,7 @@ interface BonusMetrics {
 
 export function BonusROIAnalysisPage() {
   const { dbUserId } = useAuthContext();
+  const { getToken } = useAuth();
   const currentDate = new Date();
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number | 'ytd'>('ytd');
@@ -87,6 +89,12 @@ export function BonusROIAnalysisPage() {
     const fetchBonusMetrics = async () => {
       setLoading(true);
       try {
+        const token = await getToken();
+        if (!token) {
+          console.error('No auth token available');
+          return;
+        }
+
         const params = new URLSearchParams({
           year: selectedYear.toString(),
           ...(selectedMonth !== 'ytd' && { month: selectedMonth.toString() })
@@ -94,9 +102,9 @@ export function BonusROIAnalysisPage() {
 
         const response = await fetch(`http://localhost:8000/api/bonus-roi-analysis?${params}`, {
           method: 'GET',
-          credentials: 'include', // Include auth cookies
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
           }
         });
         
@@ -115,7 +123,7 @@ export function BonusROIAnalysisPage() {
     };
 
     fetchBonusMetrics();
-  }, [dbUserId, selectedYear, selectedMonth]);
+  }, [dbUserId, selectedYear, selectedMonth, getToken]);
 
   // Calculate health check verdict
   const healthCheck = useMemo(() => {
