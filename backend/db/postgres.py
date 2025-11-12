@@ -10,21 +10,21 @@ import os
 from datetime import datetime
 import uuid
 from dotenv import load_dotenv
+from logging_config import get_logger
 
 # Load environment variables
 load_dotenv()
+
+logger = get_logger(__name__)
 
 # Check if database should be skipped
 SKIP_DB = os.getenv("SKIP_DB", "0") in {"1", "true", "True"}
 
 if not SKIP_DB:
     # Create SQLAlchemy engine using Supabase Postgres credentials
-    print("\nInitializing PostgreSQL connection...")
-    db_password = os.getenv('SUPABASE_DB_PASSWORD')
-    print(f"DB Password set: {'yes' if db_password else 'no'} (length: {len(db_password) if db_password else 0})")
+    logger.info("Initializing PostgreSQL connection...")
 else:
-    print("\nSkipping PostgreSQL connection (SKIP_DB=1)")
-    db_password = None
+    logger.info("Skipping PostgreSQL connection (SKIP_DB=1)")
 
 if not SKIP_DB:
     # Get DATABASE_URL from environment variable
@@ -32,24 +32,44 @@ if not SKIP_DB:
     
     if not DATABASE_URL:
         # Fallback: construct from individual components if DATABASE_URL not set
-        if db_password:
-            db_password = db_password.replace('@', '%40')
-            print("URL encoded @ symbol in password")
-        DATABASE_URL = f"postgresql://postgres.rpilyciarvacbmaaszvc:{db_password}@aws-0-us-west-1.pooler.supabase.com:5432/postgres"
+        # NOTE: This is for backward compatibility only
+        # In production, always use DATABASE_URL environment variable
+        supabase_url = os.getenv('SUPABASE_URL', '')
+        db_password = os.getenv('SUPABASE_DB_PASSWORD', '')
+        
+        if not supabase_url or not db_password:
+            raise ValueError(
+                "DATABASE_URL environment variable is required. "
+                "Alternatively, set both SUPABASE_URL and SUPABASE_DB_PASSWORD."
+            )
+        
+        # Extract host from Supabase URL
+        # Format: https://PROJECT_ID.supabase.co
+        if 'supabase.co' in supabase_url:
+            project_id = supabase_url.split('//')[1].split('.')[0]
+            # URL encode special characters in password
+            db_password_encoded = db_password.replace('@', '%40')
+            DATABASE_URL = f"postgresql://postgres.{project_id}:{db_password_encoded}@aws-0-us-west-1.pooler.supabase.com:5432/postgres"
+            logger.warning("Constructed DATABASE_URL from SUPABASE_URL. Consider setting DATABASE_URL directly.")
+        else:
+            raise ValueError("Invalid SUPABASE_URL format")
     
-    print(f"Database URL: {DATABASE_URL[:50]}...{DATABASE_URL[-20:]}")
+    logger.info("Database connection configured")
 
-    # Create engine with debug output
-    print("Creating SQLAlchemy engine...")
+    # Create engine
+    logger.debug("Creating SQLAlchemy engine...")
+    env = os.getenv("ENV", "development")
     try:
-        engine = create_engine(DATABASE_URL, echo=True)  # Enable SQL query logging
-        print("Successfully created SQLAlchemy engine")
+        engine = create_engine(
+            DATABASE_URL, 
+            echo=(env == "development"),  # Only log SQL in development
+            pool_pre_ping=True,  # Verify connections before using
+            pool_size=5,
+            max_overflow=10
+        )
+        logger.info("Successfully created SQLAlchemy engine")
     except Exception as e:
-        print(f"\nFailed to create SQLAlchemy engine:")
-        print(f"Error type: {type(e).__name__}")
-        print(f"Error message: {str(e)}")
-        if hasattr(e, '__cause__') and e.__cause__:
-            print(f"Caused by: {str(e.__cause__)}")
+        logger.error(f"Failed to create SQLAlchemy engine: {str(e)}", exc_info=True)
         raise
 
     # Run simple auto-migration to ensure newer columns exist (primarily for tests / CI)
@@ -62,12 +82,12 @@ if not SKIP_DB:
                   AND column_name='extra_metadata' 
                 LIMIT 1;"""))
             if res.fetchone() is None:
-                print("Adding missing column extra_metadata to financial_statements …")
+                logger.info("Adding missing column extra_metadata to financial_statements")
                 conn.execute(text("ALTER TABLE financial_statements ADD COLUMN extra_metadata JSONB"))
                 conn.commit()
         except Exception as mig_err:
-            # Non-fatal: print but continue startup
-            print(f"Auto-migration check failed: {mig_err}")
+            # Non-fatal: log but continue startup
+            logger.warning(f"Auto-migration check failed: {mig_err}")
 
 # Create session factory (only if database is available)
 if not SKIP_DB:

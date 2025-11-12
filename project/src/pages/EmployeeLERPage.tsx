@@ -1008,9 +1008,15 @@ const EmployeeLERPage: React.FC = () => {
 
   const selectedPeriod = payPeriods[selectedPeriodIndex];
 
-  // Filter records by year and month ACROSS ALL PAY PERIODS
+  // Filter records: If filters are "all", show selected pay period. If filters are active, show across all pay periods.
   const filteredDailyRecords = useMemo(() => {
-    // Get all daily records from ALL pay periods
+    // If both filters are "all", show only the selected pay period's records
+    if (filterYear === 'all' && filterMonth === 'all') {
+      if (!selectedPeriod) return [];
+      return selectedPeriod.dailyRecords;
+    }
+    
+    // If any filter is active, search across ALL pay periods
     const allRecords = payPeriodsData.flatMap(period => period.dailyRecords);
     
     const filtered = allRecords.filter(record => {
@@ -1035,7 +1041,7 @@ const EmployeeLERPage: React.FC = () => {
       const dateB = parseLocalDate(b.date);
       return dateB.getTime() - dateA.getTime();
     });
-  }, [payPeriodsData, filterYear, filterMonth]);
+  }, [payPeriodsData, selectedPeriod, filterYear, filterMonth]);
 
   // Calculate totals for filtered records (when month/year filter is active)
   const filteredTotals = useMemo(() => {
@@ -1311,30 +1317,46 @@ const EmployeeLERPage: React.FC = () => {
     return 'destructive';
   };
 
-  // Chart data - YTD LER Trend (current year only, aggregated by month)
+  // Chart data - LER Trend (uses same filter as Daily Performance Records)
+  // Shows daily curve when month is selected, monthly aggregation otherwise
   const lerTrendData = useMemo(() => {
-    const monthlyData: { [key: string]: { totalLER: number; count: number; revenue: number } } = {};
-    const currentYear = new Date().getFullYear();
-    const today = new Date();
-    
-    // Collect all daily records from all pay periods in current year, up to today
-    payPeriodsData.forEach(period => {
-      period.dailyRecords.forEach(record => {
-        if (!record.calledOut && record.numberOfJobs > 0) {
+    // If a specific month is selected, show daily data for that month
+    if (filterMonth !== 'all') {
+      return filteredDailyRecords
+        .filter(record => !record.calledOut && record.numberOfJobs > 0)
+        .map(record => {
           const recordDate = parseLocalDate(record.date);
-          if (recordDate.getFullYear() === currentYear && recordDate <= today) {
-            const monthKey = recordDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
-            
-            if (!monthlyData[monthKey]) {
-              monthlyData[monthKey] = { totalLER: 0, count: 0, revenue: 0 };
-            }
-            
-            monthlyData[monthKey].totalLER += record.ler;
-            monthlyData[monthKey].count += 1;
-            monthlyData[monthKey].revenue += record.totalJobRevenue;
-          }
+          return {
+            month: recordDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), // e.g., "May 1"
+            ler: Math.round(record.ler * 100) / 100,
+            revenue: record.totalJobRevenue,
+            days: 1
+          };
+        })
+        .sort((a, b) => {
+          // Sort by date
+          const dateA = new Date(a.month + ', 2025');
+          const dateB = new Date(b.month + ', 2025');
+          return dateA.getTime() - dateB.getTime();
+        });
+    }
+    
+    // Otherwise, aggregate by month
+    const monthlyData: { [key: string]: { totalLER: number; count: number; revenue: number } } = {};
+    
+    filteredDailyRecords.forEach(record => {
+      if (!record.calledOut && record.numberOfJobs > 0) {
+        const recordDate = parseLocalDate(record.date);
+        const monthKey = recordDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+        
+        if (!monthlyData[monthKey]) {
+          monthlyData[monthKey] = { totalLER: 0, count: 0, revenue: 0 };
         }
-      });
+        
+        monthlyData[monthKey].totalLER += record.ler;
+        monthlyData[monthKey].count += 1;
+        monthlyData[monthKey].revenue += record.totalJobRevenue;
+      }
     });
     
     // Convert to array and calculate averages
@@ -1347,27 +1369,19 @@ const EmployeeLERPage: React.FC = () => {
       }))
       .sort((a, b) => {
         // Sort by month chronologically
-        const monthA = new Date(a.month + ' 1, ' + currentYear);
-        const monthB = new Date(b.month + ' 1, ' + currentYear);
-        return monthA.getTime() - monthB.getTime();
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return monthNames.indexOf(a.month) - monthNames.indexOf(b.month);
       });
-  }, [payPeriodsData]);
+  }, [filteredDailyRecords, filterMonth]);
 
-  // Job Type Distribution - YTD (current year only, dynamic services)
+  // Job Type Distribution (uses same filter as Daily Performance Records)
   const jobTypeData = useMemo(() => {
     const totals: { [key: string]: number } = {};
-    const currentYear = new Date().getFullYear();
-    const today = new Date();
     
-    // Collect all job types from all pay periods in current year, up to today
-    payPeriodsData.forEach(period => {
-      period.dailyRecords.forEach(record => {
-        const recordDate = parseLocalDate(record.date);
-        if (recordDate.getFullYear() === currentYear && recordDate <= today) {
-          Object.entries(record.jobTypes).forEach(([serviceName, count]) => {
-            totals[serviceName] = (totals[serviceName] || 0) + count;
-          });
-        }
+    // Use filteredDailyRecords so it respects the year/month filters
+    filteredDailyRecords.forEach(record => {
+      Object.entries(record.jobTypes).forEach(([serviceName, count]) => {
+        totals[serviceName] = (totals[serviceName] || 0) + count;
       });
     });
     
@@ -1382,7 +1396,7 @@ const EmployeeLERPage: React.FC = () => {
       }))
       .filter(item => item.value > 0)
       .sort((a, b) => b.value - a.value); // Sort by count descending
-  }, [payPeriodsData]);
+  }, [filteredDailyRecords]);
 
   // Render main content
   let content;
@@ -1715,7 +1729,12 @@ const EmployeeLERPage: React.FC = () => {
           <Card className="bg-muted/30 border-accent/50">
             <CardHeader>
               <CardTitle className="text-foreground">
-                LER Trend (YTD) - {lerTrendData.reduce((sum, m) => sum + m.days, 0)} days across {lerTrendData.length} months
+                {filterMonth !== 'all' 
+                  ? `LER Trend - ${lerTrendData.length} days` 
+                  : (filterYear !== 'all' || filterMonth !== 'all')
+                    ? `LER Trend - ${lerTrendData.reduce((sum, m) => sum + m.days, 0)} days across ${lerTrendData.length} months`
+                    : `LER Trend (YTD) - ${lerTrendData.reduce((sum, m) => sum + m.days, 0)} days across ${lerTrendData.length} months`
+                }
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1747,7 +1766,10 @@ const EmployeeLERPage: React.FC = () => {
           <Card className="bg-muted/30">
             <CardHeader>
               <CardTitle className="text-foreground">
-                Job Type Distribution (YTD) - {jobTypeData.reduce((sum, item) => sum + item.value, 0)} total jobs
+                {(filterYear !== 'all' || filterMonth !== 'all')
+                  ? 'Job Type Distribution'
+                  : `Job Type Distribution (YTD) - ${jobTypeData.reduce((sum, item) => sum + item.value, 0)} total jobs`
+                }
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -2089,46 +2111,62 @@ const EmployeeLERPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Period Summary */}
+        {/* Period Summary - Uses filtered data when filters are active */}
         <Card className="bg-muted/30">
           <CardHeader>
-            <CardTitle className="text-foreground">Pay Period Summary</CardTitle>
+            <CardTitle className="text-foreground">
+              {(filterYear !== 'all' || filterMonth !== 'all') ? 'Filtered Summary' : 'Pay Period Summary'}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Total Jobs</div>
-                <div className="text-2xl font-bold text-foreground">{selectedPeriod.periodTotals.totalJobs}</div>
+                <div className="text-2xl font-bold text-foreground">
+                  {(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalJobs : selectedPeriod.periodTotals.totalJobs}
+                </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Total Revenue</div>
-                <div className="text-2xl font-bold text-foreground">${selectedPeriod.periodTotals.totalRevenue.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-foreground">
+                  ${(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalRevenue.toFixed(2) : selectedPeriod.periodTotals.totalRevenue.toFixed(2)}
+                </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Total Hours</div>
-                <div className="text-2xl font-bold text-foreground">{selectedPeriod.periodTotals.totalHoursWorked.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-foreground">
+                  {(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalHours.toFixed(2) : selectedPeriod.periodTotals.totalHoursWorked.toFixed(2)}
+                </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Average LER</div>
-                <div className={`text-2xl font-bold ${getLERColor(selectedPeriod.periodTotals.avgLER)}`}>
-                  {selectedPeriod.periodTotals.avgLER.toFixed(2)}
+                <div className={`text-2xl font-bold ${getLERColor((filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.avgLER : selectedPeriod.periodTotals.avgLER)}`}>
+                  {(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.avgLER.toFixed(2) : selectedPeriod.periodTotals.avgLER.toFixed(2)}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">LER Bonuses</div>
-                <div className="text-2xl font-bold text-green-500">${selectedPeriod.periodTotals.totalLERBonuses.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-green-500">
+                  ${(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalLERBonus.toFixed(2) : selectedPeriod.periodTotals.totalLERBonuses.toFixed(2)}
+                </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Appt Bonuses</div>
-                <div className="text-2xl font-bold text-green-500">${selectedPeriod.periodTotals.totalApptBonuses.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-green-500">
+                  ${(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalApptBonus.toFixed(2) : selectedPeriod.periodTotals.totalApptBonuses.toFixed(2)}
+                </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Total Bonuses</div>
-                <div className="text-2xl font-bold text-green-600">${selectedPeriod.periodTotals.totalBonuses.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-green-600">
+                  ${(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalBonuses.toFixed(2) : selectedPeriod.periodTotals.totalBonuses.toFixed(2)}
+                </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Net Profit Margin</div>
-                <div className="text-2xl font-bold text-foreground">{selectedPeriod.periodTotals.netProfitAfterBonusPercent.toFixed(1)}%</div>
+                <div className="text-2xl font-bold text-foreground">
+                  {(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.avgNetProfitPercent.toFixed(1) : selectedPeriod.periodTotals.netProfitAfterBonusPercent.toFixed(1)}%
+                </div>
               </div>
             </div>
           </CardContent>

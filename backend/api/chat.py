@@ -5,6 +5,9 @@ import os
 import time
 from datetime import datetime, timedelta
 from api.validation_models import AICoachRequest, AICoachResponse
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -79,7 +82,8 @@ def get_openai_client():
                 raise ValueError("OPENAI_API_KEY not found in environment")
             _openai_client = OpenAI(api_key=api_key)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"OpenAI initialization failed: {str(e)}")
+            logger.error(f"OpenAI initialization failed: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
     return _openai_client
 
 def get_anthropic_client():
@@ -92,7 +96,8 @@ def get_anthropic_client():
                 raise ValueError("ANTHROPIC_API_KEY not found in environment")
             _anthropic_client = Anthropic(api_key=api_key)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Anthropic initialization failed: {str(e)}")
+            logger.error(f"Anthropic initialization failed: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
     return _anthropic_client
 
 # Validation models are now imported from validation_models.py
@@ -193,16 +198,18 @@ async def ai_coach(request: AICoachRequest):
         
         # Check if error is worth retrying with fallback
         if not is_retryable_error(e):
-            raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
+            logger.error(f"AI service error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
         
         # Try fallback provider (only if error is retryable)
         fallback_provider = 'openai' if request.provider == 'claude' else 'claude'
         
         # Check if fallback provider is available
         if not circuit_breaker.can_attempt(fallback_provider):
+            logger.error(f"Primary provider failed and fallback provider is unavailable: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=503,
-                detail=f"Primary provider failed and fallback provider is unavailable: {str(e)}"
+                detail="Primary provider failed and fallback provider is unavailable"
             )
         
         try:
@@ -219,9 +226,10 @@ async def ai_coach(request: AICoachRequest):
         except Exception as fallback_error:
             circuit_breaker.record_failure(fallback_provider)
             print(f"❌ Fallback {fallback_provider} also failed: {str(fallback_error)}")
+            logger.error(f"Both AI providers failed. Primary: {str(e)}, Fallback: {str(fallback_error)}", exc_info=True)
             raise HTTPException(
                 status_code=503,
-                detail=f"Both AI providers failed. Primary: {str(e)}, Fallback: {str(fallback_error)}"
+                detail="Both AI providers failed"
             )
 
 async def generate_claude_response(prompt: str, temperature: float, max_tokens: int) -> str:
@@ -236,7 +244,8 @@ async def generate_claude_response(prompt: str, temperature: float, max_tokens: 
         )
         return message.content[0].text if message.content else "No response generated"
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Claude API error: {str(e)}")
+        logger.error(f"Claude API error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 async def generate_openai_response(prompt: str, temperature: float, max_tokens: int) -> str:
     """Generate response using OpenAI"""
@@ -250,7 +259,8 @@ async def generate_openai_response(prompt: str, temperature: float, max_tokens: 
         )
         return completion.choices[0].message.content or "No response generated"
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")
+        logger.error(f"OpenAI API error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/health")
 async def ai_health():

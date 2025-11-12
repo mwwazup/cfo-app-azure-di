@@ -1,33 +1,40 @@
 # Backend dependencies with pinned versions for reproducible installs
 # Update carefully; run tests after any change.
 
-fastapi
-uvicorn[standard]
-python-dotenv
+# Core Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-dotenv==1.0.0
 
 # OpenAI pre-1.0 branch to avoid breaking changes in 1.x
-openai<1.0
+openai==0.28.1
 
 # Supabase Python client stack
-supabase
-gotrue
+supabase==2.3.0
+gotrue==1.3.0
 
 # Zep memory store client
-zep-python
+zep-python==0.32
+
+# Anthropic Claude
+anthropic==0.18.1
 
 # Database / HTTP / utilities
-neo4j
-sqlalchemy
+neo4j==5.16.0
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+httpx==0.26.0
+pydantic==2.6.0
 
 # Azure Document Intelligence for financial document processing
-azure-ai-documentintelligence
-psycopg2-binary
-httpx  # supabase will pull a compatible <0.24 version
-pydantic
+azure-ai-documentintelligence==1.0.0b1
 
-typing-extensions
-python-multipart
-jinja2
-python-jose[cryptography]
-passlib[bcrypt]
-email-validator
+# Auth and security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Utilities
+typing-extensions==4.9.0
+python-multipart==0.0.6
+jinja2==3.1.3
+email-validator==2.1.0

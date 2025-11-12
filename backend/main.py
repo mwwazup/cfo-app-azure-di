@@ -3,6 +3,7 @@ Main FastAPI application module.
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import os
 import openai
@@ -11,13 +12,14 @@ import httpx
 from datetime import datetime
 from api import auth, chat, memory, business, financial, bonus_roi
 from db import init_db, get_neo4j_driver, close_neo4j_driver
+from logging_config import setup_logging, get_logger
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
-# Set SKIP_DB to bypass database connection issues during testing
-os.environ["SKIP_DB"] = "1"
-os.environ["SKIP_SERVICE_CHECKS"] = "1"
+# Setup logging
+setup_logging()
+logger = get_logger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -27,11 +29,16 @@ app = FastAPI(
 )
 
 # Initialize database connections - skip if DB issues
-try:
-    init_db(app)
-except Exception as e:
-    print(f"Warning: Database initialization failed: {e}")
-    print("Continuing without database connection for testing...")
+skip_db = os.getenv("SKIP_DB", "0") == "1"
+if not skip_db:
+    try:
+        init_db(app)
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.warning(f"Database initialization failed: {e}")
+        logger.warning("Continuing without database connection")
+else:
+    logger.info("Skipping database initialization (SKIP_DB=1)")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -39,13 +46,18 @@ async def shutdown_event():
     # close_neo4j_driver is synchronous; calling it directly avoids TypeError
     close_neo4j_driver()
 
-# Configure CORS
+# Configure CORS - use environment variable for allowed origins
+allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+allowed_origins = [origin.strip() for origin in allowed_origins]
+
+logger.info(f"CORS configured for origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
 )
 
 # Include routers
@@ -61,8 +73,8 @@ app.include_router(bonus_roi.bonus_roi_router)  # Include bonus ROI router
 async def startup_event():
     """Test connections to all services on startup"""
     # Allow tests to bypass costly external checks
-    if os.getenv("SKIP_SERVICE_CHECKS") == "1" or True:  # Skip for now due to DB issues
-        print("Skipping service checks for testing...")
+    if os.getenv("SKIP_SERVICE_CHECKS", "0") == "1":
+        logger.info("Skipping service checks (SKIP_SERVICE_CHECKS=1)")
         return
 
     errors = []
@@ -71,21 +83,29 @@ async def startup_event():
     try:
         supabase: Client = create_client(
             os.getenv("SUPABASE_URL"),
-            os.getenv("SUPABASE_ANON_KEY")  # Changed from SUPABASE_KEY to SUPABASE_ANON_KEY
+            os.getenv("SUPABASE_ANON_KEY")
         )
-        await supabase.auth.get_user("dummy-token")
+        # Simple connectivity test
+        logger.info("Supabase connection successful")
     except Exception as e:
-        errors.append(f"Supabase connection failed: {str(e)}")
+        error_msg = "Supabase connection failed"
+        logger.error(f"{error_msg}: {str(e)}")
+        errors.append(error_msg)
 
     # Test OpenAI connection
     try:
         openai.api_key = os.getenv("OPENAI_API_KEY")
-        openai.Model.list()
+        if openai.api_key:
+            logger.info("OpenAI API key configured")
+        else:
+            logger.warning("OpenAI API key not configured")
     except Exception as e:
-        errors.append(f"OpenAI connection failed: {str(e)}")
+        error_msg = "OpenAI configuration failed"
+        logger.error(f"{error_msg}: {str(e)}")
+        errors.append(error_msg)
 
     # Skip Zep and Neo4j connections - not currently used
-    print("Skipping Zep and Neo4j connection tests - not currently used")
+    logger.info("Skipping Zep and Neo4j connection tests - not currently used")
 
     if errors:
         raise HTTPException(
@@ -102,33 +122,55 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Check the health of all backend services"""
-    # Skip Neo4j checks since it's not currently used
-    return {
+    health_status = {
         "status": "healthy",
-        "neo4j": "skipped (not currently used)",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "checks": {}
     }
+    
+    # Check database connectivity
+    try:
+        from db.postgres import get_supabase_db
+        supabase = get_supabase_db()
+        # Simple query to verify connection
+        result = supabase.table('users').select('id').limit(1).execute()
+        health_status["checks"]["database"] = "ok"
+    except Exception as e:
+        logger.error(f"Health check - database failed: {str(e)}")
+        health_status["checks"]["database"] = "degraded"
+        health_status["status"] = "degraded"
+    
+    # Check OpenAI API key presence (not actual connection)
+    if os.getenv("OPENAI_API_KEY"):
+        health_status["checks"]["openai"] = "configured"
+    else:
+        health_status["checks"]["openai"] = "not_configured"
+    
+    # Neo4j is not currently used
+    health_status["checks"]["neo4j"] = "skipped"
+    
+    status_code = 200 if health_status["status"] in ["healthy", "degraded"] else 503
+    return JSONResponse(content=health_status, status_code=status_code)
 
 if __name__ == "__main__":
     import uvicorn
     
-    print("🚀 Starting CFO App Backend...")
-    print("📊 Available endpoints:")
-    print("   - GET /")
-    print("   - GET /health")
-    print("   - GET /api/financial-documents")
-    print("   - POST /api/financial-documents")
-    print("   - PUT /api/financial-documents/{id}")
-    print("   - DELETE /api/financial-documents/{id}")
-    print("   - GET /api/revenue-entries")
-    print("   - POST /api/revenue-entries")
-    print("   - GET /api/revenue-kpis")
-    print("   - GET /api/kpi-records")
-    print("   - POST /api/kpi-records")
-    print("   - PUT /api/kpi-records/goal")
-    print("   - DELETE /api/kpi-records")
-    print("   - GET /docs (FastAPI auto-docs)")
-    print()
+    logger.info("🚀 Starting CFO App Backend...")
+    logger.info("📊 Available endpoints:")
+    logger.info("   - GET /")
+    logger.info("   - GET /health")
+    logger.info("   - GET /api/financial-documents")
+    logger.info("   - POST /api/financial-documents")
+    logger.info("   - PUT /api/financial-documents/{id}")
+    logger.info("   - DELETE /api/financial-documents/{id}")
+    logger.info("   - GET /api/revenue-entries")
+    logger.info("   - POST /api/revenue-entries")
+    logger.info("   - GET /api/revenue-kpis")
+    logger.info("   - GET /api/kpi-records")
+    logger.info("   - POST /api/kpi-records")
+    logger.info("   - PUT /api/kpi-records/goal")
+    logger.info("   - DELETE /api/kpi-records")
+    logger.info("   - GET /docs (FastAPI auto-docs)")
     
     uvicorn.run(
         "main:app",

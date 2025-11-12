@@ -18,7 +18,11 @@ export default function VoiceCoach() {
       throw new Error("Not authenticated");
     }
 
-    const res = await fetch("https://inczgmmgpnabtxciezio.functions.supabase.co/realtime-token", { 
+    // Get Supabase Functions URL from environment variable
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+    const functionsUrl = supabaseUrl.replace('.supabase.co', '.functions.supabase.co');
+
+    const res = await fetch(`${functionsUrl}/realtime-token`, { 
       method: "POST",
       headers: {
         'Authorization': `Bearer ${token}`,

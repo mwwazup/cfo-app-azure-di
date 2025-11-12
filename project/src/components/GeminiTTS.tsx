@@ -53,7 +53,12 @@ export async function generateTTS({
   onSuccess: (audioUrl: string) => void;
   onError: (error: string) => void;
 }) {
-  const session = JSON.parse(localStorage.getItem('sb-inczgmmgpnabtxciezio-auth-token') || '{}');
+  // Get Supabase project ID from environment variable
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+  const projectId = supabaseUrl.split('//')[1]?.split('.')[0] || '';
+  const authTokenKey = `sb-${projectId}-auth-token`;
+  
+  const session = JSON.parse(localStorage.getItem(authTokenKey) || '{}');
   const accessToken = session?.access_token;
 
   if (!accessToken) {

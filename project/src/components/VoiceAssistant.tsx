@@ -41,12 +41,17 @@ export function VoiceAssistant() {
     setError(null);
     
     try {
+      // Get Supabase project ID from environment variable
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+      const projectId = supabaseUrl.split('//')[1]?.split('.')[0] || '';
+      const authTokenKey = `sb-${projectId}-auth-token`;
+      
       // Call your AI service here
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('sb-inczgmmgpnabtxciezio-auth-token')}`
+          'Authorization': `Bearer ${localStorage.getItem(authTokenKey)}`
         },
         body: JSON.stringify({ 
           message: text, 

@@ -11,6 +11,10 @@ import os
 from pydantic import BaseModel
 from supabase import create_client, Client
 from db.postgres import get_db, FinancialStatement
+from logging_config import get_logger
+
+logger = get_logger(__name__)
+
 from api.validation_models import (
     UpsertRevenueRequest,
     RevenueQueryParams,
@@ -67,7 +71,8 @@ async def get_financial_statements(
             "metadata": getattr(stmt, "metadata", None)
         } for stmt in statements]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/statements/{statement_id}")
 async def get_financial_statement(
@@ -104,7 +109,8 @@ async def get_financial_statement(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/upload")
 async def upload_financial_data(
@@ -142,7 +148,8 @@ async def upload_financial_data(
             _MEM_STATEMENTS[str(statement_id)] = record
             return record
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     try:
         # Save file to temporary location
@@ -185,7 +192,8 @@ async def upload_financial_data(
                 os.remove(file_path)
             except:
                 pass
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.put("/statements/{statement_id}/parse")
 async def parse_financial_statement(
@@ -231,7 +239,8 @@ async def parse_financial_statement(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # Create a separate router for revenue API endpoints without the /financial prefix
 revenue_router = APIRouter(tags=["revenue"])
@@ -264,7 +273,8 @@ async def get_available_years(userId: str = Query(..., description="User ID")):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.get("/api/revenue-entries")
 async def get_revenue_entries(
@@ -305,7 +315,8 @@ async def get_revenue_entries(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.post("/api/revenue-entries")
 async def upsert_monthly_revenue(request: UpsertRevenueRequest):
@@ -355,7 +366,8 @@ async def upsert_monthly_revenue(request: UpsertRevenueRequest):
         
         return {"ok": True, "row": result.data[0] if result.data else None}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.get("/api/revenue-kpis")
 async def get_revenue_kpis(
@@ -387,7 +399,8 @@ async def get_revenue_kpis(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.get("/api/kpi-records")
 async def get_kpi_records(
@@ -427,7 +440,8 @@ async def get_kpi_records(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.post("/api/kpi-records")
 async def upsert_kpi_record(request: UpsertKPIRequest):
@@ -462,7 +476,8 @@ async def upsert_kpi_record(request: UpsertKPIRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.get("/api/financial-documents")
 async def get_financial_documents(userId: str = Query(..., description="User ID")):
@@ -488,7 +503,8 @@ async def get_financial_documents(userId: str = Query(..., description="User ID"
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.post("/api/financial-documents")
 async def create_financial_document(request: FinancialDocumentCreate):
@@ -519,7 +535,8 @@ async def create_financial_document(request: FinancialDocumentCreate):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.put("/api/financial-documents/{document_id}")
 async def update_financial_document(
@@ -556,7 +573,8 @@ async def update_financial_document(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.delete("/api/financial-documents/{document_id}")
 async def delete_financial_document(document_id: str = Path(..., description="Document ID")):
@@ -582,7 +600,8 @@ async def delete_financial_document(document_id: str = Path(..., description="Do
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @revenue_router.delete("/api/kpi-records")
 async def delete_kpi_by_name(
@@ -614,4 +633,5 @@ async def delete_kpi_by_name(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

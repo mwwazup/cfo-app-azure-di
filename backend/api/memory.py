@@ -5,6 +5,9 @@ from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel
 from .auth import get_current_user, User
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -55,7 +58,8 @@ async def create_memory(
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as e:
-            raise HTTPException(status_code=500, detail=f"Zep API error: {str(e)}")
+            logger.error(f"Zep API error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/", response_model=List[Memory])
 async def list_memories(
@@ -77,7 +81,8 @@ async def list_memories(
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as e:
-            raise HTTPException(status_code=500, detail=f"Zep API error: {str(e)}")
+            logger.error(f"Zep API error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/{memory_id}", response_model=Memory)
 async def get_memory(
@@ -97,7 +102,8 @@ async def get_memory(
                 
             return memory
         except httpx.HTTPError as e:
-            raise HTTPException(status_code=500, detail=f"Zep API error: {str(e)}")
+            logger.error(f"Zep API error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.put("/{memory_id}", response_model=Memory)
 async def update_memory(
@@ -133,7 +139,8 @@ async def update_memory(
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as e:
-            raise HTTPException(status_code=500, detail=f"Zep API error: {str(e)}")
+            logger.error(f"Zep API error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.delete("/{memory_id}")
 async def delete_memory(
@@ -156,4 +163,5 @@ async def delete_memory(
             response.raise_for_status()
             return {"message": "Memory deleted successfully"}
         except httpx.HTTPError as e:
-            raise HTTPException(status_code=500, detail=f"Zep API error: {str(e)}")
+            logger.error(f"Zep API error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")

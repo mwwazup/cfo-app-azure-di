@@ -41,16 +41,20 @@ interface BonusMetrics {
   // Performance Metrics
   totalRevenue: number;
   totalGrossProfit: number;
-  avgRevenuePerDay: number;
-  avgJobsPerDay: number;
+  netProfitAfterBonuses: number;
+  profitMarginAfterBonuses: number;
+  totalEmployeeDays: number;
+  uniqueWorkDates: number;
+  avgRevenuePerEmployeeDay: number;
+  avgJobsPerEmployeeDay: number;
   avgProfitMargin: number;
   avgLER: number;
   
-  // Bonus Effectiveness
+  // Compensation Metrics
+  totalHours: number;
+  avgHourlyRateWithBonuses: number;
   avgBonusAmount: number;
-  qualificationRate: number;
   bonusDaysCount: number;
-  totalWorkDays: number;
   
   // Trends
   trends: TrendData[];
@@ -66,6 +70,11 @@ export function BonusROIAnalysisPage() {
   const [selectedMonth, setSelectedMonth] = useState<number | 'ytd' | 'all'>('ytd');
   const [loading, setLoading] = useState(false);
   const [metrics, setMetrics] = useState<BonusMetrics | null>(null);
+  
+  // What-If Simulator State
+  const [selectedService, setSelectedService] = useState<string>('');
+  const [priceAdjustment, setPriceAdjustment] = useState<number>(0); // Dollar amount per job
+  const [targetMargin, setTargetMargin] = useState<number>(25);
 
   // Fetch bonus metrics from API
   useEffect(() => {
@@ -75,12 +84,18 @@ export function BonusROIAnalysisPage() {
       setLoading(true);
       try {
         const params = new URLSearchParams({
-          userId: dbUserId,
           year: selectedYear.toString(),
           ...(selectedMonth !== 'ytd' && selectedMonth !== 'all' && { month: selectedMonth.toString() })
         });
 
-        const response = await fetch(`http://localhost:8000/api/bonus-roi-analysis?${params}`);
+        const response = await fetch(`http://localhost:8000/api/bonus-roi-analysis?${params}`, {
+          method: 'GET',
+          credentials: 'include', // Include auth cookies
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
         if (!response.ok) {
           const errorData = await response.json();
           console.error('API Error:', errorData);
@@ -140,13 +155,24 @@ export function BonusROIAnalysisPage() {
       insights.push(`Average bonus of $${metrics.avgBonusAmount.toFixed(0)} per qualifying day may not be motivating enough.`);
     }
 
-    // Qualification rate
-    if (metrics.qualificationRate > 80) {
-      insights.push(`${metrics.qualificationRate.toFixed(0)}% qualification rate suggests the threshold may be too easy.`);
-    } else if (metrics.qualificationRate < 30) {
-      insights.push(`${metrics.qualificationRate.toFixed(0)}% qualification rate suggests the threshold may be too difficult.`);
+    // Profit margin after bonuses
+    if (metrics.profitMarginAfterBonuses > 30) {
+      insights.push(`${metrics.profitMarginAfterBonuses.toFixed(1)}% profit margin after bonuses - excellent profitability maintained.`);
+    } else if (metrics.profitMarginAfterBonuses > 20) {
+      insights.push(`${metrics.profitMarginAfterBonuses.toFixed(1)}% profit margin after bonuses - healthy profitability.`);
+    } else if (metrics.profitMarginAfterBonuses > 10) {
+      insights.push(`${metrics.profitMarginAfterBonuses.toFixed(1)}% profit margin after bonuses - consider price increases or bonus structure adjustments.`);
     } else {
-      insights.push(`${metrics.qualificationRate.toFixed(0)}% qualification rate is in a healthy range.`);
+      insights.push(`${metrics.profitMarginAfterBonuses.toFixed(1)}% profit margin after bonuses - urgent: review pricing and bonus structure.`);
+    }
+    
+    // Hourly rate with bonuses
+    if (metrics.avgHourlyRateWithBonuses > 25) {
+      insights.push(`$${metrics.avgHourlyRateWithBonuses.toFixed(2)}/hr with bonuses - competitive compensation.`);
+    } else if (metrics.avgHourlyRateWithBonuses > 20) {
+      insights.push(`$${metrics.avgHourlyRateWithBonuses.toFixed(2)}/hr with bonuses - moderate compensation level.`);
+    } else {
+      insights.push(`$${metrics.avgHourlyRateWithBonuses.toFixed(2)}/hr with bonuses - may need to increase to retain talent.`);
     }
 
     return insights;
@@ -325,14 +351,12 @@ export function BonusROIAnalysisPage() {
                     <div className="p-3 rounded-lg bg-blue-500/20">
                       <TrendingUp className="h-5 w-5 text-blue-500" />
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-blue-600 dark:text-blue-400">Avg LER</p>
+                    <div className="text-center">
+                      <p className="text-sm text-blue-600 dark:text-blue-400">Revenue/Employee-Day</p>
                       <div className="text-2xl font-bold text-foreground mt-1">
-                        {metrics.avgLER.toFixed(1)}%
+                        ${metrics.avgRevenuePerEmployeeDay.toFixed(0)}
                       </div>
-                      <p className="text-xs text-muted mt-1">
-                        Labor efficiency
-                      </p>
+                      <p className="text-xs text-muted mt-1">avg per employee working day</p>
                     </div>
                   </div>
                 </CardContent>
@@ -345,12 +369,12 @@ export function BonusROIAnalysisPage() {
                       <DollarSign className="h-5 w-5 text-green-500" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm text-green-600 dark:text-green-400">Revenue/Day</p>
+                      <p className="text-sm text-green-600 dark:text-green-400">Avg LER</p>
                       <div className="text-2xl font-bold text-foreground mt-1">
-                        ${Math.round(metrics.avgRevenuePerDay).toLocaleString()}
+                        {metrics.avgLER.toFixed(2)}
                       </div>
                       <p className="text-xs text-muted mt-1">
-                        Per work day
+                        Labor Efficiency Ratio
                       </p>
                     </div>
                   </div>
@@ -363,14 +387,12 @@ export function BonusROIAnalysisPage() {
                     <div className="p-3 rounded-lg bg-purple-500/20">
                       <Briefcase className="h-5 w-5 text-purple-500" />
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-purple-600 dark:text-purple-400">Jobs/Day</p>
+                    <div className="text-center">
+                      <p className="text-sm text-purple-600 dark:text-purple-400">Jobs/Employee-Day</p>
                       <div className="text-2xl font-bold text-foreground mt-1">
-                        {metrics.avgJobsPerDay.toFixed(1)}
+                        {metrics.avgJobsPerEmployeeDay.toFixed(1)}
                       </div>
-                      <p className="text-xs text-muted mt-1">
-                        Per work day
-                      </p>
+                      <p className="text-xs text-muted mt-1">avg per employee working day</p>
                     </div>
                   </div>
                 </CardContent>
@@ -424,15 +446,34 @@ export function BonusROIAnalysisPage() {
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-3">
                     <div className="p-3 rounded-lg bg-pink-500/20">
-                      <Target className="h-5 w-5 text-pink-500" />
+                      <TrendingUp className="h-5 w-5 text-pink-500" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm text-pink-600 dark:text-pink-400">Qualification Rate</p>
+                      <p className="text-sm text-pink-600 dark:text-pink-400">Profit Margin After Bonuses</p>
                       <div className="text-2xl font-bold text-foreground mt-1">
-                        {metrics.qualificationRate.toFixed(0)}%
+                        {metrics.profitMarginAfterBonuses.toFixed(1)}%
                       </div>
                       <p className="text-xs text-muted mt-1">
-                        {metrics.bonusDaysCount} of {metrics.totalWorkDays} days - is threshold right?
+                        Net profit margin after all bonus costs
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-muted/30">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-3">
+                    <div className="p-3 rounded-lg bg-cyan-500/20">
+                      <DollarSign className="h-5 w-5 text-cyan-500" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm text-cyan-600 dark:text-cyan-400">Avg Hourly Rate w/ Bonuses</p>
+                      <div className="text-2xl font-bold text-foreground mt-1">
+                        ${metrics.avgHourlyRateWithBonuses.toFixed(2)}
+                      </div>
+                      <p className="text-xs text-muted mt-1">
+                        Base pay + bonuses ÷ total hours
                       </p>
                     </div>
                   </div>
@@ -589,6 +630,211 @@ export function BonusROIAnalysisPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* What-If Bonus Structure Simulator */}
+          {metrics.serviceProfitability.length > 0 && (
+            <Card className="bg-muted/30">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-foreground">
+                  <Target className="h-5 w-5 text-accent" />
+                  What-If Bonus Structure Simulator
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Model price adjustments to maintain profitability with your bonus structure
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  {/* Service Selector */}
+                  <div className="bg-card/50 rounded-lg p-4 border border-border">
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Select Service to Analyze
+                    </label>
+                    <Select value={selectedService} onValueChange={setSelectedService}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose a service..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {metrics.serviceProfitability.map((service) => (
+                          <SelectItem key={service.serviceName} value={service.serviceName}>
+                            {service.serviceName} (Current: {service.netMarginAfterBonus.toFixed(1)}% margin)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {selectedService && (() => {
+                    const service = metrics.serviceProfitability.find(s => s.serviceName === selectedService);
+                    if (!service) return null;
+
+                    // Calculate what-if scenarios
+                    const currentRevenue = service.revenue;
+                    const currentBonuses = service.totalBonuses;
+                    const currentGrossProfit = service.grossProfit;
+                    const currentNetMargin = service.netMarginAfterBonus;
+                    const jobs = service.jobs;
+                    const currentPricePerJob = currentRevenue / jobs;
+
+                    // Scenario with price adjustment (now in dollars)
+                    const adjustedPricePerJob = currentPricePerJob + priceAdjustment;
+                    const adjustedRevenue = adjustedPricePerJob * jobs;
+                    const adjustedGrossProfit = currentGrossProfit * (adjustedRevenue / currentRevenue); // Assumes COGS stays same
+                    const adjustedNetProfit = adjustedGrossProfit - currentBonuses;
+                    const adjustedNetMargin = (adjustedNetProfit / adjustedRevenue * 100);
+                    const percentageChange = ((adjustedPricePerJob - currentPricePerJob) / currentPricePerJob * 100);
+
+                    // Calculate price increase needed to hit target margin
+                    const targetNetProfit = (currentRevenue * targetMargin / 100) + currentBonuses;
+                    const neededGrossProfit = targetNetProfit + currentBonuses;
+                    const neededRevenue = (neededGrossProfit / currentGrossProfit) * currentRevenue;
+                    const priceIncreaseNeeded = ((neededRevenue - currentRevenue) / currentRevenue * 100);
+                    const dollarIncreaseNeeded = (neededRevenue - currentRevenue) / jobs;
+
+                    // Calculate slider range based on current price
+                    const minDollarChange = Math.round(-currentPricePerJob * 0.3); // -30% max decrease
+                    const maxDollarChange = Math.round(currentPricePerJob * 0.5); // +50% max increase
+                    const step = Math.max(1, Math.round(currentPricePerJob / 100)); // 1% increments
+
+                    return (
+                      <>
+                        {/* Price Adjustment Slider */}
+                        <div className="bg-card/50 rounded-lg p-4 border border-border">
+                          <label className="block text-sm font-medium text-foreground mb-3">
+                            <div className="flex items-center justify-between">
+                              <span>Price Adjustment per Job</span>
+                              <span className="text-accent font-bold">
+                                {percentageChange > 0 ? '+' : ''}{percentageChange.toFixed(1)}%
+                              </span>
+                            </div>
+                          </label>
+                          <input
+                            type="range"
+                            min={minDollarChange}
+                            max={maxDollarChange}
+                            step={step}
+                            value={priceAdjustment}
+                            onChange={(e) => setPriceAdjustment(parseFloat(e.target.value))}
+                            className="w-full h-2 bg-muted rounded-lg cursor-pointer accent-accent appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                            <span className="font-medium">${minDollarChange}</span>
+                            <span className="font-medium">$0</span>
+                            <span className="font-medium">+${maxDollarChange}</span>
+                          </div>
+                          <div className="text-center mt-2">
+                            <span className="text-sm font-bold text-foreground">
+                              {priceAdjustment > 0 ? '+' : ''}{priceAdjustment < 0 ? priceAdjustment : `$${priceAdjustment}`} per job
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Target Margin Selector */}
+                        <div className="bg-card/50 rounded-lg p-4 border border-border">
+                          <label className="block text-sm font-medium text-foreground mb-2">
+                            Target Profit Margin: {targetMargin}%
+                          </label>
+                          <div className="flex gap-2">
+                            {[15, 20, 25, 30, 35].map(margin => (
+                              <button
+                                key={margin}
+                                onClick={() => setTargetMargin(margin)}
+                                className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+                                  targetMargin === margin
+                                    ? 'bg-accent text-background'
+                                    : 'bg-muted text-foreground hover:bg-muted/80'
+                                }`}
+                              >
+                                {margin}%
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Results */}
+                        <div className="bg-card/50 rounded-lg p-6 border border-border">
+                          <h3 className="text-lg font-semibold text-foreground mb-4">Scenario Results</h3>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                            {/* Current State */}
+                            <div className="bg-muted/50 rounded-lg p-4 border border-border">
+                              <p className="text-xs text-muted-foreground mb-2">Current State</p>
+                              <div className="space-y-2">
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-foreground">Avg Price/Job:</span>
+                                  <span className="text-sm font-bold text-foreground">${(currentRevenue / jobs).toFixed(0)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-foreground">Net Margin:</span>
+                                  <span className={`text-sm font-bold ${currentNetMargin >= 25 ? 'text-green-500' : currentNetMargin >= 15 ? 'text-yellow-500' : 'text-red-500'}`}>
+                                    {currentNetMargin.toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-foreground">Profit/Job:</span>
+                                  <span className="text-sm font-bold text-foreground">${service.avgProfitPerJob.toFixed(0)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* With Adjustment */}
+                            <div className="bg-muted/50 rounded-lg p-4 border border-accent/50">
+                              <p className="text-xs text-muted-foreground mb-2">
+                                With {priceAdjustment > 0 ? '+$' : priceAdjustment < 0 ? '-$' : '$'}{Math.abs(priceAdjustment)} per job ({percentageChange > 0 ? '+' : ''}{percentageChange.toFixed(1)}%)
+                              </p>
+                              <div className="space-y-2">
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-foreground">New Price/Job:</span>
+                                  <span className="text-sm font-bold text-accent">${adjustedPricePerJob.toFixed(0)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-foreground">New Margin:</span>
+                                  <span className={`text-sm font-bold ${adjustedNetMargin >= 25 ? 'text-green-500' : adjustedNetMargin >= 15 ? 'text-yellow-500' : 'text-red-500'}`}>
+                                    {adjustedNetMargin.toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-foreground">New Profit/Job:</span>
+                                  <span className="text-sm font-bold text-accent">${(adjustedNetProfit / jobs).toFixed(0)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Recommendation */}
+                          <div className="bg-accent/10 border border-accent/50 rounded-lg p-4">
+                            <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
+                              <Target className="h-4 w-4 text-accent" />
+                              To Hit {targetMargin}% Target Margin:
+                            </h4>
+                            <div className="space-y-2">
+                              {priceIncreaseNeeded > 0 ? (
+                                <>
+                                  <p className="text-sm text-foreground">
+                                    • Add <span className="font-bold text-accent">${dollarIncreaseNeeded.toFixed(0)}</span> per job ({priceIncreaseNeeded.toFixed(1)}% increase)
+                                  </p>
+                                  <p className="text-sm text-foreground">
+                                    • New price per job: <span className="font-bold text-accent">${(neededRevenue / jobs).toFixed(0)}</span> (currently ${currentPricePerJob.toFixed(0)})
+                                  </p>
+                                  <p className="text-sm text-foreground">
+                                    • Total additional revenue: <span className="font-bold text-accent">${(neededRevenue - currentRevenue).toFixed(0)}</span> across {jobs} jobs
+                                  </p>
+                                </>
+                              ) : (
+                                <p className="text-sm text-green-500 font-medium">
+                                  ✓ Already exceeding target margin! Current: {currentNetMargin.toFixed(1)}%
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>
