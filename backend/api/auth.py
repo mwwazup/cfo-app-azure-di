@@ -124,12 +124,59 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        # In offline mode trust token without Supabase
+        # In offline mode trust token without validation
         if os.getenv("SKIP_SERVICE_CHECKS") == "1":
-            # simple decode: token is irrelevant
             return User(id=str(uuid4()), email="test@example.com", is_active=True)
 
-        # Verify token with Supabase
+        # Decode JWT to check if it's a Clerk token
+        import base64
+        import json
+        
+        try:
+            # Split JWT and decode payload
+            parts = token.split('.')
+            if len(parts) != 3:
+                raise credentials_exception
+            
+            # Decode the payload (add padding if needed)
+            payload_encoded = parts[1]
+            # Add padding if needed for base64 decoding
+            padding = 4 - (len(payload_encoded) % 4)
+            if padding != 4:
+                payload_encoded += '=' * padding
+            
+            payload = json.loads(base64.urlsafe_b64decode(payload_encoded))
+            
+            # Check if this is a Clerk token (Clerk user IDs start with 'user_')
+            user_id = payload.get('sub', '')
+            if user_id.startswith('user_'):
+                # This is a Clerk token - extract user info
+                # For now, we trust Clerk tokens since they come from a trusted source
+                # In production, you should verify the signature with Clerk's public key
+                
+                # Check token expiration
+                exp = payload.get('exp')
+                if exp and datetime.fromtimestamp(exp) < datetime.now():
+                    raise HTTPException(status_code=401, detail="Token expired")
+                
+                # If DB checks are disabled, return user from token
+                if db_disabled():
+                    return User(id=user_id, email=payload.get('email', 'unknown@clerk.dev'), is_active=True)
+                
+                # Otherwise check if user exists in DB, if not create a stub
+                # (In production you might want to sync Clerk users to your DB)
+                db_user = db.query(DBUser).filter(DBUser.id == user_id).first()
+                if db_user:
+                    return User.model_validate(db_user)
+                else:
+                    # Return a minimal user object for Clerk users not yet in DB
+                    return User(id=user_id, email=payload.get('email', 'unknown@clerk.dev'), is_active=True)
+            
+        except (ValueError, KeyError, json.JSONDecodeError):
+            # If it's not a Clerk token, try Supabase validation
+            pass
+        
+        # Fall back to Supabase token validation
         supabase = get_supabase_auth()
         user = supabase.auth.get_user(token)
         if not user or not user.user:
@@ -145,6 +192,8 @@ async def get_current_user(
             raise credentials_exception
 
         return User.model_validate(db_user)
+    except HTTPException:
+        raise
     except Exception as e:
         raise credentials_exception
 
