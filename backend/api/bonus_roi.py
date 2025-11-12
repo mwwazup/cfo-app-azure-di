@@ -13,9 +13,9 @@ logger = get_logger(__name__)
 
 @bonus_roi_router.get("/api/bonus-roi-analysis")
 async def get_bonus_roi_analysis(
+    userId: str = Query(..., description="User ID"),
     year: int = Query(..., description="Year to analyze"),
-    month: Optional[int] = Query(None, description="Specific month (1-12), omit for YTD"),
-    current_user: User = Depends(get_current_user)
+    month: Optional[int] = Query(None, description="Specific month (1-12), omit for YTD")
 ):
     """
     Calculate bonus program effectiveness metrics
@@ -27,7 +27,6 @@ async def get_bonus_roi_analysis(
         - Labor cost analysis
     """
     try:
-        userId = current_user.id
         logger.info(f"Bonus ROI analysis requested - user={userId}, year={year}, month={month}")
         supabase = get_supabase_db()
         
