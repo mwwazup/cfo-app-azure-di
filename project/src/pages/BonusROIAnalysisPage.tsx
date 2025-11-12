@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Calendar, DollarSign, TrendingUp, TrendingDown, Target, CheckCircle, Filter, Briefcase, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
@@ -804,7 +804,7 @@ export function BonusROIAnalysisPage() {
                         const monthlyImpact = profitIncrease * jobs;
                         
                         return (
-                          <>
+                          <React.Fragment key={service.serviceName}>
                             <tr 
                               key={index} 
                               className="border-b border-border hover:bg-muted/20 cursor-pointer"
@@ -914,7 +914,7 @@ export function BonusROIAnalysisPage() {
                                 </td>
                               </tr>
                             )}
-                          </>
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
