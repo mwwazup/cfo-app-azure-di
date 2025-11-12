@@ -4,6 +4,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -19,7 +20,9 @@ import {
   Lightbulb,
   ChevronDown,
   ChevronUp,
-  Upload
+  Upload,
+  Filter,
+  X
 } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AddPayPeriodDialog } from '../components/employee/AddPayPeriodDialog';
@@ -1005,11 +1008,12 @@ const EmployeeLERPage: React.FC = () => {
 
   const selectedPeriod = payPeriods[selectedPeriodIndex];
 
-  // Filter records by year and month
+  // Filter records by year and month ACROSS ALL PAY PERIODS
   const filteredDailyRecords = useMemo(() => {
-    if (!selectedPeriod) return [];
+    // Get all daily records from ALL pay periods
+    const allRecords = payPeriodsData.flatMap(period => period.dailyRecords);
     
-    const filtered = selectedPeriod.dailyRecords.filter(record => {
+    const filtered = allRecords.filter(record => {
       const recordDate = parseLocalDate(record.date);
       
       // Year filter
@@ -1025,23 +1029,61 @@ const EmployeeLERPage: React.FC = () => {
       return true;
     });
     
-    // Debug: Log first filtered record's bonus values
-    if (filtered.length > 0) {
-      console.log('🎯 First filtered record for display:', {
-        date: filtered[0].date,
-        ler: filtered[0].ler,
-        bonusQualifiedForPercent: filtered[0].bonusQualifiedForPercent,
-        appointmentBasedBonus: filtered[0].appointmentBasedBonus,
-        qualifyForBonus: filtered[0].qualifyForBonus,
-        numberOfJobs: filtered[0].numberOfJobs,
-        netProfitPercent: filtered[0].dailyNetProfitAfterBonusPercent,
-        totalRevenue: filtered[0].totalJobRevenue,
-        basePay: filtered[0].employeeBasePay
-      });
+    // Sort by date descending (newest first)
+    return filtered.sort((a, b) => {
+      const dateA = parseLocalDate(a.date);
+      const dateB = parseLocalDate(b.date);
+      return dateB.getTime() - dateA.getTime();
+    });
+  }, [payPeriodsData, filterYear, filterMonth]);
+
+  // Calculate totals for filtered records (when month/year filter is active)
+  const filteredTotals = useMemo(() => {
+    if (filteredDailyRecords.length === 0) {
+      return {
+        totalJobs: 0,
+        totalRevenue: 0,
+        totalHours: 0,
+        avgLER: 0,
+        totalLERBonus: 0,
+        totalApptBonus: 0,
+        totalBonuses: 0,
+        totalPay: 0,
+        totalNetProfit: 0,
+        avgNetProfitPercent: 0
+      };
     }
+
+    const totalJobs = filteredDailyRecords.reduce((sum, r) => sum + r.numberOfJobs, 0);
+    const totalRevenue = filteredDailyRecords.reduce((sum, r) => sum + r.totalJobRevenue, 0);
+    const totalHours = filteredDailyRecords.reduce((sum, r) => sum + r.totalHoursWorked, 0);
+    const totalLERBonus = filteredDailyRecords.reduce((sum, r) => sum + (r.qualifyForBonus ? r.bonusQualifiedForPercent : 0), 0);
+    const totalApptBonus = filteredDailyRecords.reduce((sum, r) => sum + r.appointmentBasedBonus, 0);
+    const totalBonuses = totalLERBonus + totalApptBonus;
+    const totalPay = filteredDailyRecords.reduce((sum, r) => sum + r.totalEmployeePay, 0);
+    const totalNetProfit = filteredDailyRecords.reduce((sum, r) => sum + r.dailyNetProfitAfterBonus, 0);
     
-    return filtered;
-  }, [selectedPeriod, filterYear, filterMonth]);
+    // Calculate average LER (weighted by gross profit)
+    const totalGrossProfit = filteredDailyRecords.reduce((sum, r) => sum + r.grossProfitBeforeBonus, 0);
+    const totalBasePay = filteredDailyRecords.reduce((sum, r) => sum + r.employeeBasePay, 0);
+    const avgLER = totalBasePay > 0 ? totalGrossProfit / totalBasePay : 0;
+    
+    // Calculate average net profit percent
+    const avgNetProfitPercent = totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : 0;
+
+    return {
+      totalJobs,
+      totalRevenue,
+      totalHours,
+      avgLER,
+      totalLERBonus,
+      totalApptBonus,
+      totalBonuses,
+      totalPay,
+      totalNetProfit,
+      avgNetProfitPercent
+    };
+  }, [filteredDailyRecords]);
 
   // Calculate YTD KPIs (across all pay periods in current year)
   const kpis = useMemo(() => {
@@ -1737,51 +1779,58 @@ const EmployeeLERPage: React.FC = () => {
         {/* Daily Records Table */}
         <Card className="bg-muted/30">
           <CardHeader className="flex flex-row items-center justify-between">
-            <div className="flex items-center gap-3">
-              <CardTitle className="text-foreground">Daily Performance Records</CardTitle>
-              {selectedPeriod && (
-                <Badge variant="outline" className="text-xs">
-                  {filteredDailyRecords.length} of {selectedPeriod.dailyRecords.length} records
-                </Badge>
-              )}
-            </div>
-            <div className="flex gap-2 items-center">
+            <CardTitle className="text-foreground">Daily Performance Records</CardTitle>
+            <div className="flex gap-3 items-center">
               {/* Year Filter */}
-              <select
-                value={filterYear}
-                onChange={(e) => setFilterYear(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                className="px-3 py-1 rounded-md border border-gray-700 bg-gray-800 text-sm"
-              >
-                <option value="all">All Years</option>
-                {Array.from(new Set(payPeriodsData.flatMap(p => 
-                  p.dailyRecords.map(r => new Date(r.date).getFullYear())
-                ))).sort((a, b) => b - a).map(year => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-accent" />
+                <Select 
+                  value={filterYear === 'all' ? 'all' : filterYear.toString()}
+                  onValueChange={(value) => setFilterYear(value === 'all' ? 'all' : parseInt(value))}
+                >
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="Year" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Years</SelectItem>
+                    {Array.from(new Set(payPeriodsData.flatMap(p => 
+                      p.dailyRecords.map(r => new Date(r.date).getFullYear())
+                    ))).sort((a, b) => b - a).map(year => (
+                      <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
               {/* Month Filter */}
-              <select
-                value={filterMonth}
-                onChange={(e) => setFilterMonth(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                className="px-3 py-1 rounded-md border border-gray-700 bg-gray-800 text-sm"
-              >
-                <option value="all">All Months</option>
-                <option value="0">January</option>
-                <option value="1">February</option>
-                <option value="2">March</option>
-                <option value="3">April</option>
-                <option value="4">May</option>
-                <option value="5">June</option>
-                <option value="6">July</option>
-                <option value="7">August</option>
-                <option value="8">September</option>
-                <option value="9">October</option>
-                <option value="10">November</option>
-                <option value="11">December</option>
-              </select>
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-accent" />
+                <Select 
+                  value={filterMonth === 'all' ? 'all' : filterMonth.toString()}
+                  onValueChange={(value) => setFilterMonth(value === 'all' ? 'all' : parseInt(value))}
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Month" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Months</SelectItem>
+                    <SelectItem value="0">January</SelectItem>
+                    <SelectItem value="1">February</SelectItem>
+                    <SelectItem value="2">March</SelectItem>
+                    <SelectItem value="3">April</SelectItem>
+                    <SelectItem value="4">May</SelectItem>
+                    <SelectItem value="5">June</SelectItem>
+                    <SelectItem value="6">July</SelectItem>
+                    <SelectItem value="7">August</SelectItem>
+                    <SelectItem value="8">September</SelectItem>
+                    <SelectItem value="9">October</SelectItem>
+                    <SelectItem value="10">November</SelectItem>
+                    <SelectItem value="11">December</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-              {/* Clear Filters Button - only show when filters are active */}
+              {/* Clear Filters Button - Show when any filter is active */}
               {(filterYear !== 'all' || filterMonth !== 'all') && (
                 <Button
                   onClick={() => {
@@ -1790,9 +1839,10 @@ const EmployeeLERPage: React.FC = () => {
                   }}
                   variant="ghost"
                   size="sm"
-                  className="text-xs"
+                  className="h-8 w-8 p-0"
+                  title="Clear filters"
                 >
-                  Clear Filters
+                  <X className="h-4 w-4" />
                 </Button>
               )}
 
@@ -1980,6 +2030,59 @@ const EmployeeLERPage: React.FC = () => {
                       </td>
                     </tr>
                   ))}
+                  
+                  {/* Totals Row - Show when filters are active */}
+                  {(filterYear !== 'all' || filterMonth !== 'all') && filteredDailyRecords.length > 0 && (
+                    <tr className="border-t-2 border-accent bg-accent/10">
+                      <td className="py-3 px-4 text-foreground font-bold">
+                        TOTALS
+                      </td>
+                      <td className="py-3 px-4 text-foreground font-bold">
+                        {filteredTotals.totalJobs}
+                      </td>
+                      <td className="py-3 px-4 text-foreground font-bold">
+                        ${filteredTotals.totalRevenue.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-foreground font-bold">
+                        {filteredTotals.totalHours.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-muted-foreground text-xs">
+                        -
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge variant={getLERBadgeColor(filteredTotals.avgLER)} className="font-bold">
+                          {filteredTotals.avgLER.toFixed(2)}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 text-green-500 font-bold">
+                        ${filteredTotals.totalLERBonus.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-green-500 font-bold">
+                        ${filteredTotals.totalApptBonus.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-green-500 font-bold">
+                        ${filteredTotals.totalBonuses.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-foreground font-bold">
+                        ${filteredTotals.totalPay.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="text-foreground font-bold">
+                          ${filteredTotals.totalNetProfit.toFixed(2)}
+                        </div>
+                        <div className={`text-xs font-bold ${
+                          filteredTotals.avgNetProfitPercent >= 25 
+                            ? 'text-green-500' 
+                            : 'text-red-500'
+                        }`}>
+                          {filteredTotals.avgNetProfitPercent.toFixed(1)}%
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-right text-muted-foreground text-xs">
+                        -
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
