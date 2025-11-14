@@ -19,7 +19,7 @@ import {
   TrendingDown
 } from 'lucide-react';
 import { useState } from 'react';
-// import VoiceCoach from '../VoiceCoach'; // DISABLED - Archived for future use
+import { ZepChatBubble } from '../ZepChatBubble';
 
 export function DashboardLayout() {
   const { isLoaded, isSignedIn, email } = useAuthContext();
@@ -192,8 +192,8 @@ export function DashboardLayout() {
         </div>
       </div>
       
-      {/* Global Voice Coach - Floating Button - DISABLED */}
-      {/* <VoiceCoach /> */}
+      {/* Global AI Chat - Floating Bubble on all pages */}
+      <ZepChatBubble />
     </div>
   );
 }

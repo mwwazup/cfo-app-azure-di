@@ -10,8 +10,7 @@ import openai
 from supabase import create_client, Client
 import httpx
 from datetime import datetime
-from api import auth, chat, memory, business, financial, bonus_roi
-from db import init_db, get_neo4j_driver, close_neo4j_driver
+from api import auth, chat, memory, business, financial, bonus_roi, zep
 from logging_config import setup_logging, get_logger
 
 # Load environment variables
@@ -24,27 +23,17 @@ logger = get_logger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="CFO App API",
-    description="Backend API for CFO App with Supabase, OpenAI, Zep, and Neo4j integration",
+    description="Backend API for CFO App with Supabase, Claude AI, and Zep Cloud integration",
     version="1.0.0"
 )
 
-# Initialize database connections - skip if DB issues
-skip_db = os.getenv("SKIP_DB", "0") == "1"
-if not skip_db:
-    try:
-        init_db(app)
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.warning(f"Database initialization failed: {e}")
-        logger.warning("Continuing without database connection")
-else:
-    logger.info("Skipping database initialization (SKIP_DB=1)")
+# Neo4j removed - not used in this application
+logger.info("Database connections managed by individual services")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup resources on app shutdown"""
-    # close_neo4j_driver is synchronous; calling it directly avoids TypeError
-    close_neo4j_driver()
+    logger.info("Shutting down gracefully")
 
 # Configure CORS - use environment variable for allowed origins
 allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
@@ -68,6 +57,7 @@ app.include_router(business.router)
 app.include_router(financial.router)
 app.include_router(financial.revenue_router)  # Include revenue router separately
 app.include_router(bonus_roi.bonus_roi_router)  # Include bonus ROI router
+app.include_router(zep.router)  # Include Zep proxy router
 
 @app.on_event("startup")
 async def startup_event():
@@ -104,8 +94,8 @@ async def startup_event():
         logger.error(f"{error_msg}: {str(e)}")
         errors.append(error_msg)
 
-    # Skip Zep and Neo4j connections - not currently used
-    logger.info("Skipping Zep and Neo4j connection tests - not currently used")
+    # Zep is tested via backend proxy endpoint
+    logger.info("Zep connection managed via backend proxy")
 
     if errors:
         raise HTTPException(
@@ -146,8 +136,8 @@ async def health_check():
     else:
         health_status["checks"]["openai"] = "not_configured"
     
-    # Neo4j is not currently used
-    health_status["checks"]["neo4j"] = "skipped"
+    # Neo4j removed - not used
+    health_status["checks"]["zep"] = "via_proxy"
     
     status_code = 200 if health_status["status"] in ["healthy", "degraded"] else 503
     return JSONResponse(content=health_status, status_code=status_code)
