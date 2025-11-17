@@ -112,21 +112,21 @@ export class KPIRecordsService {
         records = records.filter(record => record.status === filters.status);
       }
 
-      // Handle period filters that require multiple records (like last3months, ytd)
+      // Handle period filters that require multiple records (like ytd)
       if (filters.period) {
         const now = new Date();
         const currentYear = now.getFullYear();
         
         switch (filters.period) {
-          case 'last3months':
-            const threeMonthsAgo = new Date();
-            threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 2);
-            const startPeriod = `${threeMonthsAgo.getFullYear()}-${(threeMonthsAgo.getMonth() + 1).toString().padStart(2, '0')}-01`;
-            records = records.filter(record => record.period >= startPeriod);
-            break;
           case 'ytd':
             const ytdStart = `${currentYear}-01-01`;
-            records = records.filter(record => record.period >= ytdStart);
+            const latestPeriod = records.reduce((latest, record) => {
+              if (record.period >= latest) {
+                return record.period;
+              }
+              return latest;
+            }, ytdStart);
+            records = records.filter(record => record.period === latestPeriod);
             break;
         }
       }

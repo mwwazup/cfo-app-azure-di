@@ -24,14 +24,16 @@ import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Input } from '../ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { MoneyBreakdown } from './MoneyBreakdown';
+import { claudeService } from '../../services/claudeService';
 
 
 interface KPIDashboardProps {
   className?: string;
 }
 
-type FilterPeriod = 'current_month' | 'last_month' | 'same_month_last_year' | 'last3months' | 'ytd' | 'all' | string;
+type FilterPeriod = 'current_month' | 'last_month' | 'same_month_last_year' | 'ytd' | 'all' | string;
 
 // Icon mapping for different KPI types
 const getKPIIcon = (kpiName: string) => {
@@ -65,6 +67,11 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   const [hasHistoricalData, setHasHistoricalData] = useState(false);
   const lastLoadTime = React.useRef<number>(0);
   const [generatingMessage, setGeneratingMessage] = useState('Surfing');
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [coachLoading, setCoachLoading] = useState(false);
+  const [coachError, setCoachError] = useState<string | null>(null);
+  const [coachText, setCoachText] = useState('');
+  const [selectedKpi, setSelectedKpi] = useState<KPIRecord | null>(null);
   
   // Cycle through fun messages during generation
   const generatingMessages = ['Surfing', 'Swimming', 'Riding', 'Wave', 'Floating', 'Relaxed', "Chill'n"];
@@ -199,6 +206,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
           'Revenue Gap to Target',
           'Revenue Velocity',
           'Profit Margin',
+          'Break-Even Revenue',
           'Net Profit After Owner Draws',
           'Monthly Revenue Contribution'
         ];
@@ -221,6 +229,7 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
           'Revenue Gap to Target',
           'Revenue Velocity',
           'Profit Margin',
+          'Break-Even Revenue',
           'Net Profit After Owner Draws',
           'Monthly Revenue Contribution'
         ];
@@ -395,6 +404,49 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
     return `${sign}${trend.toFixed(1)}%`;
   };
 
+  const getKpiPeriodLabel = (kpi: KPIRecord): string => {
+    try {
+      if (!kpi.period) return '';
+      const parts = kpi.period.split('-');
+      if (parts.length >= 2) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10);
+        if (!isNaN(year) && !isNaN(month)) {
+          const date = new Date(year, month - 1, 15);
+          return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        }
+      }
+      return kpi.period;
+    } catch {
+      return kpi.period;
+    }
+  };
+
+  const handleExplainKpi = async (kpi: KPIRecord) => {
+    if (!dbUserId) return;
+    setSelectedKpi(kpi);
+    setCoachOpen(true);
+    setCoachLoading(true);
+    setCoachError(null);
+    setCoachText('');
+    try {
+      const periodLabel = getKpiPeriodLabel(kpi);
+      const text = await claudeService.explainKPI({
+        userId: dbUserId,
+        kpiName: kpi.kpi_name,
+        kpiValue: kpi.kpi_value,
+        goalValue: kpi.goal_value,
+        status: kpi.status,
+        periodLabel,
+      });
+      setCoachText(text);
+    } catch (_error) {
+      setCoachError('Unable to load explanation right now. Please try again in a moment.');
+    } finally {
+      setCoachLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center py-12">
@@ -477,8 +529,6 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                   return lastMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
                 } else if (filterPeriod === 'ytd') {
                   return `Year to Date ${now.getFullYear()}`;
-                } else if (filterPeriod === 'last3months') {
-                  return 'Last 3 Months';
                 } else if (filterPeriod.includes('-')) {
                   // Parse period string to avoid timezone issues
                   const [yearStr, monthStr] = filterPeriod.split('-');
@@ -504,63 +554,62 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
           </div>
 
           {/* Filters */}
-      <div className="flex flex-wrap items-center gap-4 mb-6">
-        <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-accent" />
-          <Select value={filterPeriod} onValueChange={(value) => setFilterPeriod(value as FilterPeriod)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Period" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="current_month">{new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</SelectItem>
-              <SelectItem value="last_month">{(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); })()}</SelectItem>
-              <SelectItem value="2025-08">August 2025</SelectItem>
-              <SelectItem value="2025-07">July 2025</SelectItem>
-              <SelectItem value="2025-06">June 2025</SelectItem>
-              <SelectItem value="2025-05">May 2025</SelectItem>
-              <SelectItem value="2025-04">April 2025</SelectItem>
-              <SelectItem value="2025-03">March 2025</SelectItem>
-              <SelectItem value="2025-02">February 2025</SelectItem>
-              <SelectItem value="2025-01">January 2025</SelectItem>
-              <SelectItem value="last3months">Last 3 Months</SelectItem>
-              <SelectItem value="ytd">Year to Date</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+          <div className="flex flex-wrap items-center gap-4 mb-6">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-accent" />
+              <Select value={filterPeriod} onValueChange={(value) => setFilterPeriod(value as FilterPeriod)}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Period" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="current_month">{new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</SelectItem>
+                  <SelectItem value="last_month">{(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); })()}</SelectItem>
+                  <SelectItem value="2025-08">August 2025</SelectItem>
+                  <SelectItem value="2025-07">July 2025</SelectItem>
+                  <SelectItem value="2025-06">June 2025</SelectItem>
+                  <SelectItem value="2025-05">May 2025</SelectItem>
+                  <SelectItem value="2025-04">April 2025</SelectItem>
+                  <SelectItem value="2025-03">March 2025</SelectItem>
+                  <SelectItem value="2025-02">February 2025</SelectItem>
+                  <SelectItem value="2025-01">January 2025</SelectItem>
+                  <SelectItem value="ytd">Year to Date</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-accent" />
-          <Select value={filterCategory} onValueChange={setFilterCategory}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              <SelectItem value="Revenue">Revenue</SelectItem>
-              <SelectItem value="Growth">Growth</SelectItem>
-              <SelectItem value="Profitability">Profitability</SelectItem>
-              <SelectItem value="Revenue Planning">Revenue Planning</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-accent" />
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  <SelectItem value="Revenue">Revenue</SelectItem>
+                  <SelectItem value="Growth">Growth</SelectItem>
+                  <SelectItem value="Profitability">Profitability</SelectItem>
+                  <SelectItem value="Revenue Planning">Revenue Planning</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-        <div className="flex items-center gap-2">
-          <Target className="h-4 w-4 text-gray-500" />
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="good">Good</SelectItem>
-              <SelectItem value="warning">Warning</SelectItem>
-              <SelectItem value="alert">Alert</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+            <div className="flex items-center gap-2">
+              <Target className="h-4 w-4 text-gray-500" />
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="good">Good</SelectItem>
+                  <SelectItem value="warning">Warning</SelectItem>
+                  <SelectItem value="alert">Alert</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-      {/* KPI Cards Grid */}
+          {/* KPI Cards Grid */}
       {kpiRecords.length === 0 ? (
         <div className="text-center py-12">
           <Target className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -626,6 +675,8 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                                 return 'Am I leaving enough money in the business after paying myself?';
                               case 'Revenue Gap to Target':
                                 return 'Am I ahead or behind my annual revenue target?';
+                              case 'Break-Even Revenue':
+                                return 'Am I earning enough revenue to cover my costs before owner draws?';
                               default:
                                 return '';
                             }
@@ -730,7 +781,17 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                       <div className="mt-auto pt-3 border-t border-border">
                         {/* Enhanced explanation for historical comparison */}
                         <div className="mb-2">
-                          <div className="text-xs font-medium text-muted mb-1">What it means</div>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="text-xs font-medium text-muted">What it means</div>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-7 px-3 text-xs"
+                              onClick={() => handleExplainKpi(kpi)}
+                            >
+                              Coach Me
+                            </Button>
+                          </div>
                           <div className="text-xs text-foreground">
                             {(kpi as any).comparison_value ? (
                               (() => {
@@ -917,6 +978,45 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
           </>
         </CardContent>
       )}
+
+      <Dialog open={coachOpen} onOpenChange={setCoachOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedKpi ? selectedKpi.kpi_name.replace(/_/g, ' ') : 'KPI Insight'}
+            </DialogTitle>
+            <DialogDescription>
+              What does this all mean?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {coachLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Analyzing your KPIs and recent context…</span>
+              </div>
+            )}
+            {coachError && !coachLoading && (
+              <p className="text-sm text-red-500">{coachError}</p>
+            )}
+            {!coachLoading && !coachError && coachText && (
+              <div className="text-sm whitespace-pre-wrap text-foreground max-h-80 overflow-y-auto">
+                {coachText}
+              </div>
+            )}
+            {!coachLoading && !coachError && !coachText && (
+              <p className="text-sm text-muted-foreground">
+                No explanation available yet.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCoachOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

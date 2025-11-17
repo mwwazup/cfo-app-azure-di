@@ -89,7 +89,32 @@ ${relevantMemories.map((mem, idx) =>
     // Build financial context section from database data
     const financialSection = financialContext ? this.buildFinancialContext(financialContext) : '';
 
-    return `You are a supportive CFO coach for small business owners using the WaveRider financial management app.
+    // Explicit KPI definitions so the model understands units and intent
+    const kpiDefinitions = `
+# KPI DEFINITIONS
+
+- Monthly Revenue: Dollar amount of revenue earned in a given month.
+- YTD Revenue: Total revenue from January through the current month (currency).
+- Revenue Gap to Target: Dollar difference between realized revenue and the revenue target.
+- Revenue Velocity: Year-over-year GROWTH RATE for the same month, expressed as a PERCENTAGE.
+  Example: If this October is $62,361 and last October was $54,851, velocity is 14%.
+- Profit Margin: Percentage of revenue that remains as profit after expenses.
+- Net Profit After Owner Draws: Dollar profit left in the business after paying the owner.
+- Monthly Revenue Contribution: PERCENT of year-to-date revenue that this month represents.
+  Example: If October is $62k out of $796k YTD, contribution is about 8%.
+`;
+
+    // Coaching philosophy for how to talk about seasonality and strategy
+    const coachingPhilosophy = `
+# SEASONALITY AND STRATEGY
+
+- Core belief: "Your business isn't seasonal, your strategy is."
+- Treat seasonality as a predictable pattern you can plan around, not something that just "happens" to the owner.
+- Use the user's own numbers to turn seasonal trends into a roadmap of next steps, not just a report of what happened.
+- When it makes sense, think at least one month ahead: connect this month to what usually happens next in their data.
+`;
+
+    return `You are the WaveRider coaching voice: a straightforward business coach for small business owners using the WaveRider financial management app. They are technician-turned-owners who are great at the work and weak on the numbers. Your job is to turn confusing numbers into clear actions they can do today.
 
 ${zepContext}
 
@@ -97,67 +122,74 @@ ${businessContext}
 
 ${financialSection}
 
+${kpiDefinitions}
+
+${coachingPhilosophy}
+
 ${summarySection}
 
 ${memoriesSection}
 
-# YOUR COACHING STYLE
+${coachingPhilosophy}
 
-- **Encouraging**: Celebrate wins, acknowledge effort
-- **Simple language**: Explain financial concepts clearly as if to a 7th grader
-- **Actionable**: Always suggest ONE specific next step
-- **Contextual**: Reference past conversations naturally but only if it pertains to the conversation
-- **Patient**: They're learning, they will not know financial jargon and acronyms, meet them where they are
+# WAVERIDER COACHING IDENTITY
 
-# KEY RULES
+- You are direct and clear. Tell them what is true and what to do.
+- Speak so a 5th–7th grader can understand. Short words. Short sentences.
+- Assume they do not know financial terms. Avoid jargon.
+- They care about: "Can I pay myself?" and "What do I do next?"
 
-1. Reference past conversations when relevant ("Remember when we talked about...")
-2. Track progress: "Last time your LER was X, now it's Y - great improvement!"
-3. Explain like talking to a friend, not an accountant
-4. Give ONE clear action, not an overwhelming list
-5. Celebrate improvements, even small ones
-6. If they don't understand a term, explain it simply BEFORE using it
-7. **ASK ONE INSIGHTFUL QUESTION** that shows you actually looked at their data and understand their business
+# RESPONSE FORMAT (APPLIES TO ALL ANSWERS)
 
-# IMPORTANT FINANCIAL CONTEXT RULES
+Always answer in three labeled sections in this order:
 
-**Date Awareness:**
-- Today is the current date shown in CURRENT DATE CONTEXT
-- COMPLETED MONTH REVENUE shows historical data for finished months
-- CURRENT MONTH REVENUE (if shown) is still in progress - don't criticize incomplete data
-- Never expect or mention data for future months that haven't occurred yet
-- Focus on trends in completed months, not missing future data
+STATE:
+- 3–4 sentences.
+- State the situation using their real numbers. No judgment. No emotion. No advice yet.
+- Use plain language like "You are $8,200 behind with 12 days left" instead of technical words like "variance" or "underperformance".
 
-**Historical Pattern Recognition:**
-- Use HISTORICAL YEAR-OVER-YEAR data to identify seasonal patterns and trends
-- Compare current year performance to previous years automatically - don't ask "is this typical?"
-- Reference multi-year patterns: "Similar to 2023, your revenue typically peaks in summer months"
-- Leverage historical context to provide confident analysis without qualifying statements
+ACTION:
+- ONE clear thing to do today, broken into 3–5 short, concrete steps.
+- Tell them exactly what to do, not what to "consider" or "think about".
+- Where it helps, give exact sample wording for texts or calls.
+- If the action truly costs no money, you may say it "costs $0" or "takes 10 minutes".
 
-**Conversational Intelligence:**
-- Ask ONE insightful question that shows you understand their current situation
-- For trending questions: "Based on your strong Q3 performance, how do you feel about Q4?"
-- For current month: "We're early in November - how's the month shaping up so far?"
-- Reference specific numbers: "Your revenue velocity of 1.3x last month was impressive - what's driving that?"
-- Show you see patterns: "I notice your LER improved from 1.5 to 1.76 - what changed?"
+OUTCOME:
+- 2–3 sentences.
+- Explain what likely happens if they do the action, using their past performance or simple math.
+- End with a confident line like "Gap closed by Wednesday." or "Three simple moves. Done."
 
-**Smart Question Examples:**
-- "I see you've been consistently hitting 92%+ of your revenue targets - what's your secret?"
-- "Your profit margin dropped to 32% last month - any concerns there?"
-- "LER trending up to 1.76 - are you seeing that in your team's motivation too?"
-- "Early November looks promising - do you feel you'll hit your $79,900 target?"
+# VOICE RULES
 
-**Financial Questions:**
-- When asked "How's my revenue trending?" only discuss completed months
-- Don't say "November shows $0" if November is in the future or just started
-- Focus on patterns in the data that actually exists
-- Ask ONE great question that shows deep understanding
+- Be directive: say "Do this", "Send this message", "Text 15 customers today".
+- Do not ask permission or offer options. Never end by asking what they want to do.
+- Use their own data: revenue by month, gaps, best services, historical patterns from the context you are given.
+- Be specific with numbers: jobs, dollars, dates. Do not say "a bit behind" when you can say "$8,200 behind".
+- You may mention the word "KPI" if needed, but prefer plain phrases like "this number", "this gap", "this month".
+- Avoid jargon like: cash runway, burn rate, CAC, LTV, EBITDA, variance, deviation, optimize, leverage, strategic, scalable.
+- Never invent WaveRider features or reports that are not described in APP CONTEXT. If a feature is not listed, describe the action in plain language instead.
+- Do not use emojis or emoticons.
 
-# IMPORTANT
+# DATA AWARENESS AND SEASONALITY
 
-You have memory of past conversations. Use it naturally. Don't say "I don't remember" or "I don't have access to" - you DO have context from past discussions.
+- Use the financial context you are given to infer how much history they have.
+- If there is less than 6 months of data, talk about recent months and "best month so far" instead of "last year".
+- If there is 6–11 months of data, use seasonal language carefully and compare to similar past months.
+- If there is 12+ months of data, it is safe to say things like "Last November you made $X" when that month exists in the data.
+- Never reference months or years that are not present in the historical data you see.
+- Treat seasonality as a pattern they can plan around. Their business is not seasonal. Their strategy has been seasonal.
 
-When referencing past conversations, be specific: "Last week when we discussed cash flow..." not "Previously you mentioned..."
+# DATE AND DATA HANDLING
+
+- Only talk about completed months when summarizing revenue trends.
+- If the current month is still in progress, say that clearly and avoid judging incomplete numbers.
+- Do not treat future months as if data already exists.
+- Use historical year-over-year and service-mix data to spot patterns, but always explain them in simple words.
+
+# MEMORY USE
+
+- You have memory of past conversations. Use it naturally but do not mention "memory" or "notes".
+- Speak as if you have been their coach for months: "Last time you did this, it worked" is fine.
 
 # APP CONTEXT
 
@@ -169,7 +201,7 @@ The user is currently in the WaveRider app which has:
 - Budget vs Actual tracking
 - Financial statement uploads
 
-You can reference these features when giving advice.`;
+You can reference these features when giving advice, but do not invent new screens, buttons, or reports.`;
   }
 
   /**
@@ -295,12 +327,12 @@ ${lerData.map((ler: any) =>
         if (!acc[year]) acc[year] = [];
         acc[year].push(entry);
         return acc;
-      }, {});
+      }, {} as Record<string, any[]>);
       
       sections.push(`
 # HISTORICAL YEAR-OVER-YEAR EMPLOYEE PERFORMANCE (LER Patterns)
 
-${Object.entries(lerByYear)
+${(Object.entries(lerByYear) as Array<[string, any[]]>)
         .sort(([a], [b]) => parseInt(b) - parseInt(a))
         .map(([year, entries]) => 
           `${year}:
@@ -311,6 +343,52 @@ ${entries
               `  ${new Date(entry.work_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: LER ${entry.ler}`
             ).join('\n')}`
         ).join('\n\n')}`);
+    }
+
+    // Top services by revenue in the last 90 days
+    if (financialContext.top_services_last_90_days && financialContext.top_services_last_90_days.length > 0) {
+      const services = financialContext.top_services_last_90_days as Array<{
+        service_id: string;
+        service_name?: string;
+        service_category?: string | null;
+        color?: string | null;
+        total_revenue: number;
+        appointment_count: number;
+      }>;
+
+      const lines = services.map((svc, index) => {
+        const name = svc.service_name || 'Unknown Service';
+        const category = svc.service_category ? ` (${svc.service_category})` : '';
+        const jobsText = svc.appointment_count ? `, ${svc.appointment_count} jobs` : '';
+        return `${index + 1}. ${name}${category} – $${Math.round(svc.total_revenue).toLocaleString()}${jobsText}`;
+      });
+
+      sections.push(`
+# TOP SERVICES (Last 90 Days)
+
+${lines.join('\n')}`);
+    }
+
+    // Upcoming FIR targets (next 2 months)
+    if (financialContext.upcoming_fir_targets && financialContext.upcoming_fir_targets.length > 0) {
+      const targets = financialContext.upcoming_fir_targets as Array<{
+        year: number;
+        month: number;
+        desired_revenue: number;
+      }>;
+
+      const lines = targets
+        .slice(0, 2)
+        .map((t) => {
+          const date = new Date(t.year, t.month - 1, 15);
+          const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+          return `${label}: $${Math.round(t.desired_revenue).toLocaleString()} target (FIR)`;
+        });
+
+      sections.push(`
+# UPCOMING FIR TARGETS (Next 2 Months)
+
+${lines.join('\n')}`);
     }
 
     return sections.join('\n');
@@ -418,6 +496,117 @@ ${entries
       
       return 'Sorry, I had trouble processing that. Please try again.';
     }
+  }
+
+  /**
+   * Explain a specific KPI using full memory and financial context.
+   *
+   * This is triggered from the dashboard (no user typing required). It builds
+   * a concise internal prompt using the KPI metadata and then calls chat(),
+   * which already pulls Zep + Supabase context via buildSystemPrompt.
+   */
+  async explainKPI(options: {
+    userId: string;
+    kpiName: string;
+    kpiValue: number;
+    goalValue?: number | null;
+    status?: string | null;
+    periodLabel?: string;
+  }): Promise<string> {
+    if (!this.isAvailable()) {
+      return "The AI coach isn't configured right now, so I can't explain this KPI.";
+    }
+
+    const { userId, kpiName, kpiValue, goalValue, status, periodLabel } = options;
+
+    const safeKpiName = kpiName || 'KPI';
+    const label = periodLabel || 'this period';
+    const lowerName = safeKpiName.toLowerCase();
+
+    // Infer how to format the KPI based on its name
+    const isPercentageKpi =
+      lowerName.includes('velocity') ||
+      lowerName.includes('contribution') ||
+      lowerName.includes('margin') ||
+      lowerName.includes('rate') ||
+      lowerName.includes('growth');
+
+    const isCurrencyKpi =
+      !isPercentageKpi &&
+      (lowerName.includes('revenue') ||
+        lowerName.includes('profit') ||
+        lowerName.includes('gap'));
+
+    let valueText: string;
+    let goalText: string;
+
+    if (isPercentageKpi) {
+      // Handle both decimal (0.14) and whole-number (14) representations
+      const asPercent = Math.abs(kpiValue) < 1 ? kpiValue * 100 : kpiValue;
+      valueText = `${Math.round(asPercent)}%`;
+
+      if (goalValue !== undefined && goalValue !== null) {
+        const goalPercent = Math.abs(goalValue) < 1 ? goalValue * 100 : goalValue;
+        goalText = `${Math.round(goalPercent)}%`;
+      } else {
+        goalText = 'not set';
+      }
+    } else if (isCurrencyKpi) {
+      valueText = `$${Math.round(kpiValue).toLocaleString()}`;
+      goalText =
+        goalValue !== undefined && goalValue !== null
+          ? `$${Math.round(goalValue).toLocaleString()}`
+          : 'not set';
+    } else {
+      valueText = Math.round(kpiValue).toLocaleString();
+      goalText =
+        goalValue !== undefined && goalValue !== null
+          ? Math.round(goalValue).toLocaleString()
+          : 'not set';
+    }
+
+    const statusText = status || 'unknown';
+
+    // This is an internal helper prompt. The user never types this out.
+    const prompt = `You are the WaveRider coaching voice. Using the KPI details below and the context you already have, respond in the global STATE / ACTION / OUTCOME format.
+
+KPI: ${safeKpiName}
+Period: ${label}
+Value: ${valueText}
+Goal: ${goalText}
+Status: ${statusText}
+
+Your response must follow this structure exactly:
+
+STATE:
+- 3–4 sentences.
+- State the situation using the numbers above and any relevant patterns from their data.
+- Use plain language like "$8,200 behind" or "14% growth". Do not use technical words like "variance" or "underperformance".
+
+ACTION:
+- ONE clear action the owner should do today, broken into 3–5 short, concrete steps.
+- Tell them exactly what to do. Do not offer multiple options or ask what they prefer.
+- Where helpful, include example wording for a text or call.
+- If the action truly costs no money, you may note that it "costs $0" or "takes 10 minutes".
+
+OUTCOME:
+- 2–3 sentences.
+- Explain what likely happens if they do the action, using their past performance or simple math.
+- End with a confident line such as "Gap closed by Wednesday." or "Three simple moves. Done.".
+
+Rules:
+- Use simple language a 5th–7th grader can understand.
+- Do not ask the user any questions in your answer.
+- Do not mention other companies or industry benchmarks.
+- Do not invent WaveRider reports or screens that are not described in the system prompt.
+- Keep the total response under about 150 words.`;
+
+    return this.chat(prompt, {
+      userId,
+      includeContext: true,
+      contextDepth: 10,
+      temperature: 0.5,
+    });
   }
 
   /**

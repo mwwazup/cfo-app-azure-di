@@ -467,7 +467,10 @@ async def upsert_kpi_record(request: UpsertKPIRequest):
         kpi_data['user_id'] = request.userId
         
         # Use upsert to create or update
-        result = supabase.table('kpi_records').upsert(kpi_data).execute()
+        result = supabase.table('kpi_records').upsert(
+            kpi_data,
+            on_conflict='user_id,kpi_name,period'
+        ).execute()
         
         if result.data:
             return {"ok": True, "record": result.data[0]}

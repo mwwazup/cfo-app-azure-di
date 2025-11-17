@@ -24,7 +24,7 @@ def get_supabase_client() -> Client:
 
 def get_financial_context(user_id: str) -> Dict[str, Any]:
     """Get financial context data for a user from Supabase tables"""
-    from datetime import datetime
+    from datetime import datetime, timedelta
     
     supabase = get_supabase_client()
     if not supabase:
@@ -156,6 +156,115 @@ def get_financial_context(user_id: str) -> Dict[str, Any]:
                 logger.info(f"📊 Retrieved {len(valid_yoy_kpis)} historical year-over-year KPI entries for {user_id}")
         except Exception as e:
             logger.warning(f"Could not retrieve historical year-over-year KPI data: {e}")
+
+        # Get top services by revenue over the last 90 days
+        try:
+            ninety_days_ago = now - timedelta(days=90)
+
+            # Fetch recent service activities
+            service_activities_response = supabase.table('service_activities').select(
+                'service_id, week_start_date, total_revenue, appointment_count'
+            ).eq('user_id', user_id).gte('week_start_date', ninety_days_ago.strftime('%Y-%m-%d')).execute()
+
+            service_activities_data = service_activities_response.data or []
+
+            if service_activities_data:
+                # Aggregate revenue and appointments per service
+                service_totals: Dict[str, Dict[str, Any]] = {}
+                for activity in service_activities_data:
+                    service_id = activity.get('service_id')
+                    if not service_id:
+                        continue
+
+                    total_revenue = float(activity.get('total_revenue') or 0)
+                    appointments = int(activity.get('appointment_count') or 0)
+
+                    if service_id not in service_totals:
+                        service_totals[service_id] = {
+                            'service_id': service_id,
+                            'total_revenue': 0.0,
+                            'appointment_count': 0
+                        }
+
+                    service_totals[service_id]['total_revenue'] += total_revenue
+                    service_totals[service_id]['appointment_count'] += appointments
+
+                if service_totals:
+                    # Fetch service metadata (names, categories, colors)
+                    service_ids = list(service_totals.keys())
+                    services_response = supabase.table('services').select(
+                        'id, service_name, service_category, color'
+                    ).eq('user_id', user_id).in_('id', service_ids).execute()
+
+                    services_data = services_response.data or []
+                    service_meta = {s['id']: s for s in services_data}
+
+                    # Build enriched list and sort by revenue
+                    enriched = []
+                    for service_id, totals in service_totals.items():
+                        meta = service_meta.get(service_id, {})
+                        enriched.append({
+                            'service_id': service_id,
+                            'service_name': meta.get('service_name', 'Unknown Service'),
+                            'service_category': meta.get('service_category'),
+                            'color': meta.get('color'),
+                            'total_revenue': totals['total_revenue'],
+                            'appointment_count': totals['appointment_count'],
+                        })
+
+                    # Sort by total revenue descending and take top 3
+                    enriched.sort(key=lambda s: s['total_revenue'], reverse=True)
+                    top_services = enriched[:3]
+
+                    financial_data['top_services_last_90_days'] = top_services
+                    logger.info(
+                        f"📊 Computed top {len(top_services)} services for last 90 days for {user_id}"
+                    )
+        except Exception as e:
+            logger.warning(f"Could not retrieve top services for last 90 days: {e}")
+
+        # Get upcoming FIR targets (next 2 months of desired_revenue)
+        try:
+            def add_month(year: int, month: int, delta: int) -> tuple[int, int]:
+                new_month = month + delta
+                new_year = year + (new_month - 1) // 12
+                new_month = ((new_month - 1) % 12) + 1
+                return new_year, new_month
+
+            next1_year, next1_month = add_month(current_year, current_month, 1)
+            next2_year, next2_month = add_month(current_year, current_month, 2)
+
+            years_to_check = list({current_year, next1_year, next2_year})
+
+            fir_response = supabase.table('revenue_entries').select(
+                'year, month, desired_revenue'
+            ).eq('user_id', user_id).in_('year', years_to_check).execute()
+
+            fir_data = fir_response.data or []
+            upcoming_targets = []
+            for entry in fir_data:
+                year = entry.get('year')
+                month = entry.get('month')
+                desired_revenue = entry.get('desired_revenue')
+                if desired_revenue is None:
+                    continue
+
+                if (year, month) in [(next1_year, next1_month), (next2_year, next2_month)]:
+                    upcoming_targets.append({
+                        'year': year,
+                        'month': month,
+                        'desired_revenue': float(desired_revenue),
+                    })
+
+            if upcoming_targets:
+                # Sort by year/month ascending
+                upcoming_targets.sort(key=lambda e: (e['year'], e['month']))
+                financial_data['upcoming_fir_targets'] = upcoming_targets
+                logger.info(
+                    f"📊 Retrieved {len(upcoming_targets)} upcoming FIR targets for next 2 months for {user_id}"
+                )
+        except Exception as e:
+            logger.warning(f"Could not retrieve upcoming FIR targets: {e}")
 
         # Get historical year-over-year LER data (performance patterns)
         try:
