@@ -1,6 +1,7 @@
 // src/contexts/auth-context.tsx
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { createContext, useContext, useMemo, useEffect } from 'react';
 import { useUser } from '@clerk/clerk-react';
+import { upsertUserProfile } from '../config/supabaseClient';
 
 type AuthCtx = {
   isLoaded: boolean;
@@ -28,6 +29,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     null;
 
   // Note: We now use clerkUserId directly as dbUserId since backend accepts Clerk user IDs
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !user || !email) return;
+
+    // Sync Clerk profile into Supabase `profiles` table.
+    // `auth_users` is legacy; `profiles` is our source of truth for names/avatars.
+    upsertUserProfile({
+      userId: user.id,
+      email,
+      firstName: user.firstName ?? null,
+      lastName: user.lastName ?? null,
+      avatarUrl: user.imageUrl ?? null,
+    }).catch((err) => {
+      console.error('Error syncing Clerk profile to Supabase profiles', err);
+    });
+  }, [isLoaded, isSignedIn, user, email]);
 
   const value = useMemo(
     () => ({

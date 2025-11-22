@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Mail, Home } from 'lucide-react';
-import { useSignIn, useUser } from '@clerk/clerk-react';
+import { useClerk, useSignIn, useUser } from '@clerk/clerk-react';
 import { Button } from '../../components/ui/button';
 
 export function LoginPage() {
   const { signIn } = useSignIn();
   const { user, isSignedIn } = useUser();
+  const { signOut } = useClerk();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -61,9 +62,7 @@ export function LoginPage() {
 
   const handleLogout = async () => {
     try {
-      if (user) {
-        await user.signOut();
-      }
+      await signOut();
       setError('');
     } catch (error) {
       console.error('Logout error:', error);

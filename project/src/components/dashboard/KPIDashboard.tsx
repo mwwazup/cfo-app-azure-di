@@ -646,6 +646,23 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
   .map((kpi) => {
             const IconComponent = getKPIIcon(kpi.kpi_name);
             
+            const isHistoricalCard = (() => {
+              try {
+                if (!kpi.period) return false;
+                const parts = kpi.period.split('-');
+                if (parts.length < 2) return false;
+                const periodYear = parseInt(parts[0], 10);
+                const periodMonth = parseInt(parts[1], 10);
+                if (isNaN(periodYear) || isNaN(periodMonth)) return false;
+                const now = new Date();
+                const currentYear = now.getFullYear();
+                const currentMonth = now.getMonth() + 1;
+                return periodYear < currentYear || (periodYear === currentYear && periodMonth < currentMonth);
+              } catch {
+                return false;
+              }
+            })();
+
             return (
               <div key={kpi.id} className="h-full flex flex-col">
                 {/* KPI Card */}
@@ -783,14 +800,16 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                         <div className="mb-2">
                           <div className="flex items-center justify-between mb-1">
                             <div className="text-xs font-medium text-muted">What it means</div>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="h-7 px-3 text-xs"
-                              onClick={() => handleExplainKpi(kpi)}
-                            >
-                              Coach Me
-                            </Button>
+                            {!isHistoricalCard && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="h-7 px-3 text-xs"
+                                onClick={() => handleExplainKpi(kpi)}
+                              >
+                                Coach Me
+                              </Button>
+                            )}
                           </div>
                           <div className="text-xs text-foreground">
                             {(kpi as any).comparison_value ? (
@@ -839,15 +858,65 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                                   const periodDate = new Date(periodYear, periodMonth - 1, 15); // Use 15th to avoid timezone issues
                                   const monthName = periodDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
                                   
-                                  // Convert present tense to past tense and update month references
-                                  return kpi.plain_explanation
-                                    .replace(/is accelerating/g, 'was accelerating')
-                                    .replace(/This month you earned/g, `In ${monthName} you earned`)
-                                    .replace(/you made/g, 'you made')
-                                    .replace(/This "velocity" shows/g, 'This "velocity" showed')
-                                    .replace(/your business is growing/g, 'your business was growing')
-                                    .replace(/which is critical/g, 'which was critical')
-                                    .replace(/\b(January|February|March|April|May|June|July|August|September|October|November|December) \d{4}\b/g, monthName);
+                                  let explanation = kpi.plain_explanation;
+
+                                  // KPI-specific tense adjustments for historical periods
+                                  switch (kpi.kpi_name) {
+                                    case 'Monthly Revenue':
+                                      explanation = explanation.replace(
+                                        /^Monthly revenue of\b/,
+                                        `Monthly revenue in ${monthName} was`
+                                      );
+                                      break;
+                                    case 'YTD Revenue':
+                                      explanation = explanation.replace(
+                                        /^Year-to-date revenue of\b/,
+                                        `Year-to-date revenue as of ${monthName} was`
+                                      );
+                                      break;
+                                    case 'Revenue Gap to Target':
+                                      explanation = explanation
+                                        .replace("You're ahead", 'You were ahead')
+                                        .replace("You've earned", 'You had earned')
+                                        .replace('You need ', 'You needed ')
+                                        .replace('With ', 'At that point, with ');
+                                      break;
+                                    case 'Revenue Velocity':
+                                      explanation = explanation
+                                        .replace(/is accelerating/g, 'was accelerating')
+                                        .replace(/This month you earned/g, `In ${monthName} you earned`)
+                                        .replace(/you made/g, 'you made')
+                                        .replace(/This "velocity" shows/g, 'This "velocity" showed')
+                                        .replace(/your business is growing/g, 'your business was growing')
+                                        .replace(/which is critical/g, 'which was critical')
+                                        .replace(/Your revenue is slowing down\./g, 'Your revenue was slowing down.')
+                                        .replace(
+                                          /\b(January|February|March|April|May|June|July|August|September|October|November|December) \d{4}\b/g,
+                                          monthName
+                                        );
+                                      break;
+                                    case 'Profit Margin':
+                                      explanation = explanation.replace(
+                                        /^Current net profit margin of\b/,
+                                        `Net profit margin in ${monthName} was`
+                                      );
+                                      break;
+                                    case 'Break-Even Revenue':
+                                      explanation = explanation
+                                        .replace(
+                                          'Break-even revenue for this month is',
+                                          `Break-even revenue in ${monthName} was`
+                                        );
+                                      break;
+                                    case 'Monthly Revenue Contribution':
+                                      explanation = explanation.replace('This shows', 'This showed');
+                                      break;
+                                    default:
+                                      // Leave explanation as-is for KPIs that don't need tense adjustment
+                                      break;
+                                  }
+
+                                  return explanation;
                                 } else {
                                   return kpi.plain_explanation || `Current ${kpi.kpi_name.replace(/_/g, ' ').toLowerCase()} performance.`;
                                 }
@@ -855,33 +924,36 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                             )}
                           </div>
                         </div>
-                        
-                        {/* FIR Calculation Breakdown - Only for Monthly Revenue KPI */}
-                        {kpi.kpi_name === 'Monthly Revenue' && kpi.goal_value && (
-                          <details className="mt-2 text-xs">
-                            <summary className="cursor-pointer text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                              <Info className="h-3 w-3" />
-                              How was this target calculated?
-                            </summary>
-                            <div className="mt-2 p-2 bg-muted/30 rounded text-xs space-y-1">
-                              <p className="font-medium text-accent">FIR Calculation Breakdown:</p>
-                              <p className="text-muted-foreground">
-                                Your FIR target is based on your business's seasonal pattern from last year.
-                              </p>
-                              <div className="mt-2 space-y-0.5 font-mono text-[10px]">
-                                <p>1. Last year's revenue pattern analyzed</p>
-                                <p>2. This month's % of annual revenue calculated</p>
-                                <p>3. Applied to your annual FIR target</p>
-                                <p className="mt-1 text-accent">Result: {formatValue(kpi.goal_value, 'currency', kpi.kpi_name)}</p>
-                              </div>
-                              <p className="text-[10px] text-muted-foreground mt-2">
-                                💡 This ensures your monthly targets reflect your business's natural rhythm.
-                              </p>
+                      </div>
+                    )}
+                      
+                      {/* FIR Calculation Breakdown - Only for Monthly Revenue KPI */}
+                      {kpi.kpi_name === 'Monthly Revenue' && kpi.goal_value && (
+                        <details className="mt-2 text-xs">
+                          <summary className="cursor-pointer text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                            <Info className="h-3 w-3" />
+                            How was this target calculated?
+                          </summary>
+                          <div className="mt-2 p-2 bg-muted/30 rounded text-xs space-y-1">
+                            <p className="font-medium text-accent">FIR Calculation Breakdown:</p>
+                            <p className="text-muted-foreground">
+                              Your FIR target is based on your business's seasonal pattern from last year.
+                            </p>
+                            <div className="mt-2 space-y-0.5 font-mono text-[10px]">
+                              <p>1. Last year's revenue pattern analyzed</p>
+                              <p>2. This month's % of annual revenue calculated</p>
+                              <p>3. Applied to your annual FIR target</p>
+                              <p className="mt-1 text-accent">Result: {formatValue(kpi.goal_value, 'currency', kpi.kpi_name)}</p>
                             </div>
-                          </details>
-                        )}
-                        
-                        {/* Enhanced action suggestion for historical comparison */}
+                            <p className="text-[10px] text-muted-foreground mt-2">
+                              💡 This ensures your monthly targets reflect your business's natural rhythm.
+                            </p>
+                          </div>
+                        </details>
+                      )}
+                      
+                      {/* Enhanced action suggestion for historical comparison */}
+                      {!isHistoricalCard && (
                         <div>
                           <div className="text-xs font-medium text-muted mb-1">Suggested Action</div>
                           <div className="text-xs text-foreground">
@@ -957,20 +1029,21 @@ export default function KPIDashboard({ className = '' }: KPIDashboardProps) {
                             )}
                           </div>
                         </div>
-                      </div>
-                    )}
-                    
-                    {/* Money Breakdown for Net Profit After Owner Draws KPI */}
-                    {kpi.kpi_name === 'net_profit_after_draws' && (
-                      <div className="mt-4 pt-3 border-t border-border">
-                        <MoneyBreakdown kpi={kpi} />
-                      </div>
-                    )}
+                      )}
+                      
+                      {/* Money Breakdown for Net Profit After Owner Draws KPI */}
+                      {kpi.kpi_name === 'net_profit_after_draws' && (
+                        <div className="mt-4 pt-3 border-t border-border">
+                          <MoneyBreakdown kpi={kpi} />
+                        </div>
+                      )}
+                      
+                      {/* Edit Goal removed - KPIs now read-only, goals set via Master Revenue page FIR targets */}
+                    </div>
                     
                     {/* Edit Goal removed - KPIs now read-only, goals set via Master Revenue page FIR targets */}
                   </div>
                 </div>
-              </div>
             );
           })}
         </div>

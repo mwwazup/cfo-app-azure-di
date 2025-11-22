@@ -130,6 +130,26 @@ async function sendJSON<T>(path: string, method: 'POST' | 'DELETE' | 'PUT', body
 }
 
 // === High-level API used by your UI ===
+
+export interface UserProfilePayload {
+  userId: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  avatarUrl?: string | null;
+}
+
+export interface UserProfileRow {
+  id: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+}
+
+export async function upsertUserProfile(payload: UserProfilePayload) {
+  return sendJSON<UserProfileRow>(`/api/user-profile`, 'POST', payload);
+}
 export async function getAvailableYears(userId: string) {
   const q = new URLSearchParams({ userId });
   return getJSON<{ years: number[] }>(`/api/revenue-entries/years?${q.toString()}`);

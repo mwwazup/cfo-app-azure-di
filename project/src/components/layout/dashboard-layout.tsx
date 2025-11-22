@@ -1,30 +1,29 @@
 import { Outlet, Link, useLocation, Navigate } from 'react-router-dom';
 import { useAuthContext } from '../../contexts/auth-context';
 import { useUser, useClerk } from '@clerk/clerk-react';
-import { Button } from '../ui/button';
-import { 
-  LayoutDashboard, 
-  TrendingUp, 
-  FileText, 
-  Heart, 
-  BookOpen, 
-  LogOut, 
-  Menu, 
+import {
+  LayoutDashboard,
+  TrendingUp,
+  FileText,
+  Heart,
+  BookOpen,
+  Menu,
   X,
   MessageCircle,
   BarChart3,
   Target,
   Users,
   Brain,
-  TrendingDown
+  TrendingDown,
 } from 'lucide-react';
 import { useState } from 'react';
 import { ZepChatBubble } from '../ZepChatBubble';
+import { Button } from '../ui/button';
 
 export function DashboardLayout() {
   const { isLoaded, isSignedIn, email } = useAuthContext();
   const { user } = useUser();
-  const { signOut } = useClerk();
+  const clerk = useClerk();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -35,6 +34,8 @@ export function DashboardLayout() {
   if (!isSignedIn) {
     return <Navigate to="/sign-in" replace />;
   }
+
+  const displayName = user?.firstName ?? user?.fullName ?? email ?? 'there';
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -50,10 +51,6 @@ export function DashboardLayout() {
     { name: 'PERL', href: '/coach/sms', icon: MessageCircle },
     { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
   ];
-
-  const handleLogout = () => {
-    signOut();
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -100,6 +97,17 @@ export function DashboardLayout() {
                 );
               })}
             </nav>
+            <div className="mt-8 px-4">
+              <Link
+                to="/pricing"
+                className="flex items-center justify-center rounded-lg border border-dashed border-[#d5b274]/50 bg-[#d5b274]/10 px-3 py-2 text-sm font-semibold text-[#d5b274] transition hover:border-[#d5b274]"
+              >
+                Start Your Free Trial
+              </Link>
+              <p className="mt-1 text-xs text-gray-400">
+                14-day trial · no credit card required
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -134,20 +142,51 @@ export function DashboardLayout() {
                 );
               })}
             </nav>
+            <div className="mt-6 px-4">
+              <Link
+                to="/pricing"
+                className="flex items-center justify-center rounded-lg border border-dashed border-[#d5b274]/50 bg-[#d5b274]/10 px-3 py-2 text-sm font-semibold text-[#d5b274] transition hover:border-[#d5b274]"
+              >
+                Start Your Free Trial
+              </Link>
+              <p className="mt-1 text-xs text-gray-400">
+                14-day trial · no credit card required
+              </p>
+            </div>
           </div>
           
-          <div className="flex-shrink-0 flex border-t border-border p-4">
-            <div className="flex items-center w-full">
-              <div className="flex-1">
-                <p className="text-sm font-medium text-foreground">
-                  {user?.firstName ?? ''} {user?.lastName ?? ''}
-                </p>
-                <p className="text-xs text-muted">
-                  {email}
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={handleLogout}>
-                <LogOut className="h-4 w-4" />
+          <div className="flex-shrink-0 border-t border-border p-4">
+            <div className="space-y-2">
+              <p className="text-sm text-muted">Welcome!</p>
+              <Link
+                to="/account"
+                className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-border transition-colors"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {displayName}
+                  </p>
+                </div>
+                <div className="h-8 w-8 rounded-full bg-muted overflow-hidden flex items-center justify-center text-xs font-medium text-foreground">
+                  {user?.imageUrl ? (
+                    <img
+                      src={user.imageUrl}
+                      alt={displayName ?? 'User avatar'}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    (displayName?.[0] ?? '?').toUpperCase()
+                  )}
+                </div>
+              </Link>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs px-2 py-1 w-full justify-center"
+                onClick={() => clerk.signOut({ redirectUrl: '/' })}
+              >
+                Exit
               </Button>
             </div>
           </div>
@@ -167,21 +206,6 @@ export function DashboardLayout() {
         </div>
         
         <div className="flex-1 flex flex-col">
-          <header className="bg-card shadow-sm border-b border-border">
-            <div className="px-4 sm:px-6 lg:px-8">
-              <div className="flex justify-between items-center py-4">
-                <div className="flex-1" />
-                <div className="flex items-center space-x-4">
-                  <div className="hidden md:block">
-                    <span className="text-sm text-muted">
-                      Welcome, {user?.firstName ?? email}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </header>
-          
           <main className="flex-1 overflow-y-auto">
             <div className="py-8">
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

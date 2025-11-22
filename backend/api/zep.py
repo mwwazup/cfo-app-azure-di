@@ -6,6 +6,7 @@ from supabase import create_client, Client
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
+import json
 from logging_config import get_logger
 
 def get_supabase_client() -> Client:
@@ -284,6 +285,169 @@ def get_financial_context(user_id: str) -> Dict[str, Any]:
         logger.error(f"Error retrieving financial context for {user_id}: {e}")
         return {}
 
+
+def build_business_profile(user_id: str) -> Dict[str, Any]:
+    """Build a compact business profile for a user from Supabase data.
+
+    This is intentionally lightweight and only uses a few high-value fields so that
+    we can mirror stable business context into Zep's graph without introducing a
+    new source of truth.
+    """
+    profile: Dict[str, Any] = {
+        "version": 1,
+        "user_id": user_id,
+    }
+
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.warning("No Supabase client available for business profile")
+        return profile
+
+    try:
+        # Company settings: pay schedule (already stored in company_settings)
+        try:
+            settings_response = (
+                supabase.table("company_settings")
+                .select("pay_schedule")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            settings_rows = settings_response.data or []
+            if settings_rows:
+                settings = settings_rows[0]
+                pay_schedule = settings.get("pay_schedule")
+                if pay_schedule:
+                    profile["pay_schedule"] = pay_schedule
+        except Exception as e:
+            logger.warning(
+                f"Could not retrieve company settings for business profile: {e}"
+            )
+
+        # Employee count: how many employees exist for this user
+        try:
+            employees_response = (
+                supabase.table("employee_info")
+                .select("id")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            employees = employees_response.data or []
+            if employees:
+                profile["approx_employee_count"] = len(employees)
+        except Exception as e:
+            logger.warning(
+                f"Could not retrieve employee info for business profile: {e}"
+            )
+
+        # Approximate annual revenue band from the last 12 months of revenue_entries
+        try:
+            from datetime import datetime
+
+            now = datetime.now()
+            current_year = now.year
+            current_month = now.month
+
+            revenue_response = (
+                supabase.table("revenue_entries")
+                .select("year, month, actual_revenue")
+                .eq("user_id", user_id)
+                .gte("year", current_year - 1)
+                .order("year", desc=True)
+                .order("month", desc=True)
+                .execute()
+            )
+
+            rows = revenue_response.data or []
+            total_revenue = 0.0
+
+            for entry in rows:
+                year = entry.get("year")
+                month = entry.get("month")
+                if year is None or month is None:
+                    continue
+
+                # Skip future months
+                if year > current_year or (year == current_year and month > current_month):
+                    continue
+
+                # Only include last 12 months
+                months_diff = (current_year - year) * 12 + (current_month - month)
+                if 0 <= months_diff < 12:
+                    value = entry.get("actual_revenue")
+                    if value is not None:
+                        try:
+                            total_revenue += float(value)
+                        except Exception:
+                            continue
+
+            if total_revenue > 0:
+                if total_revenue < 250_000:
+                    band = "<250k"
+                elif total_revenue < 1_000_000:
+                    band = "250k-1M"
+                elif total_revenue < 3_000_000:
+                    band = "1-3M"
+                else:
+                    band = "3M+"
+
+                profile["approx_annual_revenue_band"] = band
+        except Exception as e:
+            logger.warning(
+                f"Could not compute revenue band for business profile: {e}"
+            )
+
+    except Exception as e:
+        logger.error(f"Unexpected error building business profile for {user_id}: {e}")
+
+    return profile
+
+
+def sync_business_profile_to_zep(
+    client: Any, user_id: str, facts: Optional[Dict[str, Any]] = None
+) -> None:
+    """Push a compact business profile into the user's Zep graph.
+
+    This is best-effort only. Any errors are logged and do not affect the
+    main context endpoint behavior.
+    """
+    try:
+        profile = build_business_profile(user_id)
+
+        # If Zep has extracted or we have inferred a business name, include it
+        if facts:
+            business_name = (
+                facts.get("businessName")
+                or facts.get("business_name")
+                or facts.get("business")
+            )
+            if business_name:
+                profile["business_name"] = business_name
+
+        # If we only have version/user_id, there's nothing useful to sync
+        if len(profile.keys()) <= 2:
+            logger.info(
+                f"Business profile for {user_id} is empty; skipping Zep graph sync"
+            )
+            return
+
+        graph = getattr(client, "graph", None)
+        if graph is None or not hasattr(graph, "add"):
+            logger.warning("Zep client does not expose graph.add; skipping profile sync")
+            return
+
+        data_str = json.dumps(profile)
+        graph.add(
+            user_id=user_id,
+            type="json",
+            data=data_str,
+        )
+        logger.info(f"📈 Synced business profile to Zep graph for {user_id}")
+
+    except Exception as e:
+        logger.warning(
+            f"Could not sync business profile to Zep graph for {user_id}: {e}"
+        )
+
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/zep", tags=["zep"])
@@ -532,7 +696,11 @@ async def get_context(user_id: str, lastN: int = 10):
         
         # Get financial context data
         financial_context = get_financial_context(user_id)
-        
+
+        # Best-effort: sync a compact business profile into Zep's graph so that
+        # long-lived business facts are available at the graph level as well.
+        sync_business_profile_to_zep(client, user_id, facts)
+
         result = {
             "context": context_string,
             "recentMessages": messages,

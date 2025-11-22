@@ -29,6 +29,23 @@ from api.validation_models import (
     YearQuery
 )
 
+
+class UserProfileUpdateRequest(BaseModel):
+    userId: str
+    email: str
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    avatarUrl: Optional[str] = None
+
+
+class UserProfileResponse(BaseModel):
+    id: str
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
 # Flag to determine if Postgres should be bypassed (e.g. during CI / local tests)
 SKIP_DB = os.getenv("SKIP_DB", "0") in {"1", "true", "True"}
 
@@ -244,6 +261,84 @@ async def parse_financial_statement(
 
 # Create a separate router for revenue API endpoints without the /financial prefix
 revenue_router = APIRouter(tags=["revenue"])
+
+
+@revenue_router.post("/api/user-profile", response_model=UserProfileResponse)
+async def upsert_user_profile(request: UserProfileUpdateRequest):
+    """Create or update a Supabase profiles row for the given user.
+
+    This keeps Supabase `profiles` in sync with Clerk profile data.
+    The profile row is identified primarily by email to avoid depending on
+    Supabase Auth tables or JWT context.
+    """
+    if not request.userId or len(request.userId.strip()) == 0:
+        raise HTTPException(status_code=400, detail="userId cannot be empty")
+    if not request.email or len(request.email.strip()) == 0:
+        raise HTTPException(status_code=400, detail="email cannot be empty")
+
+    try:
+        supabase = get_supabase_db()
+
+        # Prefer matching existing profile by email.
+        result = (
+            supabase
+            .table("profiles")
+            .select("id, first_name, last_name, email, avatar_url")
+            .eq("email", request.email)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+
+        # Build an update payload, skipping fields that were not provided.
+        update_data = {
+            "first_name": request.firstName,
+            "last_name": request.lastName,
+            "avatar_url": request.avatarUrl,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        update_data = {k: v for k, v in update_data.items() if v is not None}
+
+        if rows:
+            profile_id = rows[0]["id"]
+            if update_data:
+                supabase.table("profiles").update(update_data).eq("id", profile_id).execute()
+
+            refreshed = (
+                supabase
+                .table("profiles")
+                .select("id, first_name, last_name, email, avatar_url")
+                .eq("id", profile_id)
+                .limit(1)
+                .execute()
+            )
+            row = (refreshed.data or [rows[0]])[0]
+        else:
+            # No existing row – create a new profile using email as the anchor.
+            data = {
+                "id": str(uuid.uuid4()),
+                "email": request.email,
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+            data.update(update_data)
+
+            inserted = supabase.table("profiles").insert(data).execute()
+            row = inserted.data[0] if inserted.data else data
+
+        return UserProfileResponse(
+            id=str(row.get("id")),
+            email=row.get("email"),
+            first_name=row.get("first_name"),
+            last_name=row.get("last_name"),
+            avatar_url=row.get("avatar_url"),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Database error updating profile: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @revenue_router.get("/api/revenue-entries/years")
 async def get_available_years(userId: str = Query(..., description="User ID")):
