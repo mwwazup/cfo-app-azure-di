@@ -8,8 +8,6 @@ import { SupabaseSessionBridge } from './components/auth/SupabaseSessionBridge';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DashboardLayout } from './components/layout/dashboard-layout';
 import HeroSection from './components/landing/hero-section';
-import SignupForm from './components/auth/signup-form';
-import { LoginPage } from './pages/auth/login';
 import { OnboardingPage } from './pages/onboarding';
 import { DashboardPage } from './pages/dashboard';
 import { MasterRevenuePage } from './pages/revenue/master';
@@ -21,8 +19,7 @@ import { BudgetVsActualPage } from './pages/BudgetVsActualPage';
 import EmployeeLERPage from './pages/EmployeeLERPage';
 import { BusinessIntelligencePage } from './pages/BusinessIntelligencePage';
 import { BonusROIAnalysisPage } from './pages/BonusROIAnalysisPage';
-import { YourBigFigPage } from './pages/coach/your-big-fig';
-import SMSCoachPage from './pages/coach/sms-coach';
+import ProfitImpactPage from './pages/coach/profit-impact';
 import { MomentumPage } from './pages/momentum';
 import { MomentumWizardPage } from './pages/momentum/wizard';
 import { CallbackPage } from './pages/auth/callback';
@@ -106,7 +103,7 @@ function AppRoutes() {
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/sign-in/*" element={<ClerkSignInPage />} />
             <Route path="/login" element={<Navigate to="/sign-in" replace />} />
-            <Route path="/signup" element={<SignupForm />} />
+            <Route path="/signup" element={<Navigate to="/sign-in" replace />} />
             <Route path="/legacy-login" element={<Navigate to="/login" replace />} />
             <Route path="/legacy-signup" element={<Navigate to="/signup" replace />} />
             <Route path="/callback" element={<CallbackPage />} />
@@ -133,8 +130,7 @@ function AppRoutes() {
             </Route>
             
             <Route path="/coach" element={<DashboardLayout />}>
-              <Route path="your-big-fig" element={<YourBigFigPage />} />
-              <Route path="sms" element={<SMSCoachPage />} />
+              <Route path="profit-impact" element={<ProfitImpactPage />} />
             </Route>
             
             <Route path="/momentum" element={<DashboardLayout />}>

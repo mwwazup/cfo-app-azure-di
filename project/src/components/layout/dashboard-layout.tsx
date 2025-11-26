@@ -5,11 +5,9 @@ import {
   LayoutDashboard,
   TrendingUp,
   FileText,
-  Heart,
   BookOpen,
   Menu,
   X,
-  MessageCircle,
   BarChart3,
   Target,
   Users,
@@ -47,8 +45,7 @@ export function DashboardLayout() {
     { name: 'Bonus ROI', href: '/bonus-roi', icon: TrendingDown },
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
-    { name: 'Your Big FIG', href: '/coach/your-big-fig', icon: Heart },
-    { name: 'PERL', href: '/coach/sms', icon: MessageCircle },
+    { name: 'Profit Impact', href: '/coach/profit-impact', icon: BookOpen },
     { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
   ];
 

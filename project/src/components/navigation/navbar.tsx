@@ -18,13 +18,13 @@ export default function Navbar() {
           <a href="/about" className="text-sm font-medium text-muted hover:text-foreground transition-colors">About</a>
           <SignedOut>
             <a
-              href="/login"
+              href="/sign-in"
               className="text-sm font-medium text-muted hover:text-foreground transition-colors"
             >
               Log in
             </a>
             <a
-              href="/signup"
+              href="/sign-in"
               className="px-4 py-2 bg-accent text-background rounded-md text-sm font-medium hover:bg-accent/90 transition-colors"
             >
               Sign up
