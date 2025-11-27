@@ -10,7 +10,7 @@ import openai
 from supabase import create_client, Client
 import httpx
 from datetime import datetime
-from api import auth, chat, memory, business, financial, bonus_roi, zep
+from api import auth, chat, memory, business, financial, bonus_roi, zep, big_fig
 from logging_config import setup_logging, get_logger
 
 # Load environment variables
@@ -58,6 +58,7 @@ app.include_router(financial.router)
 app.include_router(financial.revenue_router)  # Include revenue router separately
 app.include_router(bonus_roi.bonus_roi_router)  # Include bonus ROI router
 app.include_router(zep.router)  # Include Zep proxy router
+app.include_router(big_fig.router)  # Lighthouse / Big Fig goals
 
 @app.on_event("startup")
 async def startup_event():

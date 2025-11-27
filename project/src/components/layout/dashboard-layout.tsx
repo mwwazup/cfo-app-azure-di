@@ -46,6 +46,7 @@ export function DashboardLayout() {
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
     { name: 'Profit Impact', href: '/coach/profit-impact', icon: BookOpen },
+    { name: 'Lighthouse', href: '/coach/your-big-fig', icon: BookOpen },
     { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
   ];
 

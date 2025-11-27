@@ -5,6 +5,10 @@ import {
   RevenueCurveReport 
 } from '../models/RevenueScenario';
 
+const TABLES = {
+  REVENUE_SCENARIOS: 'revenue_scenarios',
+} as const;
+
 export class RevenueScenarioService {
   /**
    * Get the current/latest revenue curve report for a user

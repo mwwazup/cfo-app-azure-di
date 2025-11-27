@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { zepService, ConversationContext } from './zepService';
 import { env } from '../config/env';
+import { getLighthousePlan, LighthousePlan } from './bigFigGoalService';
 import coachingVoiceContent from '../../../WAVERIDER_AI_COACHING_VOICE.md?raw';
 
 interface ChatMessage {
@@ -54,7 +55,8 @@ class ClaudeService {
    * CRITICAL: Coaching voice comes FIRST to establish tone before data
    */
   private buildSystemPrompt(
-    context: ConversationContext
+    context: ConversationContext,
+    lighthousePlan?: LighthousePlan | null
   ): string {
     const { facts, summary, relevantMemories, financialContext } = context;
 
@@ -91,6 +93,15 @@ Experience Level: ${facts.experienceLevel || 'beginner'}
 Current Status:
 ${facts.currentRevenue ? `- YTD Revenue: $${facts.currentRevenue.toLocaleString()}` : ''}
 ${facts.gapToGoal ? `- Gap to Goal: $${facts.gapToGoal.toLocaleString()}` : ''}
+` : '';
+
+    const lighthouseSection = lighthousePlan ? `
+
+# LIGHTHOUSE GOAL SNAPSHOT
+
+Current annual revenue (approx): $${Math.round(lighthousePlan.currentAnnualRevenue).toLocaleString()}
+Lighthouse target: $${Math.round(lighthousePlan.targetAnnualRevenue).toLocaleString()} per year by ${new Date(lighthousePlan.targetYear, lighthousePlan.targetMonth - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} (about ${lighthousePlan.yearsToGoal} year${lighthousePlan.yearsToGoal !== 1 ? 's' : ''} from now)
+Average additional revenue needed: $${Math.round(lighthousePlan.requiredAnnualIncrease).toLocaleString()} per year (~$${Math.round(lighthousePlan.requiredMonthlyIncrease).toLocaleString()} per month)
 ` : '';
 
     // Conversation summary
@@ -137,6 +148,8 @@ ${overrideInstruction}
 ${zepContext}
 
 ${businessContext}
+
+${lighthouseSection}
 
 ${summarySection}
 
@@ -310,8 +323,17 @@ ${lines.join('\n')}`);
         ? await zepService.getConversationContext(userId, message)
         : { context: '', recentMessages: [], relevantMemories: [], facts: {} };
 
+      let lighthousePlan: LighthousePlan | null = null;
+      if (includeContext) {
+        try {
+          lighthousePlan = await getLighthousePlan(userId);
+        } catch (err) {
+          console.error('Error fetching Lighthouse plan for AI context:', err);
+        }
+      }
+
       // Build system prompt (coaching voice comes first)
-      const systemPrompt = this.buildSystemPrompt(context);
+      const systemPrompt = this.buildSystemPrompt(context, lighthousePlan);
 
       // Get recent message history
       const conversationHistory: ChatMessage[] = context.recentMessages

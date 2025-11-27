@@ -20,6 +20,7 @@ import EmployeeLERPage from './pages/EmployeeLERPage';
 import { BusinessIntelligencePage } from './pages/BusinessIntelligencePage';
 import { BonusROIAnalysisPage } from './pages/BonusROIAnalysisPage';
 import ProfitImpactPage from './pages/coach/profit-impact';
+import { YourBigFigPage } from './pages/coach/your-big-fig';
 import { MomentumPage } from './pages/momentum';
 import { MomentumWizardPage } from './pages/momentum/wizard';
 import { CallbackPage } from './pages/auth/callback';
@@ -131,6 +132,7 @@ function AppRoutes() {
             
             <Route path="/coach" element={<DashboardLayout />}>
               <Route path="profit-impact" element={<ProfitImpactPage />} />
+              <Route path="your-big-fig" element={<YourBigFigPage />} />
             </Route>
             
             <Route path="/momentum" element={<DashboardLayout />}>
