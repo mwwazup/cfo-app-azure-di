@@ -142,3 +142,82 @@ export async function getLighthousePlan(userId: string): Promise<LighthousePlan 
     throw error;
   }
 }
+
+// ============================================================================
+// Step Overrides (per-year customizations)
+// ============================================================================
+
+export interface MilestoneItem {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
+export interface StepOverride {
+  id: string;
+  userId: string;
+  yearIndex: number;
+  yearLabel: string;
+  targetRevenue: number | null;
+  themeIndex: number | null;
+  milestones: MilestoneItem[];
+  approved: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StepOverridePayload {
+  yearIndex: number;
+  yearLabel: string;
+  targetRevenue: number | null;
+  themeIndex: number | null;
+  milestones: MilestoneItem[];
+  approved: boolean;
+}
+
+export interface BulkStepOverridesResponse {
+  planStatus: 'draft' | 'committed';
+  steps: StepOverride[];
+}
+
+/**
+ * Get all step overrides for a user's Lighthouse plan.
+ */
+export async function getStepOverrides(userId: string): Promise<BulkStepOverridesResponse> {
+  const q = new URLSearchParams({ userId });
+  try {
+    return await getJSON<BulkStepOverridesResponse>(`/api/big-fig/step-overrides?${q.toString()}`);
+  } catch (error: any) {
+    if (error instanceof ApiError) {
+      if (error.statusCode === 404 || error.code === ErrorCodes.RECORD_NOT_FOUND) {
+        return { planStatus: 'draft', steps: [] };
+      }
+    }
+    throw error;
+  }
+}
+
+/**
+ * Save step overrides for a user's Lighthouse plan.
+ * Does NOT affect Master Revenue or FIR calculations.
+ */
+export async function saveStepOverrides(
+  userId: string,
+  planStatus: 'draft' | 'committed',
+  steps: StepOverridePayload[]
+): Promise<BulkStepOverridesResponse> {
+  const body = {
+    userId,
+    planStatus,
+    steps,
+  };
+  return sendJSON<BulkStepOverridesResponse>(`/api/big-fig/step-overrides`, 'POST', body);
+}
+
+/**
+ * Delete all step overrides for a user (reset to calculated defaults).
+ */
+export async function deleteStepOverrides(userId: string): Promise<{ message: string; planStatus: string }> {
+  const q = new URLSearchParams({ userId });
+  return sendJSON<{ message: string; planStatus: string }>(`/api/big-fig/step-overrides?${q.toString()}`, 'DELETE');
+}

@@ -5,7 +5,16 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useRevenue } from '../../contexts/revenue-context';
 import { useAuthContext } from '../../contexts/auth-context';
-import { getLighthouseGoal, getLighthousePlan, upsertLighthouseGoal, LighthouseGoal, LighthousePlan } from '../../services/bigFigGoalService';
+import { 
+  getLighthouseGoal, 
+  getLighthousePlan, 
+  upsertLighthouseGoal, 
+  getStepOverrides,
+  saveStepOverrides,
+  LighthouseGoal, 
+  LighthousePlan,
+  StepOverridePayload,
+} from '../../services/bigFigGoalService';
 import { claudeService } from '../../services/claudeService';
 
 import {
@@ -16,7 +25,23 @@ import {
   Sparkles,
   Activity,
   Loader2,
+  Pencil,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Trash2,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '../../components/ui/dialog';
 
 type LighthousePlanSuggestion = {
   targetAnnualRevenue?: number;
@@ -24,6 +49,22 @@ type LighthousePlanSuggestion = {
   targetOwnerPay?: number | null;
   targetProfitMargin?: number | null;
   explanation?: string;
+};
+
+type PlanStatus = 'draft' | 'committed';
+
+type Milestone = {
+  id: string;
+  text: string;
+  completed: boolean;
+};
+
+type EditableStep = {
+  yearLabel: string;
+  targetRevenue: number;
+  themeIndex: number; // Index into the phase's theme array
+  approved: boolean; // Has user approved this step in the review flow?
+  milestones: Milestone[]; // User-defined milestones for this year
 };
 
 export function YourBigFigPage() {
@@ -49,6 +90,14 @@ export function YourBigFigPage() {
   const [planFromStoryExplanation, setPlanFromStoryExplanation] = useState<string | null>(null);
   const [avgJobValue, setAvgJobValue] = useState('');
   const [jobsPerCrewPerMonth, setJobsPerCrewPerMonth] = useState('');
+  const [daysPerWeek, setDaysPerWeek] = useState('4');
+
+  // Plan review state
+  const [planStatus, setPlanStatus] = useState<PlanStatus>('draft');
+  const [editableSteps, setEditableSteps] = useState<EditableStep[]>([]);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewStepIndex, setReviewStepIndex] = useState(0);
+  const [editingYearIndex, setEditingYearIndex] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +130,30 @@ export function YourBigFigPage() {
 
         if (cancelled) return;
         setLighthousePlan(plan);
+
+        // Load step overrides (per-year customizations)
+        const overridesResponse = await getStepOverrides(userId);
+        if (cancelled) return;
+        
+        if (overridesResponse) {
+          setPlanStatus(overridesResponse.planStatus);
+          
+          // Convert saved overrides to editableSteps format
+          if (overridesResponse.steps.length > 0) {
+            const loadedSteps: EditableStep[] = overridesResponse.steps.map((step) => ({
+              yearLabel: step.yearLabel,
+              targetRevenue: step.targetRevenue ?? 0,
+              themeIndex: step.themeIndex ?? 0,
+              approved: step.approved,
+              milestones: step.milestones.map((m) => ({
+                id: m.id,
+                text: m.text,
+                completed: m.completed,
+              })),
+            }));
+            setEditableSteps(loadedSteps);
+          }
+        }
       } catch (err) {
         console.error('Error loading Lighthouse goal/plan', err);
         if (!cancelled) {
@@ -292,7 +365,6 @@ Rules:
       if (suggestion.targetProfitMargin != null) {
         setTargetProfitMargin(String(Math.round(suggestion.targetProfitMargin)));
       }
-
       if (suggestion.explanation) {
         setPlanFromStoryExplanation(suggestion.explanation);
       }
@@ -332,17 +404,54 @@ Rules:
     }
 
     const steps: LighthouseStep[] = [];
-    const stepAmount = (targetAnnualRevenue - currentAnnualRevenue) / yearsToGoal;
+    const totalDelta = targetAnnualRevenue - currentAnnualRevenue;
     const firstYear = targetYear - yearsToGoal + 1;
     const avgJobValueNum = Number(avgJobValue);
     const jobsPerCrewPerMonthNum = Number(jobsPerCrewPerMonth);
     const nowYear = new Date().getFullYear();
 
-    for (let i = 1; i <= yearsToGoal; i++) {
-      const year = firstYear + i - 1;
-      const targetForStep = currentAnnualRevenue + stepAmount * i;
-      const prevRevenue =
-        i === 1 ? currentAnnualRevenue : currentAnnualRevenue + stepAmount * (i - 1);
+    const targets: number[] = [];
+
+    if (yearsToGoal <= 1 || totalDelta === 0) {
+      const stepAmount = yearsToGoal > 0 ? totalDelta / yearsToGoal : 0;
+      for (let i = 1; i <= yearsToGoal; i++) {
+        targets.push(currentAnnualRevenue + stepAmount * i);
+      }
+    } else {
+      const n = yearsToGoal;
+      const rampStrength = n >= 4 ? 0.5 : 0.3;
+      const weights: number[] = [];
+      let totalWeight = 0;
+
+      for (let i = 0; i < n; i++) {
+        const t = n === 1 ? 0 : i / (n - 1);
+        const weight = 1 + rampStrength * t;
+        weights.push(weight);
+        totalWeight += weight;
+      }
+
+      if (totalWeight <= 0) {
+        const stepAmount = totalDelta / yearsToGoal;
+        for (let i = 1; i <= yearsToGoal; i++) {
+          targets.push(currentAnnualRevenue + stepAmount * i);
+        }
+      } else {
+        const deltaPerWeight = totalDelta / totalWeight;
+        let cumulativeWeight = 0;
+
+        for (let i = 0; i < n; i++) {
+          cumulativeWeight += weights[i];
+          const targetForStep = currentAnnualRevenue + deltaPerWeight * cumulativeWeight;
+          targets.push(targetForStep);
+        }
+      }
+    }
+
+    let prevRevenue = currentAnnualRevenue;
+
+    for (let i = 0; i < targets.length; i++) {
+      const year = firstYear + i;
+      const targetForStep = targets[i];
 
       const deltaRevenue = targetForStep - prevRevenue;
 
@@ -373,12 +482,15 @@ Rules:
         targetCrews,
         progress,
       });
+
+      prevRevenue = targetForStep;
     }
 
     return steps;
   };
 
   const lighthouseSteps = getLighthouseSteps();
+
   const lighthouseStepsGridClass =
     lighthouseSteps.length === 1
       ? 'grid grid-cols-1 gap-6'
@@ -387,6 +499,526 @@ Rules:
         : lighthouseSteps.length === 3
           ? 'grid grid-cols-1 md:grid-cols-3 gap-6'
           : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6';
+
+  type ThemePhase = 'early' | 'growth' | 'freedom';
+
+  type ThemeDefinition = {
+    title: string;
+    description: string;
+  };
+
+  type ThemeWithPhase = ThemeDefinition & {
+    phaseLabel: string;
+  };
+
+  const earlyStageThemes: ThemeDefinition[] = [
+    {
+      title: 'Find the Lighthouse',
+      description:
+        'This year is about getting clear on what you really want your business and life to look like.',
+    },
+    {
+      title: 'Learn the Waves',
+      description:
+        'This year is about learning when your busy and slow seasons hit so they do not surprise you anymore.',
+    },
+    {
+      title: 'Steady the Boat',
+      description:
+        'This year is about making your months feel less up and down so money feels more steady.',
+    },
+    {
+      title: 'Know Your Numbers',
+      description:
+        'This year is about knowing what you make, what you keep, and what has to change.',
+    },
+    {
+      title: 'Fix the Leaks',
+      description:
+        'This year is about stopping money from slipping away on things that do not really help your business.',
+    },
+    {
+      title: 'Fill the Calendar',
+      description:
+        'This year is about getting enough jobs each month so you do not feel scared when it gets quiet.',
+    },
+  ];
+
+  const growthThemes: ThemeDefinition[] = [
+    {
+      title: 'Ride Bigger Waves',
+      description:
+        'This year is about growing your revenue on purpose, not by accident.',
+    },
+    {
+      title: 'Make Each Job Worth More',
+      description:
+        'This year is about earning more from each visit, not just doing more visits.',
+    },
+    {
+      title: 'Keep Good Customers Close',
+      description:
+        'This year is about getting happy customers to come back again and again.',
+    },
+    {
+      title: 'Build a Strong Crew',
+      description:
+        'This year is about building a team you trust so you are not doing it all yourself.',
+    },
+    {
+      title: 'Smooth the Seasons',
+      description:
+        'This year is about using slow months for smart offers so you do not feel dead in the winter or summer.',
+    },
+    {
+      title: 'Follow the WAVE',
+      description:
+        'This year is about using what is happening, the gap, the next move, and simple action every month.',
+    },
+  ];
+
+  const freedomThemes: ThemeDefinition[] = [
+    {
+      title: 'Work Less, Lead More',
+      description:
+        'This year is about you working fewer hours while your business still grows.',
+    },
+    {
+      title: 'Buy Back Your Time',
+      description:
+        'This year is about creating room in your week so you are not working all day, every day.',
+    },
+    {
+      title: 'Pay Yourself First',
+      description:
+        'This year is about making sure your business takes care of your family, not just your bills.',
+    },
+    {
+      title: 'Protect the Lighthouse',
+      description:
+        'This year is about guarding what you have built so you do not slide backwards.',
+    },
+    {
+      title: 'Live the Story You Wrote',
+      description:
+        'This year is about your business finally matching the Lighthouse story you wrote at the start.',
+    },
+  ];
+
+  function getPhaseInfo(index: number, total: number): {
+    phase: ThemePhase;
+    indexWithinPhase: number;
+  } {
+    if (total <= 0) {
+      return { phase: 'growth', indexWithinPhase: 0 };
+    }
+
+    let earlyCount = 1;
+    let freedomCount = 1;
+
+    if (total >= 4 && total <= 5) {
+      earlyCount = 2;
+      freedomCount = 1;
+    } else if (total >= 6) {
+      earlyCount = 2;
+      freedomCount = 2;
+    }
+
+    if (index < earlyCount) {
+      return { phase: 'early', indexWithinPhase: index };
+    }
+
+    if (index >= total - freedomCount) {
+      const firstFreedomIndex = total - freedomCount;
+      return { phase: 'freedom', indexWithinPhase: index - firstFreedomIndex };
+    }
+
+    const firstGrowthIndex = earlyCount;
+    return { phase: 'growth', indexWithinPhase: index - firstGrowthIndex };
+  }
+
+  function getThemeForStep(index: number, total: number): ThemeWithPhase {
+    const { phase, indexWithinPhase } = getPhaseInfo(index, total);
+
+    let source: ThemeDefinition[];
+    let phaseLabel: string;
+
+    if (phase === 'early') {
+      source = earlyStageThemes;
+      phaseLabel = 'Early-stage theme';
+    } else if (phase === 'freedom') {
+      source = freedomThemes;
+      phaseLabel = 'Freedom and owner-life theme';
+    } else {
+      source = growthThemes;
+      phaseLabel = 'Growth theme';
+    }
+
+    const theme = source[indexWithinPhase % source.length];
+
+    return {
+      ...theme,
+      phaseLabel,
+    };
+  }
+
+  function getFocusForStep(
+    step: LighthouseStep,
+    index: number,
+    steps: LighthouseStep[],
+    plan: LighthousePlan | null,
+    avgJobValueStr: string,
+    jobsPerCrewPerMonthStr: string
+  ): string | null {
+    if (!plan || !Number.isFinite(plan.currentAnnualRevenue) || plan.currentAnnualRevenue <= 0) {
+      return null;
+    }
+
+    const avgJobValueNum = Number(avgJobValueStr);
+    const jobsPerCrewPerMonthNum = Number(jobsPerCrewPerMonthStr);
+    const hasJobInputs = avgJobValueNum > 0 && jobsPerCrewPerMonthNum > 0;
+
+    let estimatedCurrentCrews = 1;
+    let jobsPerCrewPerYear = 0;
+
+    if (hasJobInputs) {
+      jobsPerCrewPerYear = jobsPerCrewPerMonthNum * 12;
+      const revenuePerCrewPerYear = jobsPerCrewPerYear * avgJobValueNum;
+      if (revenuePerCrewPerYear > 0) {
+        estimatedCurrentCrews = Math.max(
+          1,
+          Math.round(plan.currentAnnualRevenue / revenuePerCrewPerYear)
+        );
+      }
+    }
+
+    const previousStep = index > 0 ? steps[index - 1] : null;
+    const previousTargetRevenue =
+      previousStep?.targetRevenue ?? plan.currentAnnualRevenue;
+
+    const deltaRevenue = step.targetRevenue - previousTargetRevenue;
+    const baseJobsPerMonth =
+      hasJobInputs && estimatedCurrentCrews > 0
+        ? jobsPerCrewPerMonthNum * estimatedCurrentCrews
+        : 0;
+
+    const addedCrews =
+      step.targetCrews != null
+        ? step.targetCrews - (previousStep?.targetCrews ?? estimatedCurrentCrews)
+        : 0;
+
+    if (addedCrews >= 1 && hasJobInputs) {
+      const crewsForCalc = step.targetCrews ?? previousStep?.targetCrews ?? estimatedCurrentCrews;
+      const jobsPerCrewPerYearForCalc = jobsPerCrewPerMonthNum * 12;
+      const revenuePerCrewPerYear = jobsPerCrewPerYearForCalc * avgJobValueNum;
+      const idealRevenueAtFull = crewsForCalc * revenuePerCrewPerYear;
+      let utilizationPct = 0;
+      if (idealRevenueAtFull > 0) {
+        utilizationPct = Math.round((step.targetRevenue / idealRevenueAtFull) * 100);
+      }
+      if (utilizationPct > 100) {
+        utilizationPct = 100;
+      }
+      if (utilizationPct < 30 && utilizationPct > 0) {
+        utilizationPct = 30;
+      }
+      const crewWord = addedCrews > 1 ? 'crews' : 'crew';
+      return `This year is about adding roughly ${addedCrews.toLocaleString()} new ${crewWord} and keeping them around ${utilizationPct}% full.`;
+    }
+
+    if (step.extraJobsPerMonth != null && step.extraJobsPerMonth > 0 && baseJobsPerMonth > 0) {
+      const jobsIncreasePct = step.extraJobsPerMonth / baseJobsPerMonth;
+      if (jobsIncreasePct >= 0.25 || step.extraJobsPerMonth >= 10) {
+        return `This year is about filling the calendar with about ${Math.round(
+          step.extraJobsPerMonth
+        ).toLocaleString()} extra jobs each month.`;
+      }
+    }
+
+    if (hasJobInputs && deltaRevenue > 0 && jobsPerCrewPerYear > 0) {
+      const jobsPerYearAcrossCrews = jobsPerCrewPerYear * estimatedCurrentCrews;
+      const requiredAvgJobValueIncrease =
+        jobsPerYearAcrossCrews > 0 ? deltaRevenue / jobsPerYearAcrossCrews : 0;
+
+      if (requiredAvgJobValueIncrease >= 5) {
+        const increaseRounded = Math.round(requiredAvgJobValueIncrease);
+        return `This year is about raising your average job value by about $${increaseRounded.toLocaleString()} so you can grow without overloading your calendar.`;
+      }
+    }
+
+    const { phase } = getPhaseInfo(index, steps.length);
+    if (phase === 'early') {
+      return 'This year is about knowing your numbers and steadying the boat so money feels less up and down.';
+    }
+    if (phase === 'freedom') {
+      return 'This year is about protecting your time and income as the business gets close to your Lighthouse.';
+    }
+    return 'This year is about growing revenue on purpose with simple, repeatable moves each month.';
+  }
+
+  // Get themes array for a given phase
+  function getThemesForPhase(phase: ThemePhase): ThemeDefinition[] {
+    if (phase === 'early') return earlyStageThemes;
+    if (phase === 'freedom') return freedomThemes;
+    return growthThemes;
+  }
+
+  // Initialize editable steps from calculated lighthouse steps
+  function initializeEditableSteps(steps: LighthouseStep[], existingSteps?: EditableStep[]): EditableStep[] {
+    return steps.map((step, index) => {
+      const { indexWithinPhase } = getPhaseInfo(index, steps.length);
+      // Preserve existing milestones if available
+      const existingMilestones = existingSteps?.[index]?.milestones ?? [];
+      return {
+        yearLabel: step.yearLabel,
+        targetRevenue: step.targetRevenue,
+        themeIndex: indexWithinPhase,
+        approved: false,
+        milestones: existingMilestones,
+      };
+    });
+  }
+
+  // State for tracking which year cards have milestones expanded
+  const [expandedMilestones, setExpandedMilestones] = useState<Set<number>>(new Set());
+
+  // Toggle milestone section expansion
+  const toggleMilestoneExpansion = (index: number) => {
+    setExpandedMilestones((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  // Add a new milestone to a step
+  const addMilestone = (stepIndex: number) => {
+    setEditableSteps((prev) => {
+      const updated = [...prev];
+      if (updated[stepIndex]) {
+        const newMilestone: Milestone = {
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          text: '',
+          completed: false,
+        };
+        updated[stepIndex] = {
+          ...updated[stepIndex],
+          milestones: [...updated[stepIndex].milestones, newMilestone],
+        };
+      }
+      return updated;
+    });
+  };
+
+  // Update a milestone's text
+  const updateMilestoneText = (stepIndex: number, milestoneId: string, text: string) => {
+    setEditableSteps((prev) => {
+      const updated = [...prev];
+      if (updated[stepIndex]) {
+        updated[stepIndex] = {
+          ...updated[stepIndex],
+          milestones: updated[stepIndex].milestones.map((m) =>
+            m.id === milestoneId ? { ...m, text } : m
+          ),
+        };
+      }
+      return updated;
+    });
+  };
+
+  // Auto-save milestones to database
+  const autoSaveMilestones = async () => {
+    if (!dbUserId || editableSteps.length === 0) return;
+    
+    try {
+      const stepsToSave: StepOverridePayload[] = editableSteps.map((step, index) => ({
+        yearIndex: index,
+        yearLabel: step.yearLabel,
+        targetRevenue: step.targetRevenue,
+        themeIndex: step.themeIndex,
+        milestones: step.milestones,
+        approved: step.approved,
+      }));
+      await saveStepOverrides(dbUserId, planStatus, stepsToSave);
+      console.log('✅ Milestones auto-saved');
+    } catch (err) {
+      console.error('Error auto-saving milestones:', err);
+    }
+  };
+
+  // Toggle a milestone's completed status (auto-saves)
+  const toggleMilestoneCompleted = (stepIndex: number, milestoneId: string) => {
+    setEditableSteps((prev) => {
+      const updated = [...prev];
+      if (updated[stepIndex]) {
+        updated[stepIndex] = {
+          ...updated[stepIndex],
+          milestones: updated[stepIndex].milestones.map((m) =>
+            m.id === milestoneId ? { ...m, completed: !m.completed } : m
+          ),
+        };
+      }
+      return updated;
+    });
+    // Auto-save after toggle
+    setTimeout(() => autoSaveMilestones(), 100);
+  };
+
+  // Delete a milestone
+  const deleteMilestone = (stepIndex: number, milestoneId: string) => {
+    setEditableSteps((prev) => {
+      const updated = [...prev];
+      if (updated[stepIndex]) {
+        updated[stepIndex] = {
+          ...updated[stepIndex],
+          milestones: updated[stepIndex].milestones.filter((m) => m.id !== milestoneId),
+        };
+      }
+      return updated;
+    });
+  };
+
+  // Initialize editableSteps only when lighthouseSteps length changes
+  useEffect(() => {
+    if (lighthouseSteps.length > 0 && editableSteps.length !== lighthouseSteps.length) {
+      setEditableSteps(initializeEditableSteps(lighthouseSteps, editableSteps));
+    }
+  }, [lighthouseSteps.length, editableSteps]);
+
+  // Start the review flow
+  const handleStartReview = () => {
+    if (lighthouseSteps.length === 0) return;
+    
+    // Initialize editable steps if not already done
+    if (editableSteps.length !== lighthouseSteps.length) {
+      setEditableSteps(initializeEditableSteps(lighthouseSteps, editableSteps));
+    }
+    
+    setReviewStepIndex(0);
+    setShowReviewModal(true);
+  };
+
+  // Save step overrides to the database
+  const handleSaveStepOverrides = async (newStatus: PlanStatus) => {
+    if (!dbUserId) return;
+    
+    try {
+      const stepsToSave: StepOverridePayload[] = editableSteps.map((step, index) => ({
+        yearIndex: index,
+        yearLabel: step.yearLabel,
+        targetRevenue: step.targetRevenue,
+        themeIndex: step.themeIndex,
+        milestones: step.milestones,
+        approved: step.approved,
+      }));
+      
+      await saveStepOverrides(dbUserId, newStatus, stepsToSave);
+      console.log(`✅ Saved ${stepsToSave.length} step overrides with status: ${newStatus}`);
+    } catch (err) {
+      console.error('Error saving step overrides:', err);
+    }
+  };
+
+  // Approve current step in review and move to next
+  const handleApproveStep = async () => {
+    setEditableSteps((prev) => {
+      const updated = [...prev];
+      if (updated[reviewStepIndex]) {
+        updated[reviewStepIndex] = { ...updated[reviewStepIndex], approved: true };
+      }
+      return updated;
+    });
+
+    if (reviewStepIndex < lighthouseSteps.length - 1) {
+      setReviewStepIndex((prev) => prev + 1);
+    } else {
+      // All steps reviewed - commit the plan and save to database
+      setPlanStatus('committed');
+      setShowReviewModal(false);
+      
+      // Save to database with committed status
+      const finalSteps = editableSteps.map((step, index) => ({
+        ...step,
+        approved: index === reviewStepIndex ? true : step.approved,
+      }));
+      
+      const stepsToSave: StepOverridePayload[] = finalSteps.map((step, index) => ({
+        yearIndex: index,
+        yearLabel: step.yearLabel,
+        targetRevenue: step.targetRevenue,
+        themeIndex: step.themeIndex,
+        milestones: step.milestones,
+        approved: step.approved,
+      }));
+      
+      if (dbUserId) {
+        try {
+          await saveStepOverrides(dbUserId, 'committed', stepsToSave);
+          console.log('✅ Plan committed and saved to database');
+        } catch (err) {
+          console.error('Error saving committed plan:', err);
+        }
+      }
+    }
+  };
+
+  // Go back to previous step in review
+  const handlePreviousStep = () => {
+    if (reviewStepIndex > 0) {
+      setReviewStepIndex((prev) => prev - 1);
+    }
+  };
+
+  // Update a single editable step
+  const handleUpdateEditableStep = (
+    index: number,
+    updates: Partial<Pick<EditableStep, 'targetRevenue' | 'themeIndex'>>
+  ) => {
+    setEditableSteps((prev) => {
+      // If editableSteps is empty or doesn't have this index, initialize from lighthouseSteps
+      let updated = [...prev];
+      if (updated.length !== lighthouseSteps.length) {
+        updated = initializeEditableSteps(lighthouseSteps, prev);
+      }
+      if (updated[index]) {
+        updated[index] = { ...updated[index], ...updates };
+      }
+      return updated;
+    });
+  };
+
+  // Get the effective theme for a step (from editableSteps if available, otherwise calculated)
+  const getEffectiveTheme = (index: number): ThemeWithPhase => {
+    const { phase, indexWithinPhase } = getPhaseInfo(index, lighthouseSteps.length);
+    const themes = getThemesForPhase(phase);
+    
+    // Use custom theme index if available in editableSteps
+    const editableStep = editableSteps[index];
+    const themeIdx = editableStep?.themeIndex ?? indexWithinPhase;
+    const theme = themes[themeIdx % themes.length];
+    
+    let phaseLabel = 'Growth theme';
+    if (phase === 'early') phaseLabel = 'Early-stage theme';
+    else if (phase === 'freedom') phaseLabel = 'Freedom and owner-life theme';
+    
+    return { ...theme, phaseLabel };
+  };
+
+  // Get effective target revenue (from editableSteps if available)
+  const getEffectiveTargetRevenue = (index: number): number => {
+    const editableStep = editableSteps[index];
+    return editableStep?.targetRevenue ?? lighthouseSteps[index]?.targetRevenue ?? 0;
+  };
+
+  // Reset plan to draft mode
+  const handleEditPlan = () => {
+    setPlanStatus('draft');
+    setEditableSteps((prev) => prev.map((s) => ({ ...s, approved: false })));
+  };
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -574,9 +1206,9 @@ Rules:
                     <div>
                       <div className="text-muted">Average lift needed</div>
                       <div className="text-sm font-medium text-foreground">
-                        ~${Math.round(lighthousePlan.requiredAnnualIncrease).toLocaleString()} / year
+                        Roughly ${Math.round(lighthousePlan.requiredAnnualIncrease).toLocaleString()} / year
                         <br />
-                        (~${Math.round(lighthousePlan.requiredMonthlyIncrease).toLocaleString()} / month)
+                        Roughly ${Math.round(lighthousePlan.requiredMonthlyIncrease).toLocaleString()} / month
                       </div>
                     </div>
                   </div>
@@ -609,19 +1241,44 @@ Rules:
       </Card>
 
       {lighthousePlan && (
-        <Card className="bg-muted/30 border border-accent/50">
+        <Card className={`bg-background border ${planStatus === 'committed' ? 'border-green-500/50' : 'border-accent/50'}`}>
           <CardHeader>
-            <CardTitle className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Activity className="h-5 w-5 text-accent" />
-              <span>Path to Your Lighthouse</span>
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <Activity className="h-5 w-5 text-accent" />
+                <span>Path to Your Lighthouse</span>
+              </CardTitle>
+              {planStatus === 'committed' ? (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 text-green-600 text-xs font-medium">
+                    <Check className="h-3.5 w-3.5" />
+                    Plan Committed
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleEditPlan}
+                    className="text-xs"
+                  >
+                    <Pencil className="h-3.5 w-3.5 mr-1" />
+                    Edit Plan
+                  </Button>
+                </div>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 text-xs font-medium">
+                  Draft Plan
+                </span>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
             <p className="text-sm text-muted-foreground max-w-2xl">
-              Use simple assumptions to turn your Lighthouse into concrete yearly steps you can see and track in jobs and crews.
+              {planStatus === 'committed'
+                ? 'This is your committed Lighthouse plan. The AI coach will use these targets to guide your monthly actions.'
+                : 'Use simple assumptions to turn your Lighthouse into concrete yearly steps you can see and track in jobs and crews.'}
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="avg-job-value">Average revenue per job</Label>
                 <Input
@@ -651,6 +1308,29 @@ Rules:
                   placeholder="For example: 160"
                   disabled={lighthouseLoading || lighthouseSaving}
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  Rough count of finished jobs one crew can handle in a typical month. Gut estimate is
+                  fine.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="days-per-week">Typical working days per week</Label>
+                <Input
+                  id="days-per-week"
+                  type="number"
+                  min={0}
+                  value={daysPerWeek}
+                  onChange={(e) => {
+                    setDaysPerWeek(e.target.value);
+                    setLighthouseSaved(false);
+                  }}
+                  placeholder="For example: 4"
+                  disabled={lighthouseLoading || lighthouseSaving}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  How many days per week your crews are usually in the field doing jobs. If you have more
+  than one crew, just use a typical average — this is about crews, not your office days.
+                </p>
               </div>
             </div>
 
@@ -676,8 +1356,29 @@ Rules:
 
             {lighthouseSteps.length > 0 ? (
               <div className={lighthouseStepsGridClass}>
-                {lighthouseSteps.map((step) => {
+                {lighthouseSteps.map((step, index) => {
                   const stepProgressPercent = Math.round(step.progress * 100);
+                  // Use effective values that respect user edits
+                  const theme = getEffectiveTheme(index);
+                  const effectiveTargetRevenue = getEffectiveTargetRevenue(index);
+                  const focusLine = getFocusForStep(
+                    step,
+                    index,
+                    lighthouseSteps,
+                    lighthousePlan,
+                    avgJobValue,
+                    jobsPerCrewPerMonth
+                  );
+                  const extraJobsPerWeek =
+                    step.extraJobsPerMonth != null && step.extraJobsPerMonth > 0
+                      ? step.extraJobsPerMonth / 4
+                      : null;
+                  const daysPerWeekNum = Number(daysPerWeek);
+                  const extraJobsPerDay =
+                    extraJobsPerWeek != null && daysPerWeekNum > 0
+                      ? extraJobsPerWeek / daysPerWeekNum
+                      : null;
+
                   return (
                     <div
                       key={step.yearLabel}
@@ -695,34 +1396,86 @@ Rules:
                             </p>
                           </div>
                         </div>
-                        <div className="text-xs text-muted-foreground text-right">
-                          {stepProgressPercent > 0
-                            ? `${stepProgressPercent}% of this step`
-                            : 'Not started yet'}
+                        <div className="flex items-center gap-2">
+                          {planStatus === 'draft' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Initialize editable steps if not already done
+                                if (editableSteps.length !== lighthouseSteps.length) {
+                                  setEditableSteps(initializeEditableSteps(lighthouseSteps));
+                                }
+                                setEditingYearIndex(index);
+                              }}
+                              className="p-1.5 rounded-md hover:bg-accent/10 text-muted-foreground hover:text-accent transition-colors"
+                              title="Edit this year"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          )}
+                          <div className="text-xs text-muted-foreground text-right">
+                            {stepProgressPercent > 0
+                              ? `${stepProgressPercent}% toward this target`
+                              : 'Planned step'}
+                          </div>
                         </div>
                       </div>
 
                       <div className="space-y-3 text-sm">
-                        <div className="flex items-baseline justify-between">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-foreground">{theme.title}</p>
+                          <p className="text-xs text-muted-foreground">{theme.description}</p>
+                        </div>
+
+                        <div className="flex items-baseline justify-between pt-2">
                           <p className="text-sm text-muted-foreground">Target revenue</p>
                           <p className="text-2xl font-bold text-accent">
-                            ${Math.round(step.targetRevenue).toLocaleString()}
+                            ${Math.round(effectiveTargetRevenue).toLocaleString()}
                           </p>
                         </div>
                         {step.extraJobsPerMonth != null && (
                           <div className="flex items-baseline justify-between">
                             <p className="text-sm text-muted-foreground">Extra jobs / month</p>
                             <p className="text-base font-bold text-foreground">
-                              ≈ {Math.round(step.extraJobsPerMonth).toLocaleString()}
+                              ~{Math.round(step.extraJobsPerMonth).toLocaleString()}
                             </p>
                           </div>
                         )}
                         {step.targetCrews != null && (
                           <div className="flex items-baseline justify-between">
                             <p className="text-sm text-muted-foreground">Target crews</p>
-                            <p className="text-base font-bold text-foreground">
-                              ≈ {step.targetCrews}
-                            </p>
+                            <p className="text-base font-bold text-foreground">~{step.targetCrews}</p>
+                          </div>
+                        )}
+
+                        {focusLine && (
+                          <div className="pt-1 text-xs text-muted-foreground">{focusLine}</div>
+                        )}
+
+                        {step.extraJobsPerMonth != null && step.extraJobsPerMonth > 0 && (
+                          <div className="pt-1 text-[11px] text-muted-foreground">
+                            <span>
+                              This roughly means about{' '}
+                              {Math.round(step.extraJobsPerMonth).toLocaleString()} extra jobs per
+                              month
+                            </span>
+                            {extraJobsPerWeek != null && (
+                              <>
+                                <span>
+                                  {`, which is around ${Math.round(
+                                    extraJobsPerWeek
+                                  ).toLocaleString()} extra jobs per week`}
+                                </span>
+                                {extraJobsPerDay != null && daysPerWeekNum > 0 && (
+                                  <span>
+                                    {` (about ${Math.max(
+                                      1,
+                                      Math.round(extraJobsPerDay)
+                                  ).toLocaleString()} extra jobs per crew workday if crews work about ${daysPerWeekNum.toLocaleString()} days per week)`}
+                                  </span>
+                                )}
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -739,6 +1492,87 @@ Rules:
                           />
                         </div>
                       </div>
+
+                      {/* Collapsible Milestones Section */}
+                      <div className="border-t border-border/50 pt-3 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleMilestoneExpansion(index)}
+                          className="flex items-center justify-between w-full text-left group"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-foreground">
+                              Milestones
+                            </span>
+                            {editableSteps[index]?.milestones?.length > 0 && (
+                              <span className="text-xs text-muted-foreground">
+                                ({editableSteps[index].milestones.filter(m => m.completed).length}/{editableSteps[index].milestones.length})
+                              </span>
+                            )}
+                          </div>
+                          {expandedMilestones.has(index) ? (
+                            <ChevronUp className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                          )}
+                        </button>
+
+                        {expandedMilestones.has(index) && (
+                          <div className="mt-3 space-y-2">
+                            <p className="text-xs text-muted-foreground">
+                              What will you implement this year to move closer to your Lighthouse?
+                            </p>
+                            
+                            {/* Existing milestones */}
+                            {editableSteps[index]?.milestones?.map((milestone) => (
+                              <div key={milestone.id} className="flex items-start gap-2 group">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleMilestoneCompleted(index, milestone.id)}
+                                  className={`mt-0.5 flex-shrink-0 w-4 h-4 rounded border transition-colors ${
+                                    milestone.completed
+                                      ? 'bg-accent border-accent'
+                                      : 'border-accent/50 hover:border-accent'
+                                  }`}
+                                >
+                                  {milestone.completed && (
+                                    <Check className="h-3 w-3 text-background m-auto" />
+                                  )}
+                                </button>
+                                <input
+                                  type="text"
+                                  value={milestone.text}
+                                  onChange={(e) => updateMilestoneText(index, milestone.id, e.target.value)}
+                                  placeholder="e.g., Launch bonus plan, New website..."
+                                  className={`flex-1 text-sm bg-transparent border-none outline-none placeholder:text-muted-foreground/50 ${
+                                    milestone.completed ? 'line-through text-muted-foreground' : 'text-foreground'
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => deleteMilestone(index, milestone.id)}
+                                  className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-red-500 transition-all"
+                                  title="Delete milestone"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ))}
+
+                            {/* Add milestone button - limit to 4 */}
+                            {(editableSteps[index]?.milestones?.length ?? 0) < 4 && (
+                              <button
+                                type="button"
+                                onClick={() => addMilestone(index)}
+                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-accent transition-colors mt-2"
+                              >
+                                <Plus className="h-3 w-3" />
+                                <span>Add milestone</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -748,9 +1582,220 @@ Rules:
                 Add a couple of assumptions above to see how your Lighthouse breaks into yearly jobs and crew targets.
               </p>
             )}
+
+            <p className="text-xs text-muted-foreground max-w-2xl pt-3 text-center mx-auto">
+              This is a starting point or a guide to give you directions toward your Lighthouse goal, it&apos;s not a tattoo we&apos;re stuck with. If this year feels too early or too late for a big change like stepping out of the field, you can adjust your Lighthouse goal or the timeline as you go.
+            </p>
+
+            {/* Review & Commit Button */}
+            {planStatus === 'draft' && lighthouseSteps.length > 0 && (
+              <div className="flex justify-center pt-4">
+                <Button
+                  onClick={handleStartReview}
+                  className="flex items-center gap-2 bg-accent hover:bg-accent/90"
+                >
+                  <Check className="h-4 w-4" />
+                  <span>Review &amp; Commit This Plan</span>
+                </Button>
+              </div>
+            )}
+
           </CardContent>
         </Card>
       )}
+
+      {/* Review Plan Modal - Step-through guided review */}
+      <Dialog open={showReviewModal} onOpenChange={setShowReviewModal}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-accent" />
+              Review Your Lighthouse Plan
+            </DialogTitle>
+            <DialogDescription>
+              Step {reviewStepIndex + 1} of {lighthouseSteps.length} — Review each year and make adjustments if needed.
+            </DialogDescription>
+          </DialogHeader>
+
+          {lighthouseSteps[reviewStepIndex] && (
+            <div className="space-y-4 py-4">
+              {/* Year Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-accent/20">
+                    <Activity className="h-5 w-5 text-accent" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Year</p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {lighthouseSteps[reviewStepIndex].yearLabel}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Target Revenue</p>
+                  <p className="text-xl font-bold text-accent">
+                    ${Math.round(getEffectiveTargetRevenue(reviewStepIndex)).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              {/* Theme */}
+              <div className="p-4 rounded-lg bg-muted/30 border border-accent/30">
+                <p className="text-sm font-semibold text-foreground">
+                  {getEffectiveTheme(reviewStepIndex).title}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {getEffectiveTheme(reviewStepIndex).description}
+                </p>
+              </div>
+
+              {/* Focus Line */}
+              {(() => {
+                const focusLine = getFocusForStep(
+                  lighthouseSteps[reviewStepIndex],
+                  reviewStepIndex,
+                  lighthouseSteps,
+                  lighthousePlan,
+                  avgJobValue,
+                  jobsPerCrewPerMonth
+                );
+                return focusLine ? (
+                  <p className="text-sm text-muted-foreground italic">{focusLine}</p>
+                ) : null;
+              })()}
+
+              {/* Question */}
+              <div className="p-4 rounded-lg bg-accent/5 border border-accent/20">
+                <p className="text-sm text-foreground">
+                  Does this feel right for {lighthouseSteps[reviewStepIndex].yearLabel}?
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  You can click the edit icon on any year card to adjust the target or theme before committing.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreviousStep}
+                disabled={reviewStepIndex === 0}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowReviewModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleApproveStep}
+                className="bg-accent hover:bg-accent/90"
+              >
+                {reviewStepIndex < lighthouseSteps.length - 1 ? (
+                  <>
+                    Looks Good
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 mr-1" />
+                    Commit Plan
+                  </>
+                )}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Year Modal */}
+      <Dialog open={editingYearIndex !== null} onOpenChange={(open) => !open && setEditingYearIndex(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-accent" />
+              Edit Year {editingYearIndex !== null && lighthouseSteps[editingYearIndex]?.yearLabel}
+            </DialogTitle>
+            <DialogDescription>
+              Adjust the target revenue or choose a different theme for this year.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingYearIndex !== null && lighthouseSteps[editingYearIndex] && (
+            <div className="space-y-4 py-4">
+              {/* Target Revenue Input */}
+              <div className="space-y-2">
+                <Label htmlFor="edit-target-revenue">Target Revenue</Label>
+                <Input
+                  id="edit-target-revenue"
+                  type="text"
+                  inputMode="numeric"
+                  value={Math.round(editableSteps[editingYearIndex]?.targetRevenue ?? lighthouseSteps[editingYearIndex].targetRevenue).toString()}
+                  onChange={(e) => {
+                    const rawValue = e.target.value.replace(/[^0-9]/g, '');
+                    const numValue = rawValue === '' ? 0 : parseInt(rawValue, 10);
+                    handleUpdateEditableStep(editingYearIndex, { targetRevenue: numValue });
+                  }}
+                />
+              </div>
+
+              {/* Theme Selection */}
+              <div className="space-y-2">
+                <Label>Theme for this year</Label>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {(() => {
+                    const { phase } = getPhaseInfo(editingYearIndex, lighthouseSteps.length);
+                    const themes = getThemesForPhase(phase);
+                    const currentThemeIndex = editableSteps[editingYearIndex]?.themeIndex ?? 0;
+                    
+                    return themes.map((theme, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleUpdateEditableStep(editingYearIndex, { themeIndex: idx })}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                          idx === currentThemeIndex
+                            ? 'border-accent bg-accent/10'
+                            : 'border-border hover:border-accent/50 hover:bg-muted/30'
+                        }`}
+                      >
+                        <p className="text-sm font-medium text-foreground">{theme.title}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{theme.description}</p>
+                      </button>
+                    ));
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditingYearIndex(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => setEditingYearIndex(null)}
+              className="bg-accent hover:bg-accent/90"
+            >
+              <Check className="h-4 w-4 mr-1" />
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
