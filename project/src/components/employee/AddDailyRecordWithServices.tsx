@@ -14,7 +14,7 @@ export const COMPANY_SETTINGS = {
   bonusThresholdMax: 100,
   overtimeHoursDaily: 12,
   overtimeMultiplier: 1.5,
-  paySchedule: 'bi-weekly' as 'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly',
+  paySchedule: 'bi-weekly' as 'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly' | 'custom',
   payDayOfWeek: 5,
   payReferenceDate: undefined as string | undefined,
   paySemiMonthlyDates: [1, 15] as [number, number],
@@ -23,7 +23,11 @@ export const COMPANY_SETTINGS = {
   appointmentBonus3Jobs: 7,
   appointmentBonus4Jobs: 10,
   appointmentBonus5Jobs: 15,
-  appointmentBonus6PlusJobs: 20
+  appointmentBonus6PlusJobs: 20,
+  // Crew capacity settings
+  numberOfCrews: undefined as number | undefined,
+  employeesPerCrew: undefined as number | undefined,
+  monthlyCrewCapacity: undefined as number | undefined
 };
 
 interface ServiceBreakdownItem {

@@ -7,8 +7,10 @@ export default {
         sans: ['Outfit', 'sans-serif'],
       },
       colors: {
-        background: '#1a1a1a',
+        background: '#000000',
         foreground: '#ffffff',
+        neon: '#3533cd',
+        blue: '#0c111d',
         accent: {
           50: '#FFFDF7',
           100: '#FFF9E6',

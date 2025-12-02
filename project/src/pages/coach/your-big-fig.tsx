@@ -795,8 +795,9 @@ Rules:
     });
   };
 
-  // Add a new milestone to a step
+  // Add a new milestone to a step (auto-saves)
   const addMilestone = (stepIndex: number) => {
+    let updatedSteps: EditableStep[] = [];
     setEditableSteps((prev) => {
       const updated = [...prev];
       if (updated[stepIndex]) {
@@ -810,8 +811,11 @@ Rules:
           milestones: [...updated[stepIndex].milestones, newMilestone],
         };
       }
+      updatedSteps = updated;
       return updated;
     });
+    // Auto-save after adding
+    setTimeout(() => autoSaveMilestones(updatedSteps), 100);
   };
 
   // Update a milestone's text
@@ -830,12 +834,12 @@ Rules:
     });
   };
 
-  // Auto-save milestones to database
-  const autoSaveMilestones = async () => {
-    if (!dbUserId || editableSteps.length === 0) return;
+  // Auto-save milestones to database (accepts steps directly to avoid stale state)
+  const autoSaveMilestones = async (steps: EditableStep[]) => {
+    if (!dbUserId || steps.length === 0) return;
     
     try {
-      const stepsToSave: StepOverridePayload[] = editableSteps.map((step, index) => ({
+      const stepsToSave: StepOverridePayload[] = steps.map((step, index) => ({
         yearIndex: index,
         yearLabel: step.yearLabel,
         targetRevenue: step.targetRevenue,
@@ -852,6 +856,7 @@ Rules:
 
   // Toggle a milestone's completed status (auto-saves)
   const toggleMilestoneCompleted = (stepIndex: number, milestoneId: string) => {
+    let updatedSteps: EditableStep[] = [];
     setEditableSteps((prev) => {
       const updated = [...prev];
       if (updated[stepIndex]) {
@@ -862,14 +867,16 @@ Rules:
           ),
         };
       }
+      updatedSteps = updated;
       return updated;
     });
-    // Auto-save after toggle
-    setTimeout(() => autoSaveMilestones(), 100);
+    // Auto-save with the updated steps
+    setTimeout(() => autoSaveMilestones(updatedSteps), 100);
   };
 
-  // Delete a milestone
+  // Delete a milestone (auto-saves)
   const deleteMilestone = (stepIndex: number, milestoneId: string) => {
+    let updatedSteps: EditableStep[] = [];
     setEditableSteps((prev) => {
       const updated = [...prev];
       if (updated[stepIndex]) {
@@ -878,8 +885,11 @@ Rules:
           milestones: updated[stepIndex].milestones.filter((m) => m.id !== milestoneId),
         };
       }
+      updatedSteps = updated;
       return updated;
     });
+    // Auto-save after delete
+    setTimeout(() => autoSaveMilestones(updatedSteps), 100);
   };
 
   // Initialize editableSteps only when lighthouseSteps length changes
@@ -1274,7 +1284,7 @@ Rules:
           <CardContent className="pt-6 space-y-6">
             <p className="text-sm text-muted-foreground max-w-2xl">
               {planStatus === 'committed'
-                ? 'This is your committed Lighthouse plan. The AI coach will use these targets to guide your monthly actions.'
+                ? 'This is your Lighthouse plan. The AI coach will use these targets to guide your monthly actions.'
                 : 'Use simple assumptions to turn your Lighthouse into concrete yearly steps you can see and track in jobs and crews.'}
             </p>
 
@@ -1382,7 +1392,7 @@ Rules:
                   return (
                     <div
                       key={step.yearLabel}
-                      className="flex flex-col justify-between rounded-lg bg-muted/30 border border-accent/50 p-6 space-y-4"
+                      className="flex flex-col justify-between rounded-lg bg-muted/30 border border-border p-6 space-y-4"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
@@ -1391,7 +1401,7 @@ Rules:
                           </div>
                           <div>
                             <p className="text-sm text-muted-foreground">Year</p>
-                            <p className="text-2xl font-bold text-foreground">
+                            <p className="text-2xl font-bold text-accent">
                               {step.yearLabel}
                             </p>
                           </div>
@@ -1423,19 +1433,19 @@ Rules:
 
                       <div className="space-y-3 text-sm">
                         <div className="space-y-1">
-                          <p className="text-sm font-semibold text-foreground">{theme.title}</p>
+                          <p className="text-sm font-semibold text-accent">{theme.title}</p>
                           <p className="text-xs text-muted-foreground">{theme.description}</p>
                         </div>
 
                         <div className="flex items-baseline justify-between pt-2">
-                          <p className="text-sm text-muted-foreground">Target revenue</p>
+                          <p className="text-sm text-accent">Target revenue</p>
                           <p className="text-2xl font-bold text-accent">
                             ${Math.round(effectiveTargetRevenue).toLocaleString()}
                           </p>
                         </div>
                         {step.extraJobsPerMonth != null && (
                           <div className="flex items-baseline justify-between">
-                            <p className="text-sm text-muted-foreground">Extra jobs / month</p>
+                            <p className="text-sm text-accent">Extra jobs / month</p>
                             <p className="text-base font-bold text-foreground">
                               ~{Math.round(step.extraJobsPerMonth).toLocaleString()}
                             </p>
@@ -1443,7 +1453,7 @@ Rules:
                         )}
                         {step.targetCrews != null && (
                           <div className="flex items-baseline justify-between">
-                            <p className="text-sm text-muted-foreground">Target crews</p>
+                            <p className="text-sm text-accent">Target crews</p>
                             <p className="text-base font-bold text-foreground">~{step.targetCrews}</p>
                           </div>
                         )}
@@ -1501,7 +1511,7 @@ Rules:
                           className="flex items-center justify-between w-full text-left group"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-foreground">
+                            <span className="text-sm font-medium text-accent">
                               Milestones
                             </span>
                             {editableSteps[index]?.milestones?.length > 0 && (
@@ -1570,6 +1580,16 @@ Rules:
                                 <span>Add milestone</span>
                               </button>
                             )}
+
+                            {/* Save Year button */}
+                            <button
+                              type="button"
+                              onClick={() => autoSaveMilestones(editableSteps)}
+                              className="flex items-center gap-1.5 text-xs text-accent hover:text-accent/80 transition-colors mt-3 pt-2 border-t border-border/30"
+                            >
+                              <Save className="h-3 w-3" />
+                              <span>Save this year</span>
+                            </button>
                           </div>
                         )}
                       </div>

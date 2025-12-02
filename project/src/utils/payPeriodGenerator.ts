@@ -7,7 +7,8 @@ export type PaySchedule =
   | 'weekly'           // Every week (52 periods/year)
   | 'bi-weekly'        // Every 2 weeks (26 periods/year)
   | 'semi-monthly'     // Twice a month - 1st-15th, 16th-end (24 periods/year)
-  | 'monthly';         // Once a month (12 periods/year)
+  | 'monthly'          // Once a month (12 periods/year)
+  | 'custom';          // Custom / Manual (user creates their own periods)
 
 export interface PayPeriodConfig {
   schedule: PaySchedule;
@@ -228,6 +229,8 @@ export function getPayScheduleDescription(config: PayPeriodConfig): string {
       return `Semi-monthly (${getOrdinal(date1)} and ${getOrdinal(date2)})`;
     case 'monthly':
       return 'Monthly';
+    case 'custom':
+      return 'Custom / Manual';
     default:
       return 'Unknown';
   }

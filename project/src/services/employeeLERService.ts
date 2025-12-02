@@ -86,6 +86,10 @@ export interface CompanySettings {
   appointmentBonus4Jobs?: number;
   appointmentBonus5Jobs?: number;
   appointmentBonus6PlusJobs?: number;
+  // Crew capacity configuration
+  numberOfCrews?: number;  // How many crews do you run?
+  employeesPerCrew?: number;  // How many employees per crew?
+  monthlyCrewCapacity?: number;  // Expected revenue per crew per month
 }
 
 // ============================================
@@ -717,7 +721,11 @@ export async function getCompanySettings(userId: string): Promise<CompanySetting
     appointmentBonus3Jobs: parseFloat(data.appointment_bonus_3_jobs) || 7,
     appointmentBonus4Jobs: parseFloat(data.appointment_bonus_4_jobs) || 10,
     appointmentBonus5Jobs: parseFloat(data.appointment_bonus_5_jobs) || 15,
-    appointmentBonus6PlusJobs: parseFloat(data.appointment_bonus_6_plus_jobs) || 20
+    appointmentBonus6PlusJobs: parseFloat(data.appointment_bonus_6_plus_jobs) || 20,
+    // Crew capacity settings
+    numberOfCrews: data.number_of_crews ? parseInt(data.number_of_crews) : 0,
+    employeesPerCrew: data.employees_per_crew ? parseInt(data.employees_per_crew) : 0,
+    monthlyCrewCapacity: data.monthly_crew_capacity ? parseFloat(data.monthly_crew_capacity) : 0
   };
 }
 
@@ -741,7 +749,11 @@ export async function saveCompanySettings(userId: string, settings: CompanySetti
       appointment_bonus_3_jobs: settings.appointmentBonus3Jobs || 7,
       appointment_bonus_4_jobs: settings.appointmentBonus4Jobs || 10,
       appointment_bonus_5_jobs: settings.appointmentBonus5Jobs || 15,
-      appointment_bonus_6_plus_jobs: settings.appointmentBonus6PlusJobs || 20
+      appointment_bonus_6_plus_jobs: settings.appointmentBonus6PlusJobs || 20,
+      // Crew capacity settings
+      number_of_crews: settings.numberOfCrews || null,
+      employees_per_crew: settings.employeesPerCrew || null,
+      monthly_crew_capacity: settings.monthlyCrewCapacity || null
     }, {
       onConflict: 'user_id'
     });

@@ -17,6 +17,8 @@ import { ServiceMixPage } from './pages/ServiceMixPage';
 import { FinancialStatementsPage } from './pages/financial-statements';
 import { BudgetVsActualPage } from './pages/BudgetVsActualPage';
 import EmployeeLERPage from './pages/EmployeeLERPage';
+import EmployeeHubPage from './pages/EmployeeHubPage';
+import CompanySettingsPage from './pages/CompanySettingsPage';
 import { BusinessIntelligencePage } from './pages/BusinessIntelligencePage';
 import { BonusROIAnalysisPage } from './pages/BonusROIAnalysisPage';
 import ProfitImpactPage from './pages/coach/profit-impact';
@@ -155,9 +157,19 @@ function AppRoutes() {
               <Route index element={<BudgetVsActualPage />} />
             </Route>
             
+            {/* Employee Hub */}
+            <Route path="/employees" element={<DashboardLayout />}>
+              <Route index element={<EmployeeHubPage />} />
+            </Route>
+            
             {/* Employee LER Tracking */}
             <Route path="/employee-ler" element={<DashboardLayout />}>
               <Route index element={<EmployeeLERPage />} />
+            </Route>
+            
+            {/* Company Settings */}
+            <Route path="/company-settings" element={<DashboardLayout />}>
+              <Route index element={<CompanySettingsPage />} />
             </Route>
             
             {/* Business Intelligence */}

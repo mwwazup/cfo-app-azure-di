@@ -6,10 +6,11 @@ import { Label } from '../ui/label';
 
 interface EmployeeSetupDialogProps {
   open: boolean;
-  onComplete: (employee: { name: string; position: string; baseRate: number }) => void;
+  onClose: () => void;
+  onSave: (employee: { name: string; position: string; currentBaseRate: number }) => void;
 }
 
-export function EmployeeSetupDialog({ open, onComplete }: EmployeeSetupDialogProps) {
+export function EmployeeSetupDialog({ open, onClose, onSave }: EmployeeSetupDialogProps) {
   const [name, setName] = useState('');
   const [position, setPosition] = useState('');
   const [baseRate, setBaseRate] = useState('');
@@ -26,15 +27,20 @@ export function EmployeeSetupDialog({ open, onComplete }: EmployeeSetupDialogPro
       return;
     }
 
-    onComplete({
+    onSave({
       name,
       position,
-      baseRate: rate
+      currentBaseRate: rate
     });
+    
+    // Reset form
+    setName('');
+    setPosition('');
+    setBaseRate('');
   };
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Welcome! Let's Set Up Your Employee Profile</DialogTitle>
@@ -81,6 +87,9 @@ export function EmployeeSetupDialog({ open, onComplete }: EmployeeSetupDialogPro
           </div>
 
           <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
             <Button onClick={handleSubmit} className="bg-accent hover:bg-accent/90">
               Create Employee Profile
             </Button>

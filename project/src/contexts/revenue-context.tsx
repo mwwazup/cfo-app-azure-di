@@ -3,6 +3,14 @@ import { useAuthContext } from './auth-context';
 import { RevenueDataService } from '../services/revenueDataService';
 import { KPIDataService, RevenueKPI } from '../services/kpiDataService';
 import { RevenueKPIGenerator } from '../services/revenueKPIGenerator';
+import { 
+  getLighthouseGoal, 
+  getLighthousePlan, 
+  getStepOverrides,
+  LighthouseGoal, 
+  LighthousePlan,
+  StepOverride 
+} from '../services/bigFigGoalService';
 
 export interface MonthlyData {
   month: string;
@@ -21,6 +29,19 @@ interface YearData {
   isHistorical?: boolean; // New flag to distinguish historical vs current/future years
   monthlyFIRTargets?: number[]; // New property for fixed monthly FIR targets
   isSample?: boolean; // Indicates the data is placeholder/sample only
+  lighthouseSynced?: boolean; // Is this year's FIR synced with Lighthouse step?
+  lighthouseStepYear?: number; // Which Lighthouse step year (1, 2, 3...)
+}
+
+// Lighthouse context data structure
+export interface LighthouseContext {
+  goal: LighthouseGoal | null;
+  plan: LighthousePlan | null;
+  stepOverrides: StepOverride[];
+  planStatus: 'draft' | 'committed';
+  currentStepYear: number; // Which step year we're in (1-based)
+  currentStepTarget: number | null; // Target revenue for current step
+  isLoading: boolean;
 }
 
 interface RevenueContextType {
@@ -42,6 +63,9 @@ interface RevenueContextType {
   currentYearKpis?: RevenueKPI;
   unlockHistoricalYear: (year: number) => void;
   lockHistoricalYear: (year: number) => void;
+  // Lighthouse integration
+  lighthouse: LighthouseContext;
+  refreshLighthouse: () => Promise<void>;
 }
 
 const RevenueContext = createContext<RevenueContextType | undefined>(undefined);
@@ -182,6 +206,13 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
 
   const [isLoading, setIsLoading] = useState(false);
   const [currentYearKpis, setCurrentYearKpis] = useState<RevenueKPI | undefined>();
+
+  // Lighthouse state
+  const [lighthouseGoal, setLighthouseGoal] = useState<LighthouseGoal | null>(null);
+  const [lighthousePlan, setLighthousePlan] = useState<LighthousePlan | null>(null);
+  const [lighthouseStepOverrides, setLighthouseStepOverrides] = useState<StepOverride[]>([]);
+  const [lighthousePlanStatus, setLighthousePlanStatus] = useState<'draft' | 'committed'>('draft');
+  const [lighthouseLoading, setLighthouseLoading] = useState(false);
 
   // Fetch revenue data from Supabase when user is available
   useEffect(() => {
@@ -394,6 +425,111 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
     loadKpis();
   }, [dbUserId, selectedYear, allYearsData]);
 
+  // Load Lighthouse goal and plan
+  const refreshLighthouse = async () => {
+    if (!dbUserId) return;
+    
+    setLighthouseLoading(true);
+    try {
+      const [goal, plan, overridesResponse] = await Promise.all([
+        getLighthouseGoal(dbUserId),
+        getLighthousePlan(dbUserId),
+        getStepOverrides(dbUserId)
+      ]);
+      
+      setLighthouseGoal(goal);
+      setLighthousePlan(plan);
+      
+      if (overridesResponse) {
+        setLighthousePlanStatus(overridesResponse.planStatus);
+        setLighthouseStepOverrides(overridesResponse.steps);
+      }
+      
+      console.log('Lighthouse data loaded:', { 
+        hasGoal: !!goal, 
+        hasPlan: !!plan,
+        planStatus: overridesResponse?.planStatus,
+        stepsCount: overridesResponse?.steps?.length || 0
+      });
+    } catch (err) {
+      console.error('Error loading Lighthouse data:', err);
+    } finally {
+      setLighthouseLoading(false);
+    }
+  };
+
+  // Load Lighthouse data when user is available
+  useEffect(() => {
+    if (dbUserId) {
+      refreshLighthouse();
+    }
+  }, [dbUserId]);
+
+  // Calculate current Lighthouse step year and target
+  const calculateLighthouseStepInfo = (): { stepYear: number; stepTarget: number | null } => {
+    if (!lighthousePlan || !lighthouseGoal) {
+      return { stepYear: 0, stepTarget: null };
+    }
+    
+    const { targetYear, yearsToGoal } = lighthousePlan;
+    const nowYear = new Date().getFullYear();
+    const firstYear = targetYear - yearsToGoal + 1;
+    
+    // Calculate which step year we're in (1-based)
+    const stepYear = Math.max(1, Math.min(yearsToGoal, nowYear - firstYear + 1));
+    
+    // Find the target for this step from overrides or calculate it
+    const override = lighthouseStepOverrides.find(s => s.yearLabel === String(nowYear));
+    if (override?.targetRevenue) {
+      return { stepYear, stepTarget: override.targetRevenue };
+    }
+    
+    // Calculate target using the same logic as your-big-fig.tsx
+    const { currentAnnualRevenue, targetAnnualRevenue } = lighthousePlan;
+    const totalDelta = targetAnnualRevenue - currentAnnualRevenue;
+    
+    if (yearsToGoal <= 1 || totalDelta === 0) {
+      const stepAmount = yearsToGoal > 0 ? totalDelta / yearsToGoal : 0;
+      return { stepYear, stepTarget: currentAnnualRevenue + stepAmount * stepYear };
+    }
+    
+    // Weighted ramp calculation (same as your-big-fig.tsx)
+    const n = yearsToGoal;
+    const rampStrength = n >= 4 ? 0.5 : 0.3;
+    const weights: number[] = [];
+    let totalWeight = 0;
+    
+    for (let i = 0; i < n; i++) {
+      const t = n === 1 ? 0 : i / (n - 1);
+      const weight = 1 + rampStrength * t;
+      weights.push(weight);
+      totalWeight += weight;
+    }
+    
+    const deltaPerWeight = totalDelta / totalWeight;
+    let cumulativeWeight = 0;
+    
+    for (let i = 0; i < stepYear; i++) {
+      cumulativeWeight += weights[i];
+    }
+    
+    const stepTarget = currentAnnualRevenue + deltaPerWeight * cumulativeWeight;
+    return { stepYear, stepTarget };
+  };
+
+  const { stepYear: currentStepYear, stepTarget: currentStepTarget } = calculateLighthouseStepInfo();
+
+  // Build the lighthouse context object
+  const lighthouse: LighthouseContext = {
+    goal: lighthouseGoal,
+    plan: lighthousePlan,
+    stepOverrides: lighthouseStepOverrides,
+    planStatus: lighthousePlanStatus,
+    currentStepYear,
+    currentStepTarget,
+    isLoading: lighthouseLoading
+  };
+
   const getCurrentYearData = (): YearData => {
     return allYearsData.get(selectedYear) || createCurrentYear(selectedYear, allYearsData);
   };
@@ -604,7 +740,10 @@ export function RevenueProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       currentYearKpis,
       unlockHistoricalYear,
-      lockHistoricalYear
+      lockHistoricalYear,
+      // Lighthouse integration
+      lighthouse,
+      refreshLighthouse
     }}>
       {children}
     </RevenueContext.Provider>

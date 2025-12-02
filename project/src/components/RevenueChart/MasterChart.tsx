@@ -10,13 +10,11 @@ import { Button } from '../ui/button';
 import { 
   Lock, 
   Calendar, 
-  TrendingUp, 
+  TrendingUp,
+  TrendingDown, 
   History, 
   ChevronDown,
   ChevronUp,
-  CheckCircle,
-  AlertTriangle,
-  XCircle,
   Target,
   Activity,
   Gauge,
@@ -24,7 +22,11 @@ import {
   EyeOff,
   Unlock,
   DollarSign,
-  RefreshCw
+  RefreshCw,
+  Lightbulb,
+  AlertTriangle,
+  Check,
+  XCircle
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -50,7 +52,7 @@ ChartJS.register(
 );
 
 type TimePeriod = '30days' | 'quarterly' | 'yearly';
-type TrackingStatus = 'on-track' | 'slightly-behind' | 'off-track' | 'ahead';
+type TrackingStatus = 'on-course' | 'slightly-off-course' | 'off-course' | 'ahead';
 type ViewMode = 'all' | 'actual-only';
 
 const months = [
@@ -79,7 +81,8 @@ export function MasterChart() {
     selectYear,
     getYearData,
     unlockHistoricalYear,
-    lockHistoricalYear
+    lockHistoricalYear,
+    lighthouse
   } = useRevenue();
   
   const { refreshKPIs, isRefreshing, promptForKPIRefresh } = useKPIRefreshContext();
@@ -87,6 +90,54 @@ export function MasterChart() {
   const [timePeriod] = useState<TimePeriod>('yearly');
   const [annualFIRTarget, setAnnualFIRTarget] = useState(currentYear.targetRevenue);
   const [profitMargin, setProfitMargin] = useState(currentYear.profitMargin);
+
+  // Lighthouse integration
+  const hasLighthouse = !!lighthouse.goal && lighthouse.planStatus === 'committed';
+  const lighthouseStepTarget = lighthouse.currentStepTarget;
+  const lighthouseStepYear = lighthouse.currentStepYear;
+  const lighthouseYearsToGoal = lighthouse.plan?.yearsToGoal || 0;
+  
+  // Theme titles for each year (matches your-big-fig.tsx)
+  // Early-stage themes
+  const EARLY_THEMES = [
+    'Find the Lighthouse',
+    'Learn the Waves',
+    'Steady the Boat', 
+    'Know Your Numbers',
+    'Fix the Leaks',
+    'Fill the Calendar'
+  ];
+  // Growth themes
+  const GROWTH_THEMES = [
+    'Ride Bigger Waves',
+    'Make Each Job Worth More',
+    'Keep Good Customers Close',
+    'Build a Strong Crew',
+    'Smooth the Seasons',
+    'Follow the WAVE'
+  ];
+  // Freedom themes
+  const FREEDOM_THEMES = [
+    'Work Less, Lead More',
+    'Buy Back Your Time',
+    'Pay Yourself First',
+    'Protect the Lighthouse',
+    'Live the Story You Wrote'
+  ];
+  // Combined for lookup by themeIndex
+  const ALL_THEMES = [...EARLY_THEMES, ...GROWTH_THEMES, ...FREEDOM_THEMES];
+  
+  // Get current step's theme (use themeIndex from stepOverrides if available)
+  const currentStepOverride = lighthouse.stepOverrides?.find(
+    s => s.yearIndex === lighthouseStepYear - 1
+  );
+  const currentThemeIndex = currentStepOverride?.themeIndex ?? (lighthouseStepYear - 1);
+  const currentThemeTitle = ALL_THEMES[currentThemeIndex % ALL_THEMES.length] || 'Find the Lighthouse';
+  
+  // Check if FIR is synced with Lighthouse (within 1% tolerance)
+  const isFIRSyncedWithLighthouse = hasLighthouse && lighthouseStepTarget 
+    ? Math.abs(annualFIRTarget - lighthouseStepTarget) / lighthouseStepTarget < 0.01
+    : true; // No mismatch if no Lighthouse
 
   // All hooks must be called before any early returns
   const monthlyRevenue = currentYear.data.map(item => item.revenue);
@@ -192,6 +243,21 @@ export function MasterChart() {
     });
   };
 
+  // Sync FIR target with Lighthouse step target
+  // This uses the existing updateTargets which applies intelligent seasonality
+  const handleSyncWithLighthouse = () => {
+    if (!lighthouseStepTarget) return;
+    
+    console.log('Syncing FIR with Lighthouse step target:', lighthouseStepTarget);
+    setAnnualFIRTarget(lighthouseStepTarget);
+    updateTargets(lighthouseStepTarget, profitMargin);
+    
+    promptForKPIRefresh({
+      changeDescription: 'FIR synced with Lighthouse goal',
+      affectedKPIs: ['All revenue and target KPIs']
+    });
+  };
+
   if (!mounted) {
     return null;
   }
@@ -214,11 +280,11 @@ export function MasterChart() {
     if (percentageDiff >= 10) {
       status = 'ahead';
     } else if (percentageDiff >= -5) {
-      status = 'on-track';
+      status = 'on-course';
     } else if (percentageDiff >= -15) {
-      status = 'slightly-behind';
+      status = 'slightly-off-course';
     } else {
-      status = 'off-track';
+      status = 'off-course';
     }
 
     // Calculate required monthly average to catch up
@@ -244,62 +310,49 @@ export function MasterChart() {
     switch (status) {
       case 'ahead':
         return {
-          icon: CheckCircle,
-          iconColor: 'text-green-400',
-          textColor: 'text-white',
+          icon: TrendingUp,
+          iconColor: 'text-neon',
+          textColor: 'text-accent',
           bgColor: 'bg-background',
-          borderColor: 'border-accent/40',
-          label: 'Ahead of Pace',
+          borderColor: 'border-accent',
+          label: "You're Riding Your Wave!",
         };
-      case 'on-track':
+      case 'on-course':
         return {
-          icon: CheckCircle,
-          iconColor: 'text-green-400',
-          textColor: 'text-white',
+          icon: TrendingUp,
+          iconColor: 'text-neon',
+          textColor: 'text-accent',
           bgColor: 'bg-background',
-          borderColor: 'border-accent/40',
-          label: 'On Track!',
+          borderColor: 'border-accent',
+          label: 'On Course',
         };
-      case 'slightly-behind':
+      case 'slightly-off-course':
         return {
-          icon: AlertTriangle,
-          iconColor: 'text-yellow-400',
-          textColor: 'text-yellow-400',
+          icon: TrendingDown,
+          iconColor: 'text-muted',
+          textColor: 'text-accent',
           bgColor: 'bg-background',
-          borderColor: 'border-yellow-400/20',
-          label: 'Slightly Behind',
-          emoji: '🟡'
+          borderColor: 'border-border',
+          label: 'Slightly Off Course',
         };
-      case 'off-track':
+      case 'off-course':
         return {
-          icon: XCircle,
-          iconColor: 'text-red-400',
-          textColor: 'text-red-400',
+          icon: TrendingDown,
+          iconColor: 'text-muted',
+          textColor: 'text-accent',
           bgColor: 'bg-background',
-          borderColor: 'border-red-400/20',
-          label: 'Off Track',
-          emoji: '🔴'
+          borderColor: 'border-border',
+          label: 'Course Correction Needed!',
         };
     }
   };
 
   // Generate coaching message
   const generateCoachingMessage = (insights: any) => {
-    const { status, onPaceAnnual, targetAnnual, gapAmount, requiredMonthlyAvg, remainingMonths } = insights;
+    const { onPaceAnnual, targetAnnual } = insights;
+    const percentOfTarget = targetAnnual > 0 ? Math.round((onPaceAnnual / targetAnnual) * 100) : 0;
     
-    switch (status) {
-      case 'ahead':
-        return `Excellent work! At your current pace, you're projected to reach $${Math.round(onPaceAnnual).toLocaleString()} by year-end—exceeding your $${Math.round(targetAnnual).toLocaleString()} goal by $${Math.round(gapAmount).toLocaleString()}. Keep up the momentum!`;
-      
-      case 'on-track':
-        return `Great job staying on track! You're currently pacing toward $${Math.round(onPaceAnnual).toLocaleString()}, which puts you right on target to hit your $${Math.round(targetAnnual).toLocaleString()} goal.`;
-      
-      case 'slightly-behind':
-        return `You're currently pacing toward $${Math.round(onPaceAnnual).toLocaleString()}, which is $${Math.round(gapAmount).toLocaleString()} below your target of $${Math.round(targetAnnual).toLocaleString()}. ${remainingMonths > 0 ? `Consider boosting monthly revenue to $${Math.round(requiredMonthlyAvg).toLocaleString()} to catch up.` : 'Focus on strong finish to close the gap.'}`;
-      
-      case 'off-track':
-        return `Your current trajectory leads to $${Math.round(onPaceAnnual).toLocaleString()}, $${Math.round(gapAmount).toLocaleString()} short of your $${Math.round(targetAnnual).toLocaleString()} goal. ${remainingMonths > 0 ? `You'll need to increase average monthly revenue to $${Math.round(requiredMonthlyAvg).toLocaleString()} to close the gap.` : 'Consider adjusting your strategy for next year.'}`;
-    }
+    return `You're currently on pace to end the year at $${Math.round(onPaceAnnual).toLocaleString()} — about ${percentOfTarget}% of your $${Math.round(targetAnnual).toLocaleString()} target.`;
   };
 
   const handleMonthlyRevenueChange = (index: number, value: number) => {
@@ -406,8 +459,8 @@ export function MasterChart() {
         {
           label: "Actual Revenue",
           data: actualData,
-          borderColor: "rgba(59, 130, 246, 1)",
-          backgroundColor: "rgba(59, 130, 246, 0.2)",
+          borderColor: "rgba(53, 51, 205, 1)",
+          backgroundColor: "rgba(39, 86, 162, 0.2)",
           fill: true,
           tension: 0.4,
           borderWidth: 2,
@@ -441,8 +494,8 @@ export function MasterChart() {
     datasets.push({
       label: "Actual Revenue",
       data: actualData,
-      borderColor: "rgba(0, 123, 255, 1)",
-      backgroundColor: "rgba(0, 123, 255, 0.2)",
+      borderColor: "rgba(53, 51, 205, 1)",
+      backgroundColor: "rgba(45, 64, 205, .3)",
       fill: true,
       tension: 0.4,
       borderWidth: 3,
@@ -456,8 +509,8 @@ export function MasterChart() {
       datasets.push({
         label: "Future Inspired Revenue",
         data: firData,
-        borderColor: "rgba(208, 180, 106, 1)",
-        backgroundColor: "rgba(208, 180, 106, 0.2)",
+        borderColor: "rgba(208, 180, 106, .5)",
+        backgroundColor: "rgba(208, 180, 106, 0.05)",
         fill: true,
         tension: 0.4,
         borderWidth: 2,
@@ -656,7 +709,7 @@ export function MasterChart() {
               })}
               <div>
                 <CardTitle className={`${getStatusConfig(insights.status).textColor} text-xl`}>
-                  {getStatusConfig(insights.status).emoji} {getStatusConfig(insights.status).label}
+                  {getStatusConfig(insights.status).label}
                 </CardTitle>
                 <p className="text-sm text-gray-400 mt-1">Riding the Wave...</p>
               </div>
@@ -664,7 +717,7 @@ export function MasterChart() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <p className={`text-lg font-light leading-relaxed ${getStatusConfig(insights.status).textColor}`}>
+              <p className="text-md font-sans font-normal leading-relaxed text-foreground">
                 {generateCoachingMessage(insights)}
               </p>
               
@@ -717,7 +770,7 @@ export function MasterChart() {
               <div className="text-2xl font-bold text-accent">
                 ${onPaceAnnual.toLocaleString()}
               </div>
-              <p className="text-sm text-gray-400">On Pace to Earn (Annual)</p>
+              <p className="text-sm text-gray-400">On Course to Earn (Annual)</p>
               <p className="text-xs text-gray-400">Based on YTD performance</p>
             </CardContent>
           </Card>
@@ -1070,6 +1123,88 @@ export function MasterChart() {
                     </CardContent>
                   </Card>
                 </div>
+              )}
+
+              {/* Lighthouse Journey Card - Full Width */}
+              {!isHistoricalYear && hasLighthouse && (
+                <Card className={`w-full bg-muted/30 ${!isFIRSyncedWithLighthouse ? 'border-amber-500/50' : 'border-accent/30'}`}>
+                  <CardContent className="py-6">
+                    <div className="flex flex-col md:flex-row items-center justify-around gap-6">
+                      {/* Title with Theme */}
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-lg bg-accent/20">
+                          <Lightbulb className="h-5 w-5 text-accent" />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-accent">Lighthouse Journey</span>
+                          <span className="text-sm font-medium text-accent">{currentThemeTitle}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Year Progress with Label */}
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide">Year</span>
+                        <div className="flex items-center gap-3">
+                          {Array.from({ length: lighthouseYearsToGoal }, (_, i) => {
+                            const stepNum = i + 1;
+                            const isCompleted = stepNum < lighthouseStepYear;
+                            const isCurrent = stepNum === lighthouseStepYear;
+                            return (
+                              <div key={stepNum} className="flex flex-col items-center">
+                                <div 
+                                  className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                                    isCompleted 
+                                      ? 'bg-accent text-background' 
+                                      : isCurrent 
+                                        ? 'bg-accent/30 text-accent ring-2 ring-accent ring-offset-2 ring-offset-background' 
+                                        : 'bg-muted/50 text-muted-foreground'
+                                  }`}
+                                >
+                                  {isCompleted ? <Check className="h-5 w-5" /> : stepNum}
+                                </div>
+                                {isCurrent && (
+                                  <span className="text-[10px] text-accent mt-1 font-medium">NOW</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {/* Lighthouse Icon at the end */}
+                          <div className="flex flex-col items-center">
+                            <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
+                              <Lightbulb className="h-5 w-5 text-accent" />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground mt-1">GOAL</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Status and Action */}
+                      <div className="flex items-center gap-4">
+                        {isFIRSyncedWithLighthouse ? (
+                          <div className="flex items-center gap-2 text-sm text-green-400 bg-green-400/10 rounded-lg px-4 py-2">
+                            <Check className="h-4 w-4" />
+                            <span>FIR synced with Year {lighthouseStepYear} target</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-400/10 rounded-lg px-4 py-2">
+                              <AlertTriangle className="h-4 w-4" />
+                              <span>Year {lighthouseStepYear} target: ${Math.round(lighthouseStepTarget || 0).toLocaleString()}</span>
+                            </div>
+                            <Button
+                              onClick={handleSyncWithLighthouse}
+                              disabled={currentYear.isLocked}
+                              className="bg-accent hover:bg-accent/90 text-background font-medium"
+                            >
+                              <Lightbulb className="h-4 w-4 mr-2" />
+                              Sync FIR
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               )}
 
               {/* Historical years - just show total */}

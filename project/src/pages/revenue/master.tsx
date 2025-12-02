@@ -32,7 +32,7 @@ export function MasterRevenuePage() {
             Master Revenue Curve
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Track your actual monthly and desired future growth revenue and let's ride your wave to close your gap!
+            Track your actual monthly and desired future growth revenue - let's ride your wave to close your gap!
           </p>
         </div>
         <button

@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Settings, Percent, Calendar, DollarSign } from 'lucide-react';
+import { Settings, Percent, Calendar, DollarSign, Users } from 'lucide-react';
 import { Checkbox } from '../ui/checkbox';
 
 interface CompanySettings {
@@ -13,7 +13,7 @@ interface CompanySettings {
   bonusThresholdMax: number;
   overtimeHoursDaily: number;
   overtimeMultiplier: number;
-  paySchedule?: 'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly';
+  paySchedule?: 'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly' | 'custom';
   payDayOfWeek?: number;
   payReferenceDate?: string;
   paySemiMonthlyDates?: [number, number];
@@ -22,6 +22,10 @@ interface CompanySettings {
   appointmentBonus4Jobs?: number;
   appointmentBonus5Jobs?: number;
   appointmentBonus6PlusJobs?: number;
+  // Crew capacity configuration
+  numberOfCrews?: number;
+  employeesPerCrew?: number;
+  monthlyCrewCapacity?: number;
 }
 
 interface CompanySettingsDialogProps {
@@ -44,6 +48,10 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
   const [appointmentBonus4Jobs, setAppointmentBonus4Jobs] = useState((currentSettings.appointmentBonus4Jobs ?? 10).toString());
   const [appointmentBonus5Jobs, setAppointmentBonus5Jobs] = useState((currentSettings.appointmentBonus5Jobs ?? 15).toString());
   const [appointmentBonus6PlusJobs, setAppointmentBonus6PlusJobs] = useState((currentSettings.appointmentBonus6PlusJobs ?? 20).toString());
+  // Crew capacity state
+  const [numberOfCrews, setNumberOfCrews] = useState((currentSettings.numberOfCrews ?? '').toString());
+  const [employeesPerCrew, setEmployeesPerCrew] = useState((currentSettings.employeesPerCrew ?? '').toString());
+  const [monthlyCrewCapacity, setMonthlyCrewCapacity] = useState((currentSettings.monthlyCrewCapacity ?? '').toString());
 
   useEffect(() => {
     setOverheadPercent(currentSettings.overheadPercent.toString());
@@ -58,6 +66,10 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
     setAppointmentBonus4Jobs((currentSettings.appointmentBonus4Jobs ?? 10).toString());
     setAppointmentBonus5Jobs((currentSettings.appointmentBonus5Jobs ?? 15).toString());
     setAppointmentBonus6PlusJobs((currentSettings.appointmentBonus6PlusJobs ?? 20).toString());
+    // Crew capacity
+    setNumberOfCrews((currentSettings.numberOfCrews ?? '').toString());
+    setEmployeesPerCrew((currentSettings.employeesPerCrew ?? '').toString());
+    setMonthlyCrewCapacity((currentSettings.monthlyCrewCapacity ?? '').toString());
   }, [currentSettings]);
 
   const handleSubmit = () => {
@@ -102,6 +114,11 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
       return;
     }
 
+    // Parse crew settings (allow empty/undefined)
+    const crewsValue = numberOfCrews ? parseInt(numberOfCrews) : undefined;
+    const empPerCrewValue = employeesPerCrew ? parseInt(employeesPerCrew) : undefined;
+    const crewCapacityValue = monthlyCrewCapacity ? parseFloat(monthlyCrewCapacity) : undefined;
+
     onSave({
       overheadPercent: overheadValue,
       bonusThresholdMin: bonusMinValue,
@@ -116,7 +133,11 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
       appointmentBonus3Jobs: apptBonus3,
       appointmentBonus4Jobs: apptBonus4,
       appointmentBonus5Jobs: apptBonus5,
-      appointmentBonus6PlusJobs: apptBonus6Plus
+      appointmentBonus6PlusJobs: apptBonus6Plus,
+      // Crew capacity settings
+      numberOfCrews: crewsValue,
+      employeesPerCrew: empPerCrewValue,
+      monthlyCrewCapacity: crewCapacityValue
     });
     onClose();
   };
@@ -431,6 +452,82 @@ export function CompanySettingsDialog({ open, onClose, currentSettings, onSave }
                     </p>
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className="border-t border-muted pt-4">
+              <Label className="flex items-center gap-2 mb-3">
+                <Users className="h-4 w-4 text-accent" />
+                Crew Capacity Settings
+              </Label>
+              
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-3">
+                <p className="text-xs text-blue-400 font-medium mb-1">Capacity Planning</p>
+                <p className="text-xs text-muted-foreground">
+                  These settings help calculate how many crews/employees you need to hit your revenue targets.
+                  Used in Lighthouse guidance on the Employee LER page.
+                </p>
+              </div>
+              
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="numberOfCrews" className="text-sm">
+                    Number of Crews
+                  </Label>
+                  <Input
+                    id="numberOfCrews"
+                    type="number"
+                    step="1"
+                    min="1"
+                    value={numberOfCrews}
+                    onChange={(e) => setNumberOfCrews(e.target.value)}
+                    placeholder="e.g., 2"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    How many crews do you currently run?
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="employeesPerCrew" className="text-sm">
+                    Employees Per Crew
+                  </Label>
+                  <Input
+                    id="employeesPerCrew"
+                    type="number"
+                    step="1"
+                    min="1"
+                    value={employeesPerCrew}
+                    onChange={(e) => setEmployeesPerCrew(e.target.value)}
+                    placeholder="e.g., 2"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Average number of employees on each crew
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="monthlyCrewCapacity" className="text-sm">
+                    Monthly Revenue Capacity Per Crew
+                  </Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-muted-foreground">$</span>
+                    <Input
+                      id="monthlyCrewCapacity"
+                      type="number"
+                      step="1000"
+                      min="0"
+                      value={monthlyCrewCapacity}
+                      onChange={(e) => setMonthlyCrewCapacity(e.target.value)}
+                      placeholder="e.g., 25000"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Expected revenue one crew can generate per month at full capacity
+                  </p>
+                </div>
               </div>
             </div>
           </div>

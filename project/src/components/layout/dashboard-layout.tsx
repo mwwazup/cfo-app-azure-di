@@ -6,13 +6,15 @@ import {
   TrendingUp,
   FileText,
   BookOpen,
+  Compass,
+  FastForward,
   Menu,
   X,
   BarChart3,
   Target,
   Users,
   Brain,
-  TrendingDown,
+  Building2,
 } from 'lucide-react';
 import { useState } from 'react';
 import { ZepChatBubble } from '../ZepChatBubble';
@@ -41,13 +43,16 @@ export function DashboardLayout() {
     { name: 'Budget vs Actual', href: '/budget-vs-actual', icon: Target },
     { name: 'Service Mix', href: '/service-mix', icon: BarChart3 },
     { name: 'Business Intelligence', href: '/business-intelligence', icon: Brain },
-    { name: 'Employee LER', href: '/employee-ler', icon: Users },
-    { name: 'Bonus ROI', href: '/bonus-roi', icon: TrendingDown },
+    { name: 'Employee Hub', href: '/employees', icon: Users, children: [
+      { name: 'LER Tracking', href: '/employee-ler' },
+      { name: 'Bonus ROI', href: '/bonus-roi' },
+    ]},
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
+    { name: 'Company Settings', href: '/company-settings', icon: Building2 },
     { name: 'Profit Impact', href: '/coach/profit-impact', icon: BookOpen },
-    { name: 'Lighthouse', href: '/coach/your-big-fig', icon: BookOpen },
-    { name: 'Momentum Tracker', href: '/momentum', icon: BookOpen },
+    { name: 'Lighthouse', href: '/coach/your-big-fig', icon: Compass },
+    { name: 'Momentum Tracker', href: '/momentum', icon: FastForward },
   ];
 
   return (
@@ -78,20 +83,44 @@ export function DashboardLayout() {
             <nav className="mt-8 px-2 space-y-1">
               {navigation.map((item) => {
                 const isActive = location.pathname === item.href;
+                const hasChildren = 'children' in item && item.children;
+                const isChildActive = hasChildren && item.children?.some((child: any) => location.pathname === child.href);
                 return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    className={`group flex items-center px-3 py-2 text-base font-medium rounded-lg transition-colors ${
-                      isActive
-                        ? 'bg-accent text-background'
-                        : 'text-foreground hover:bg-border'
-                    }`}
-                    onClick={() => setSidebarOpen(false)}
-                  >
-                    <item.icon className="mr-4 h-6 w-6" />
-                    {item.name}
-                  </Link>
+                  <div key={item.name}>
+                    <Link
+                      to={item.href}
+                      className={`group flex items-center px-3 py-2 text-base font-medium rounded-lg transition-colors ${
+                        isActive || isChildActive
+                          ? 'bg-accent text-background'
+                          : 'text-foreground hover:bg-border'
+                      }`}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <item.icon className="mr-4 h-6 w-6" />
+                      {item.name}
+                    </Link>
+                    {hasChildren && (
+                      <div className="ml-10 mt-1 space-y-1">
+                        {item.children?.map((child: any) => {
+                          const isChildItemActive = location.pathname === child.href;
+                          return (
+                            <Link
+                              key={child.name}
+                              to={child.href}
+                              className={`block px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                isChildItemActive
+                                  ? 'bg-accent/20 text-accent'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-border'
+                              }`}
+                              onClick={() => setSidebarOpen(false)}
+                            >
+                              {child.name}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </nav>
@@ -124,19 +153,42 @@ export function DashboardLayout() {
             <nav className="mt-8 flex-1 px-2 space-y-1">
               {navigation.map((item) => {
                 const isActive = location.pathname === item.href;
+                const hasChildren = 'children' in item && item.children;
+                const isChildActive = hasChildren && item.children?.some((child: any) => location.pathname === child.href);
                 return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    className={`group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      isActive
-                        ? 'bg-accent text-background'
-                        : 'text-foreground hover:bg-border'
-                    }`}
-                  >
-                    <item.icon className="mr-3 h-5 w-5" />
-                    {item.name}
-                  </Link>
+                  <div key={item.name}>
+                    <Link
+                      to={item.href}
+                      className={`group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        isActive || isChildActive
+                          ? 'bg-accent text-background'
+                          : 'text-foreground hover:bg-border'
+                      }`}
+                    >
+                      <item.icon className="mr-3 h-5 w-5" />
+                      {item.name}
+                    </Link>
+                    {hasChildren && (
+                      <div className="ml-8 mt-1 space-y-1">
+                        {item.children?.map((child: any) => {
+                          const isChildItemActive = location.pathname === child.href;
+                          return (
+                            <Link
+                              key={child.name}
+                              to={child.href}
+                              className={`block px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                isChildItemActive
+                                  ? 'bg-accent/20 text-accent'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-border'
+                              }`}
+                            >
+                              {child.name}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </nav>
