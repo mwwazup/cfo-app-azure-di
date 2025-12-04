@@ -53,6 +53,7 @@ class ClaudeService {
   /**
    * Build system prompt with Zep memory context and user data
    * CRITICAL: Coaching voice comes FIRST to establish tone before data
+   * STREAMLINED: Only essential financial context to encourage conversation over comprehensiveness
    */
   private buildSystemPrompt(
     context: ConversationContext,
@@ -66,10 +67,12 @@ class ClaudeService {
     // Add explicit override instruction
     const overrideInstruction = `
 
-# CRITICAL INSTRUCTION
-The coaching voice guidelines above are your PRIMARY instructions for how to respond.
-All the data context below is provided for reference, but your tone, style, and response structure must follow the coaching voice guidelines exactly.
-When explaining concepts like "Revenue Velocity", use the natural conversational style from the coaching voice, not technical definitions.
+1. The "DATA YOU DO NOT HAVE" section at the start defines what you know and don't know
+2. If you're about to suggest something that requires data you don't have, ASK INSTEAD OF INVENTING
+3. The coaching voice guidelines are your PRIMARY instructions for tone and style
+4. All financial data below is provided for reference only - use it sparingly to inform, not to overwhelm
+5. When explaining concepts, use natural conversational style, not technical jargon
+6. REMEMBER: Less data = More questions. Ask before you prescribe.
 `;
 
     // Zep's pre-built context string
@@ -95,14 +98,37 @@ ${facts.currentRevenue ? `- YTD Revenue: $${facts.currentRevenue.toLocaleString(
 ${facts.gapToGoal ? `- Gap to Goal: $${facts.gapToGoal.toLocaleString()}` : ''}
 ` : '';
 
-    const lighthouseSection = lighthousePlan ? `
+    // Build Lighthouse section - MINIMAL data, let AI ask questions
+    const lighthouseFromContext = financialContext?.lighthouse;
+    let lighthouseSection = '';
+    
+    if (lighthousePlan || lighthouseFromContext) {
+      // Keep it brief - AI should KNOW this but not RECITE it
+      const targetYear = lighthousePlan?.targetYear || lighthouseFromContext?.goal?.target_year;
+      const targetRevenue = lighthousePlan?.targetAnnualRevenue || lighthouseFromContext?.goal?.target_annual_revenue;
+      const currentStep = lighthouseFromContext?.current_step_year || 1;
+      const totalYears = lighthouseFromContext?.goal?.years_to_goal || lighthousePlan?.yearsToGoal || 1;
+      const story = lighthouseFromContext?.goal?.story;
+      
+      // Get pending milestones (just the names)
+      const pendingMilestones = lighthouseFromContext?.current_year_milestones
+        ?.filter((m: any) => !m.completed)
+        ?.map((m: any) => m.text) || [];
+      
+      lighthouseSection = `
 
-# LIGHTHOUSE GOAL SNAPSHOT
+# LIGHTHOUSE (Background Knowledge - DO NOT recite all of this)
+Target: $${Math.round(targetRevenue || 0).toLocaleString()} by ${targetYear}
+Position: Year ${currentStep} of ${totalYears}
+${story ? `Their WHY: "${story}"` : ''}
+${pendingMilestones.length > 0 ? `This year's focus: ${pendingMilestones.join(', ')}` : ''}
 
-Current annual revenue (approx): $${Math.round(lighthousePlan.currentAnnualRevenue).toLocaleString()}
-Lighthouse target: $${Math.round(lighthousePlan.targetAnnualRevenue).toLocaleString()} per year by ${new Date(lighthousePlan.targetYear, lighthousePlan.targetMonth - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} (about ${lighthousePlan.yearsToGoal} year${lighthousePlan.yearsToGoal !== 1 ? 's' : ''} from now)
-Average additional revenue needed: $${Math.round(lighthousePlan.requiredAnnualIncrease).toLocaleString()} per year (~$${Math.round(lighthousePlan.requiredMonthlyIncrease).toLocaleString()} per month)
-` : '';
+CRITICAL: You KNOW this information but should NOT dump it all at once.
+- If they ask about their Lighthouse, give a SHORT summary and ask how they feel about it
+- Reference their WHY sparingly - it's personal, not a talking point
+- Focus on ONE thing at a time, then ask a question to continue the conversation
+- Be a coach having a conversation, not a system reading a report`;
+    }
 
     // Conversation summary
     const summarySection = summary ? `
@@ -122,7 +148,7 @@ ${relevantMemories.map((mem, idx) =>
 ).join('\n')}
 ` : '';
 
-    // Financial data from database (condensed version)
+    // Financial data from database (STREAMLINED VERSION - much less data)
     const financialSection = financialContext ? this.buildFinancialContext(financialContext) : '';
 
     // App features
@@ -162,7 +188,22 @@ ${appContext}`;
 
   /**
    * Build financial context section from database data
-   * CONDENSED VERSION - Less data to prevent prompt from being too long
+   * STREAMLINED: Only the essential data to inform coaching, not overwhelm it
+   * 
+   * REMOVED:
+   * - Year-over-year revenue (too much historical context)
+   * - Employee LER section
+   * - Services offered (unnecessary detail)
+   * - Company settings (bonus thresholds, overhead %, etc.)
+   * - Bonus rules (custom LER tiers)
+   * 
+   * KEPT MINIMAL:
+   * - Current date (context)
+   * - Last month revenue (reference point only)
+   * - Current month (what's happening now)
+   * - Top 1 KPI (current focus only)
+   * - Next month target (immediate horizon)
+   * - Employee names & pay rates (human context)
    */
   private buildFinancialContext(financialContext: Record<string, any>): string {
     const sections: string[] = [];
@@ -176,42 +217,16 @@ ${appContext}`;
 Today is ${current_date}. We're in ${new Date(current_year, current_month - 1).toLocaleString('default', { month: 'long' })} ${current_year}.`);
     }
 
-    // Historical revenue - REDUCED from 6 to 3 months
+    // Last month revenue ONLY (not 3 months) - just a reference point
     if (financialContext.historical_revenue && financialContext.historical_revenue.length > 0) {
-      const revenue = financialContext.historical_revenue.slice(0, 3);
+      const lastMonth = financialContext.historical_revenue.slice(0, 1);
       sections.push(`
 
-# RECENT MONTHS REVENUE
+# LAST MONTH REFERENCE
 
-${revenue.map((entry: any) => 
-  `${entry.month}/${entry.year}: $${entry.actual_revenue?.toLocaleString() || 0} (target: $${entry.desired_revenue?.toLocaleString() || 0})`
+${lastMonth.map((entry: any) => 
+  `${entry.month}/${entry.year}: $${entry.actual_revenue?.toLocaleString() || 0}`
 ).join('\n')}`);
-    }
-
-    // Year-over-year revenue - REDUCED from 5 years to 2 years
-    if (financialContext.historical_yoy_revenue && financialContext.historical_yoy_revenue.length > 0) {
-      const yoyRevenue = financialContext.historical_yoy_revenue.slice(0, 24); // 2 years = 24 months
-      
-      const revenueByYear: Record<string, any[]> = yoyRevenue.reduce((acc: Record<string, any[]>, entry: any) => {
-        const year = entry.year;
-        if (!acc[year]) acc[year] = [];
-        acc[year].push(entry);
-        return acc;
-      }, {});
-      
-      sections.push(`
-
-# YEAR-OVER-YEAR REVENUE (Last 2 Years)
-
-${Object.entries(revenueByYear)
-        .sort(([a], [b]) => parseInt(b) - parseInt(a))
-        .map(([year, entries]: [string, any[]]) => 
-          `${year}: ${entries
-            .sort((a: any, b: any) => a.month - b.month)
-            .map((entry: any) => 
-              `${new Date(2000, entry.month - 1).toLocaleString('default', { month: 'short' })} $${entry.actual_revenue?.toLocaleString() || 0}`
-            ).join(', ')}`
-        ).join('\n')}`);
     }
 
     // Current month (in progress)
@@ -223,67 +238,27 @@ ${Object.entries(revenueByYear)
 ${current.month}/${current.year}: $${current.actual_revenue?.toLocaleString() || 0} (target: $${current.desired_revenue?.toLocaleString() || 0})`);
     }
 
-    // Current KPIs - REDUCED from 5 to 3
+    // Current KPI - JUST ONE (not 3) - the most important thing right now
     if (financialContext.current_kpis && financialContext.current_kpis.length > 0) {
-      const kpis = financialContext.current_kpis.slice(0, 3);
+      const topKpi = financialContext.current_kpis.slice(0, 1);
       sections.push(`
 
-# CURRENT KPIs
+# CURRENT FOCUS
 
-${kpis.map((kpi: any) => 
-  `${kpi.month}/${kpi.year} ${kpi.kpi_type}: ${kpi.kpi_value} (target: ${kpi.goal_value})`
+${topKpi.map((kpi: any) => 
+  `${kpi.kpi_type}: ${kpi.kpi_value} (target: ${kpi.goal_value})`
 ).join('\n')}`);
     }
 
-    // REMOVED: Year-over-year KPIs section entirely to save space
-    // Only include current KPIs, not historical trends
-
-    // Employee LER - REDUCED from 3 to 2 entries
-    if (financialContext.recent_ler && financialContext.recent_ler.length > 0) {
-      const lerData = financialContext.recent_ler.slice(0, 2);
-      sections.push(`
-
-# EMPLOYEE PERFORMANCE
-
-${lerData.map((ler: any) => 
-  `${ler.work_date}: LER ${ler.ler}`
-).join('\n')}`);
-    }
-
-    // REMOVED: Historical year-over-year LER section to save space
-    // Only show recent LER, not historical patterns
-
-    // Top services - REDUCED from showing all to top 5
-    if (financialContext.top_services_last_90_days && financialContext.top_services_last_90_days.length > 0) {
-      const services = financialContext.top_services_last_90_days.slice(0, 5) as Array<{
-        service_id: string;
-        service_name?: string;
-        service_category?: string | null;
-        total_revenue: number;
-        appointment_count: number;
-      }>;
-
-      const lines = services.map((svc, index) => {
-        const name = svc.service_name || 'Unknown Service';
-        return `${index + 1}. ${name} – $${Math.round(svc.total_revenue).toLocaleString()} (${svc.appointment_count} jobs)`;
-      });
-
-      sections.push(`
-
-# TOP SERVICES (Last 90 Days)
-
-${lines.join('\n')}`);
-    }
-
-    // Upcoming FIR targets (next 2 months only)
+    // Upcoming target - NEXT MONTH ONLY (not 2 months)
     if (financialContext.upcoming_fir_targets && financialContext.upcoming_fir_targets.length > 0) {
-      const targets = financialContext.upcoming_fir_targets.slice(0, 2) as Array<{
+      const nextTarget = financialContext.upcoming_fir_targets.slice(0, 1) as Array<{
         year: number;
         month: number;
         desired_revenue: number;
       }>;
 
-      const lines = targets.map((t) => {
+      const lines = nextTarget.map((t) => {
         const date = new Date(t.year, t.month - 1, 15);
         const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
         return `${label}: $${Math.round(t.desired_revenue).toLocaleString()} target`;
@@ -291,9 +266,27 @@ ${lines.join('\n')}`);
 
       sections.push(`
 
-# UPCOMING TARGETS
+# NEXT TARGET
 
 ${lines.join('\n')}`);
+    }
+
+    // Employees with names and pay rates - KEEP THIS (human context is important)
+    if (financialContext.employees && financialContext.employees.length > 0) {
+      const employees = financialContext.employees as Array<{
+        id: string;
+        name: string;
+        position: string;
+        hourly_rate: number;
+      }>;
+
+      sections.push(`
+
+# EMPLOYEES
+
+${employees.map((emp) => 
+  `- ${emp.name} (${emp.position}): $${emp.hourly_rate.toFixed(2)}/hr`
+).join('\n')}`);
     }
 
     return sections.join('\n');
@@ -314,7 +307,7 @@ ${lines.join('\n')}`);
       userId,
       includeContext = true,
       contextDepth = 10,
-      temperature = 0.7
+      temperature = 0.75
     } = options;
 
     try {
@@ -345,8 +338,8 @@ ${lines.join('\n')}`);
 
       // Call Claude
       const response = await this.client!.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 1024,
         temperature,
         system: [
           {
@@ -403,6 +396,7 @@ ${lines.join('\n')}`);
   /**
    * Explain a specific KPI
    * Simplified - let the coaching voice handle all the tone/structure
+   * Temperature bumped to 0.75 for more conversational feel
    */
   async explainKPI(options: {
     userId: string;
@@ -459,8 +453,9 @@ ${lines.join('\n')}`);
         : 'not set';
     }
 
-    // Simple prompt - let coaching voice handle everything
-    const prompt = `Explain this KPI to me as a problem-solving question:
+    // CHANGED: Ask just "What does this mean?" not "What should I do?"
+    // This triggers explanation mode, not problem-solving mode
+    const prompt = `Explain this KPI briefly, like I'm a business owner:
 
 KPI: ${kpiName}
 Period: ${periodLabel || 'this period'}
@@ -468,13 +463,13 @@ Value: ${valueText}
 Goal: ${goalText}
 Status: ${status || 'unknown'}
 
-What does this mean for my business and what should I do about it?`;
+What does this number mean?`;
 
     return this.chat(prompt, {
       userId,
       includeContext: true,
       contextDepth: 10,
-      temperature: 0.5,
+      temperature: 0.75,
     });
   }
 

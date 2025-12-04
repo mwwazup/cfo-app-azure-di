@@ -279,6 +279,219 @@ def get_financial_context(user_id: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Could not retrieve historical year-over-year LER data: {e}")
 
+        # Get Lighthouse goal and plan data
+        try:
+            lighthouse_data = {}
+            
+            # Get Lighthouse goal (includes story in notes field)
+            goal_response = supabase.table('big_fig_goals').select(
+                'target_annual_revenue, target_year, target_month, years_to_goal, notes, plan_status'
+            ).eq('user_id', user_id).limit(1).execute()
+            
+            if goal_response.data:
+                goal = goal_response.data[0]
+                lighthouse_data['goal'] = {
+                    'target_annual_revenue': float(goal.get('target_annual_revenue') or 0),
+                    'target_year': goal.get('target_year'),
+                    'target_month': goal.get('target_month'),
+                    'years_to_goal': goal.get('years_to_goal'),
+                    'story': goal.get('notes'),  # The Lighthouse story is stored in notes
+                    'plan_status': goal.get('plan_status', 'draft')
+                }
+                
+                # Calculate current step year (which year of the plan are we in?)
+                if goal.get('years_to_goal') and goal.get('target_year'):
+                    start_year = goal['target_year'] - goal['years_to_goal']
+                    current_step_year = max(1, min(current_year - start_year + 1, goal['years_to_goal']))
+                    lighthouse_data['current_step_year'] = current_step_year
+                
+                logger.info(f"📊 Retrieved Lighthouse goal for {user_id}")
+            
+            # Get step overrides (themes and milestones)
+            overrides_response = supabase.table('lighthouse_step_overrides').select(
+                'year_index, year_label, target_revenue, theme_index, milestones, approved'
+            ).eq('user_id', user_id).order('year_index').execute()
+            
+            if overrides_response.data:
+                lighthouse_data['step_overrides'] = overrides_response.data
+                
+                # Extract current year's milestones for easy access
+                current_step_idx = lighthouse_data.get('current_step_year', 1) - 1
+                current_override = next(
+                    (o for o in overrides_response.data if o.get('year_index') == current_step_idx),
+                    None
+                )
+                if current_override:
+                    lighthouse_data['current_year_milestones'] = current_override.get('milestones', [])
+                    lighthouse_data['current_year_theme_index'] = current_override.get('theme_index')
+                
+                logger.info(f"📊 Retrieved {len(overrides_response.data)} Lighthouse step overrides for {user_id}")
+            
+            if lighthouse_data:
+                financial_data['lighthouse'] = lighthouse_data
+                
+        except Exception as e:
+            logger.warning(f"Could not retrieve Lighthouse data: {e}")
+
+        # Get employee data (names, positions, pay rates)
+        try:
+            employees_response = supabase.table('employee_info').select(
+                'id, name, position, current_base_rate'
+            ).eq('user_id', user_id).order('name').execute()
+            
+            if employees_response.data:
+                employees = []
+                for emp in employees_response.data:
+                    employees.append({
+                        'id': emp.get('id'),
+                        'name': emp.get('name'),
+                        'position': emp.get('position'),
+                        'hourly_rate': float(emp.get('current_base_rate') or 0)
+                    })
+                financial_data['employees'] = employees
+                logger.info(f"📊 Retrieved {len(employees)} employees for {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not retrieve employee data: {e}")
+
+        # Get recent employee performance (last 30 days of daily records with employee names)
+        try:
+            thirty_days_ago = (now - timedelta(days=30)).strftime('%Y-%m-%d')
+            
+            # Get daily records
+            records_response = supabase.table('employee_daily_records').select(
+                'employee_id, work_day, ler, number_of_jobs, total_job_revenue, total_employee_pay, qualify_for_bonus, bonus_qualified_for_percent'
+            ).eq('user_id', user_id).gte('work_day', thirty_days_ago).order('work_day', desc=True).execute()
+            
+            if records_response.data and financial_data.get('employees'):
+                # Create employee lookup
+                emp_lookup = {emp['id']: emp['name'] for emp in financial_data['employees']}
+                
+                # Aggregate by employee
+                emp_performance: Dict[str, Dict[str, Any]] = {}
+                for record in records_response.data:
+                    emp_id = record.get('employee_id')
+                    emp_name = emp_lookup.get(emp_id, 'Unknown')
+                    
+                    if emp_id not in emp_performance:
+                        emp_performance[emp_id] = {
+                            'employee_id': emp_id,
+                            'name': emp_name,
+                            'days_worked': 0,
+                            'total_jobs': 0,
+                            'total_revenue': 0,
+                            'total_pay': 0,
+                            'avg_ler': [],
+                            'bonus_days': 0
+                        }
+                    
+                    emp_performance[emp_id]['days_worked'] += 1
+                    emp_performance[emp_id]['total_jobs'] += int(record.get('number_of_jobs') or 0)
+                    emp_performance[emp_id]['total_revenue'] += float(record.get('total_job_revenue') or 0)
+                    emp_performance[emp_id]['total_pay'] += float(record.get('total_employee_pay') or 0)
+                    if record.get('ler'):
+                        emp_performance[emp_id]['avg_ler'].append(float(record.get('ler')))
+                    if record.get('qualify_for_bonus'):
+                        emp_performance[emp_id]['bonus_days'] += 1
+                
+                # Calculate averages
+                for emp_id, perf in emp_performance.items():
+                    if perf['avg_ler']:
+                        perf['avg_ler'] = round(sum(perf['avg_ler']) / len(perf['avg_ler']), 2)
+                    else:
+                        perf['avg_ler'] = None
+                    perf['total_revenue'] = round(perf['total_revenue'], 2)
+                    perf['total_pay'] = round(perf['total_pay'], 2)
+                
+                financial_data['employee_performance_30d'] = list(emp_performance.values())
+                logger.info(f"📊 Retrieved 30-day performance for {len(emp_performance)} employees for {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not retrieve employee performance data: {e}")
+
+        # Get services (what services does this business offer)
+        try:
+            services_response = supabase.table('services').select(
+                'id, service_name, service_category, base_price, cogs_cost, is_active'
+            ).eq('user_id', user_id).eq('is_active', True).execute()
+            
+            if services_response.data:
+                services = []
+                for svc in services_response.data:
+                    services.append({
+                        'id': svc.get('id'),
+                        'name': svc.get('service_name'),
+                        'category': svc.get('service_category'),
+                        'base_price': float(svc.get('base_price') or 0),
+                        'cogs_cost': float(svc.get('cogs_cost') or 0)
+                    })
+                financial_data['services'] = services
+                logger.info(f"📊 Retrieved {len(services)} services for {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not retrieve services data: {e}")
+
+        # Get company settings (bonus rules, overhead, pay schedule)
+        try:
+            settings_response = supabase.table('company_settings').select(
+                'overhead_percent, bonus_threshold_min, bonus_threshold_max, '
+                'overtime_hours_daily, overtime_multiplier, pay_schedule, '
+                'enable_appointment_bonus, appointment_bonus_3_jobs, appointment_bonus_4_jobs, '
+                'appointment_bonus_5_jobs, appointment_bonus_6_plus_jobs, '
+                'number_of_crews, employees_per_crew, monthly_crew_capacity'
+            ).eq('user_id', user_id).limit(1).execute()
+            
+            if settings_response.data:
+                settings = settings_response.data[0]
+                financial_data['company_settings'] = {
+                    'overhead_percent': float(settings.get('overhead_percent') or 32),
+                    'bonus_threshold_min': float(settings.get('bonus_threshold_min') or 25),
+                    'bonus_threshold_max': float(settings.get('bonus_threshold_max') or 100),
+                    'overtime_hours_daily': float(settings.get('overtime_hours_daily') or 12),
+                    'overtime_multiplier': float(settings.get('overtime_multiplier') or 1.5),
+                    'pay_schedule': settings.get('pay_schedule', 'bi-weekly'),
+                    'appointment_bonus_enabled': settings.get('enable_appointment_bonus', True),
+                    'appointment_bonus_3_jobs': float(settings.get('appointment_bonus_3_jobs') or 7),
+                    'appointment_bonus_4_jobs': float(settings.get('appointment_bonus_4_jobs') or 10),
+                    'appointment_bonus_5_jobs': float(settings.get('appointment_bonus_5_jobs') or 15),
+                    'appointment_bonus_6_plus_jobs': float(settings.get('appointment_bonus_6_plus_jobs') or 20),
+                    'number_of_crews': int(settings.get('number_of_crews') or 0),
+                    'employees_per_crew': int(settings.get('employees_per_crew') or 0),
+                    'monthly_crew_capacity': float(settings.get('monthly_crew_capacity') or 0)
+                }
+                logger.info(f"📊 Retrieved company settings for {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not retrieve company settings: {e}")
+
+        # Get bonus rules (custom LER-based bonus tiers)
+        try:
+            bonus_rules_response = supabase.table('bonus_rules').select(
+                'id, name, min_ler, max_ler, bonus_percent, is_active'
+            ).eq('user_id', user_id).eq('is_active', True).order('min_ler').execute()
+            
+            if bonus_rules_response.data:
+                bonus_rules = []
+                for rule in bonus_rules_response.data:
+                    bonus_rules.append({
+                        'name': rule.get('name'),
+                        'min_ler': float(rule.get('min_ler') or 0),
+                        'max_ler': float(rule.get('max_ler') or 0),
+                        'bonus_percent': float(rule.get('bonus_percent') or 0)
+                    })
+                financial_data['bonus_rules'] = bonus_rules
+                logger.info(f"📊 Retrieved {len(bonus_rules)} bonus rules for {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not retrieve bonus rules: {e}")
+
+        # Get pay periods (recent ones for context)
+        try:
+            pay_periods_response = supabase.table('pay_periods').select(
+                'id, period_name, start_date, end_date, year'
+            ).eq('user_id', user_id).order('start_date', desc=True).limit(5).execute()
+            
+            if pay_periods_response.data:
+                financial_data['recent_pay_periods'] = pay_periods_response.data
+                logger.info(f"📊 Retrieved {len(pay_periods_response.data)} recent pay periods for {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not retrieve pay periods: {e}")
+
         return financial_data
 
     except Exception as e:

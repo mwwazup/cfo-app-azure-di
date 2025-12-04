@@ -1095,21 +1095,21 @@ export function SMSCoachPage() {
 
         {/* Input Area */}
         <div className="p-4 border-t border-accent/20 bg-background">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-end space-x-4">
             {/* Voice Button */}
             <button
               onClick={isListening ? stopRecording : startRecording}
-              className={`w-18 h-18 rounded-full flex items-center justify-center transition-all duration-200 focus-ring border-2 ${
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 focus-ring border-2 flex-shrink-0 ${
                 isListening
                   ? 'bg-red-600 hover:bg-red-700 scale-110 recording-pulse border-red-400'
                   : 'bg-accent hover:bg-accent/90 border-accent'
               }`}
               disabled={isLoading}
             >
-              {isListening ? <MicOff size={28} className="text-white" /> : <Mic size={28} className="text-background" />}
+              {isListening ? <MicOff size={24} className="text-white" /> : <Mic size={24} className="text-background" />}
             </button>
 
-            {/* Text Input */}
+            {/* Text Input - Multi-line with manual resize */}
             <div className="flex-1 flex items-end space-x-2">
               <textarea
                 value={textInput}
@@ -1121,25 +1121,19 @@ export function SMSCoachPage() {
                   }
                 }}
                 placeholder={isListening ? "Listening..." : "Type your message... (Shift+Enter for new line)"}
-                className="flex-1 bg-card border border-accent/20 rounded-lg px-4 py-2 focus:outline-none focus:border-accent mobile-chat-input focus-ring text-foreground resize-none min-h-[40px] max-h-[120px]"
+                className="flex-1 bg-card border border-accent/20 rounded-lg px-4 py-3 focus:outline-none focus:border-accent mobile-chat-input focus-ring text-foreground"
                 disabled={isLoading || isListening}
-                rows={1}
+                rows={3}
                 style={{
-                  height: 'auto',
-                  minHeight: '40px',
-                  maxHeight: '120px',
-                  overflowY: textInput.split('\n').length > 3 ? 'auto' : 'hidden'
-                }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = 'auto';
-                  target.style.height = Math.min(target.scrollHeight, 120) + 'px';
+                  resize: 'vertical',
+                  minHeight: '80px',
+                  maxHeight: '300px'
                 }}
               />
               <button
                 onClick={() => handleSendMessage(textInput)}
                 disabled={!textInput.trim() || isLoading}
-                className="p-2 bg-accent hover:bg-accent/90 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-ring border border-accent self-end mb-1"
+                className="p-3 bg-accent hover:bg-accent/90 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-ring border border-accent flex-shrink-0"
               >
                 <Send size={20} className="text-background" />
               </button>

@@ -113,17 +113,41 @@ function MyComponent() {
 - [ ] Link hiring milestones
 
 ### Task 4: Dashboard
-- [ ] Add "Lighthouse Progress" card
-- [ ] Show current year's theme
-- [ ] Show next milestone
-- [ ] Add "Years to Lighthouse" countdown
+- [x] Add "Lighthouse Progress" card
+- [x] Show current year's theme
+- [x] Show next milestone
+- [x] Add "Years to Lighthouse" countdown
 
-### Task 6: ZEP (AI Memory)
-- [ ] Store Lighthouse goal in ZEP memory
-- [ ] Store current step and milestones
-- [ ] Store Lighthouse story
-- [ ] Update AI prompts with Lighthouse context
-- [ ] Add Lighthouse-aware coaching
+**Implementation Details:**
+- Added `lighthouse` to `useRevenue()` destructuring
+- Added theme arrays (EARLY_THEMES, GROWTH_THEMES, FREEDOM_THEMES) with title and description
+- Added `getPhaseInfo()` function to determine which phase/theme applies to current step
+- Lighthouse Progress card includes:
+  - Header with Lightbulb icon and "Year X of Y" indicator
+  - "Years to Lighthouse" countdown badge (shows months when <1 year remaining)
+  - Current Year Theme section with Flag icon, title, and description
+  - Journey visualization with year progress dots (completed/current/future states)
+  - Next Milestone section (only shows if user has incomplete milestones)
+  - Lighthouse Goal footer showing target revenue and target year
+- Card only displays when user has committed Lighthouse plan and viewing current year
+
+### Task 6: ZEP (AI Memory) ✅ COMPLETED
+- [x] Store Lighthouse goal in ZEP memory
+- [x] Store current step and milestones
+- [x] Store Lighthouse story
+- [x] Update AI prompts with Lighthouse context
+- [x] Add Lighthouse-aware coaching
+
+**Implementation Details:**
+- `backend/api/zep.py`: Added Lighthouse data fetching (goal, story, step overrides, milestones) to `get_financial_context()`
+- `project/src/services/claudeService.ts`: Expanded system prompt to include Lighthouse story, current step year, milestones, and plan status
+- `project/src/pages/coach/your-big-fig.tsx`: Added Zep conversation save when Lighthouse story is saved
+- `WAVERIDER_AI_COACHING_VOICE.md`: Added "LIGHTHOUSE GOAL INTEGRATION" section with guidelines for:
+  - Connecting daily actions to bigger picture
+  - Referencing their story when motivating
+  - Celebrating milestone progress
+  - Keeping focus on current year (not distant future)
+  - Supporting them when discouraged
 
 ---
 

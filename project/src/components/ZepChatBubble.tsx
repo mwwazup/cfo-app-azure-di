@@ -2,13 +2,16 @@ import { useState, useRef, useEffect } from 'react';
 import { useZepChat } from '../hooks/useZepChat';
 import { MessageCircle, X, Send, Loader2, Minimize2 } from 'lucide-react';
 
+const surfWords = ['Surfing...', 'Riding the wave...', 'Boarding...', "Swimming...", 'Catching air...'];
+
 export function ZepChatBubble() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [input, setInput] = useState('');
+  const [currentSurfWord, setCurrentSurfWord] = useState(0);
   const { messages, isLoading, error, sendMessage, loadHistory } = useZepChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -23,6 +26,18 @@ export function ZepChatBubble() {
       inputRef.current?.focus();
     }
   }, [isOpen, isMinimized]);
+
+  // Cycle through surf words while loading
+  useEffect(() => {
+    if (!isLoading) {
+      setCurrentSurfWord(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setCurrentSurfWord((prev) => (prev + 1) % surfWords.length);
+    }, 1200);
+    return () => clearInterval(interval);
+  }, [isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,8 +89,8 @@ export function ZepChatBubble() {
             <div className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-background" />
               <div>
-                <h3 className="text-sm font-semibold text-background">CFO Coach</h3>
-                <p className="text-xs text-background/80">AI-powered financial guidance</p>
+                <h3 className="text-sm font-semibold text-background">WAVE RIDER Coach</h3>
+                <p className="text-xs text-background/80">AI-powered business coaching</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -102,8 +117,8 @@ export function ZepChatBubble() {
                 {messages.length === 0 && !isLoading && (
                   <div className="text-center text-muted-foreground py-12">
                     <MessageCircle className="h-12 w-12 mx-auto mb-3 text-accent" />
-                    <p className="text-sm font-medium mb-1 text-foreground">Hi! I'm your CFO coach.</p>
-                    <p className="text-xs text-muted-foreground">Ask me anything about your business finances!</p>
+                    <p className="text-sm font-medium mb-1 text-foreground">Hi! I'm your WAVE coach.</p>
+                    <p className="text-xs text-muted-foreground">Ask me anything about your business!</p>
                   </div>
                 )}
 
@@ -133,7 +148,9 @@ export function ZepChatBubble() {
                   <div className="flex justify-start">
                     <div className="bg-muted rounded-lg px-4 py-3 flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin text-accent" />
-                      <span className="text-sm text-muted-foreground">Thinking...</span>
+                      <span className="text-sm text-foreground font-medium transition-all duration-300">
+                        {surfWords[currentSurfWord]}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -149,20 +166,31 @@ export function ZepChatBubble() {
 
               {/* Input Area */}
               <form onSubmit={handleSubmit} className="p-4 border-t border-border bg-card">
-                <div className="flex gap-2">
-                  <input
+                <div className="flex gap-2 items-end">
+                  <textarea
                     ref={inputRef}
-                    type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Ask about your finances..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSubmit(e);
+                      }
+                    }}
+                    placeholder="Ask about your business... (Shift+Enter for new line)"
                     className="flex-1 px-4 py-2 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent text-sm"
                     disabled={isLoading}
+                    rows={2}
+                    style={{
+                      resize: 'vertical',
+                      minHeight: '44px',
+                      maxHeight: '120px'
+                    }}
                   />
                   <button
                     type="submit"
                     disabled={isLoading || !input.trim()}
-                    className="px-4 py-2 bg-accent text-background rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 bg-accent text-background rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                     title="Send message"
                   >
                     {isLoading ? (

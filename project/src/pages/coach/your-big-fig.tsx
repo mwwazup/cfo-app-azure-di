@@ -16,6 +16,7 @@ import {
   StepOverridePayload,
 } from '../../services/bigFigGoalService';
 import { claudeService } from '../../services/claudeService';
+import { zepService } from '../../services/zepService';
 
 import {
   Heart,
@@ -268,6 +269,28 @@ export function YourBigFigPage() {
       const plan = await getLighthousePlan(userId);
       setLighthousePlan(plan);
       setLighthouseSaved(true);
+
+      // Save Lighthouse story to Zep memory for AI context
+      if (lighthouseStory && zepService.isAvailable()) {
+        try {
+          await zepService.saveConversation(userId, [
+            {
+              role: 'user',
+              content: `My Lighthouse goal is to reach $${revenueNum.toLocaleString()} in annual revenue within ${yearsNum} years. Here's my story: ${lighthouseStory}`,
+              metadata: { type: 'lighthouse_story', targetRevenue: revenueNum, yearsToGoal: yearsNum }
+            },
+            {
+              role: 'assistant',
+              content: `I've saved your Lighthouse goal. Your target is $${revenueNum.toLocaleString()} per year in ${yearsNum} years. This is your north star - I'll help you stay on track and celebrate your progress along the way.`,
+              metadata: { type: 'lighthouse_confirmation' }
+            }
+          ]);
+          console.log(' Saved Lighthouse story to Zep memory');
+        } catch (zepErr) {
+          console.warn('Could not save Lighthouse to Zep:', zepErr);
+          // Don't fail the save if Zep fails
+        }
+      }
     } catch (err) {
       console.error('Error saving Lighthouse goal', err);
       setLighthouseError('There was a problem saving your Lighthouse goal.');
@@ -1030,6 +1053,17 @@ Rules:
     setEditableSteps((prev) => prev.map((s) => ({ ...s, approved: false })));
   };
 
+  // Compute lighthouse progress values for the visual card
+  const hasCommittedLighthouse = lighthousePlan && planStatus === 'committed';
+  const lighthouseYearsToGoal = lighthousePlan?.yearsToGoal || 0;
+  const lighthouseTargetYear = lighthousePlan?.targetYear || new Date().getFullYear();
+  const lighthouseFirstYear = lighthouseTargetYear - lighthouseYearsToGoal + 1;
+  const currentCalendarYear = new Date().getFullYear();
+  const lighthouseStepYear = Math.max(1, Math.min(lighthouseYearsToGoal, currentCalendarYear - lighthouseFirstYear + 1));
+  
+  // Get current theme for the progress card
+  const currentStepTheme = lighthouseYearsToGoal > 0 ? getThemeForStep(lighthouseStepYear - 1, lighthouseYearsToGoal) : { title: '', description: '' };
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       {/* Header */}
@@ -1041,9 +1075,147 @@ Rules:
           <h1 className="text-4xl font-bold text-foreground">Your Lighthouse Goal</h1>
         </div>
         <p className="text-xl text-muted max-w-3xl mx-auto">
-          A Lighthouse shines a steady light so ships know where they are and where danger is. In Wave Rider, your Lighthouse Goal is the big future target you’re steering your business toward—like a clear revenue or life goal that doesn’t move, even when your numbers and seasons get choppy. Every plan, forecast, and action in Wave Rider is about helping you paddle toward that light, one small wave at a time.
+          A Lighthouse shines a steady light so ships know where they are and where danger is. In Wave Rider, your Lighthouse Goal is the big future target you're steering your business toward—like a clear revenue or life goal that doesn't move, even when your numbers and seasons get choppy. Every plan, forecast, and action in Wave Rider is about helping you paddle toward that light, one small wave at a time.
         </p>
       </div>
+
+      {/* Lighthouse Progress Card - Visual Journey */}
+      {hasCommittedLighthouse && (
+        <Card className="w-full overflow-hidden">
+          <CardContent className="p-0">
+            {/* Video background container */}
+            <div className="relative w-full min-h-[200px] overflow-hidden bg-slate-900">
+              {/* Video Background */}
+              <video 
+                autoPlay 
+                loop 
+                muted 
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover"
+              >
+                <source src="/lighthouse-bg.mp4" type="video/mp4" />
+              </video>
+              
+              {/* Gradient overlay for readability */}
+              <div className="absolute inset-0 bg-gradient-to-r from-background/75 via-background/0 to-background/0" />
+              
+              {/* Animated glow keyframes */}
+              <style>{`
+                @keyframes glow-pulse {
+                  0%, 100% { 
+                    text-shadow: 0 0 20px rgba(234, 179, 8, 0.6), 0 0 40px rgba(234, 179, 8, 0.4), 0 0 60px rgba(234, 179, 8, 0.2);
+                    filter: brightness(1);
+                  }
+                  50% { 
+                    text-shadow: 0 0 30px rgba(234, 179, 8, 0.9), 0 0 60px rgba(234, 179, 8, 0.6), 0 0 90px rgba(234, 179, 8, 0.4);
+                    filter: brightness(1.1);
+                  }
+                }
+                @keyframes beacon-glow {
+                  0%, 100% { box-shadow: 0 0 20px rgba(234, 179, 8, 0.4), 0 0 40px rgba(234, 179, 8, 0.2); }
+                  50% { box-shadow: 0 0 30px rgba(234, 179, 8, 0.6), 0 0 60px rgba(234, 179, 8, 0.4), 0 0 80px rgba(234, 179, 8, 0.2); }
+                }
+                @keyframes subtle-glow {
+                  0%, 100% { text-shadow: 0 0 10px rgba(234, 179, 8, 0.3); }
+                  50% { text-shadow: 0 0 20px rgba(234, 179, 8, 0.5), 0 0 30px rgba(234, 179, 8, 0.3); }
+                }
+              `}</style>
+              
+              {/* Content */}
+              <div className="relative z-10 p-6 flex flex-col md:flex-row items-center justify-between gap-6">
+                
+                {/* Left: Bold LIGHTHOUSE title + Theme */}
+                <div className="flex-1 space-y-4">
+                  {/* Big bold LIGHTHOUSE with glow */}
+                  <div className="flex items-center gap-4">
+                    {/* Glowing lighthouse beacon icon */}
+                    <div 
+                      className="relative p-3 rounded-full bg-accent/20 border border-accent/40"
+                      style={{ animation: 'beacon-glow 3s ease-in-out infinite' }}
+                    >
+                      <Lightbulb className="h-8 w-8 text-accent" />
+                    </div>
+                    <h2 
+                      className="text-4xl md:text-5xl font-black tracking-tight text-accent uppercase"
+                      style={{ 
+                        animation: 'glow-pulse 3s ease-in-out infinite',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}
+                    >
+                      Lighthouse
+                    </h2>
+                  </div>
+                  
+                  {/* This Year's Focus - Theme */}
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground uppercase tracking-widest">This Year's Focus</p>
+                    <p 
+                      className="text-2xl font-bold text-foreground"
+                      style={{ animation: 'subtle-glow 4s ease-in-out infinite' }}
+                    >
+                      {currentStepTheme.title}
+                    </p>
+                    <p className="text-sm text-muted-foreground max-w-lg">
+                      {currentStepTheme.description}
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Right: Year Progress Visualization */}
+                <div className="flex flex-col items-center gap-3">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Your Journey</span>
+                  <div className="flex items-center gap-2">
+                    {Array.from({ length: lighthouseYearsToGoal }, (_, i) => {
+                      const stepNum = i + 1;
+                      const isCompleted = stepNum < lighthouseStepYear;
+                      const isCurrent = stepNum === lighthouseStepYear;
+                      return (
+                        <div key={stepNum} className="flex flex-col items-center">
+                          <div 
+                            className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                              isCompleted 
+                                ? 'bg-accent text-background shadow-lg shadow-accent/30' 
+                                : isCurrent 
+                                  ? 'bg-accent/30 text-accent ring-2 ring-accent ring-offset-2 ring-offset-background shadow-lg shadow-accent/20' 
+                                  : 'bg-muted/30 text-muted-foreground border border-muted-foreground/20'
+                            }`}
+                            style={isCurrent ? { animation: 'beacon-glow 2s ease-in-out infinite' } : {}}
+                          >
+                            {isCompleted ? <Check className="h-5 w-5" /> : stepNum}
+                          </div>
+                          {isCurrent && (
+                            <span className="text-[10px] text-accent mt-1 font-bold uppercase tracking-wide">Now</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {/* Lighthouse Goal Icon */}
+                    <div className="flex flex-col items-center ml-2">
+                      <div 
+                        className="w-12 h-12 rounded-full bg-accent/20 border-2 border-accent/50 flex items-center justify-center"
+                        style={{ animation: 'beacon-glow 3s ease-in-out infinite' }}
+                      >
+                        <Lightbulb className="h-6 w-6 text-accent" />
+                      </div>
+                      <span className="text-[10px] text-accent mt-1 font-bold uppercase tracking-wide">Goal</span>
+                    </div>
+                  </div>
+                  
+                  {/* Progress indicator - Focus on current year progress */}
+                  <div className="text-center mt-2 px-4 py-2 rounded-lg bg-accent/10 border border-accent/20">
+                    <p className="text-xs text-muted-foreground">
+                      {lighthouseStepYear === 1 
+                        ? "You've begun your journey!" 
+                        : `${lighthouseStepYear - 1} year${lighthouseStepYear > 2 ? 's' : ''} completed`
+                      }
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
