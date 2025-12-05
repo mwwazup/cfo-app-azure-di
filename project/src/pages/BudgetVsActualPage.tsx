@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { useWeeklyBudget, useYTDBudget } from '../hooks/useWeeklyBudget';
-import { useRevenue } from '../contexts/revenue-context';
-import { Calendar, TrendingUp, TrendingDown, DollarSign, CheckCircle, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronUp, Filter, Lightbulb, Check } from 'lucide-react';
+import { Calendar, TrendingUp, TrendingDown, DollarSign, CheckCircle, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronUp, Filter } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -13,39 +12,6 @@ export function BudgetVsActualPage() {
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number | 'ytd'>(currentDate.getMonth() + 1);
   
-  // Lighthouse integration
-  const { lighthouse, currentYear } = useRevenue();
-  const hasLighthouse = !!lighthouse.goal && lighthouse.planStatus === 'committed';
-  const lighthouseStepTarget = lighthouse.currentStepTarget;
-  const lighthouseStepYear = lighthouse.currentStepYear;
-  const lighthouseYearsToGoal = lighthouse.plan?.yearsToGoal || 0;
-  
-  // Theme titles for each year (matches your-big-fig.tsx)
-  const EARLY_THEMES = [
-    'Find the Lighthouse', 'Learn the Waves', 'Steady the Boat', 
-    'Know Your Numbers', 'Fix the Leaks', 'Fill the Calendar'
-  ];
-  const GROWTH_THEMES = [
-    'Ride Bigger Waves', 'Make Each Job Worth More', 'Keep Good Customers Close',
-    'Build a Strong Crew', 'Smooth the Seasons', 'Follow the WAVE'
-  ];
-  const FREEDOM_THEMES = [
-    'Work Less, Lead More', 'Buy Back Your Time', 'Pay Yourself First',
-    'Protect the Lighthouse', 'Live the Story You Wrote'
-  ];
-  const ALL_THEMES = [...EARLY_THEMES, ...GROWTH_THEMES, ...FREEDOM_THEMES];
-  
-  // Get current step's theme
-  const currentStepOverride = lighthouse.stepOverrides?.find(
-    s => s.yearIndex === lighthouseStepYear - 1
-  );
-  const currentThemeIndex = currentStepOverride?.themeIndex ?? (lighthouseStepYear - 1);
-  const currentThemeTitle = ALL_THEMES[currentThemeIndex % ALL_THEMES.length] || 'Find the Lighthouse';
-  
-  // Check if FIR differs from Lighthouse (only show warning if they differ by more than 1%)
-  const isFIRSyncedWithLighthouse = hasLighthouse && lighthouseStepTarget 
-    ? Math.abs(currentYear.targetRevenue - lighthouseStepTarget) / lighthouseStepTarget < 0.01
-    : true;
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [localWeekData, setLocalWeekData] = useState<Record<string, { revenue: number; jobs: number; target: number }>>({});
@@ -463,79 +429,6 @@ export function BudgetVsActualPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Lighthouse Journey Card - Full Width (wrapped in outer card to match Master Revenue styling) */}
-      {hasLighthouse && (
-        <Card className="w-full">
-          <CardContent className="py-4">
-            <div className={`w-full bg-muted/30 rounded-lg p-6 ${!isFIRSyncedWithLighthouse ? 'border border-amber-500/50' : 'border border-accent/30'}`}>
-              <div className="flex flex-col md:flex-row items-center justify-around gap-6">
-                {/* Title with Theme */}
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-lg bg-accent/20">
-                    <Lightbulb className="h-5 w-5 text-accent" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium text-accent">Lighthouse Journey</span>
-                    <span className="text-sm font-medium text-accent">{currentThemeTitle}</span>
-                  </div>
-                </div>
-                
-                {/* Year Progress with Label */}
-                <div className="flex flex-col items-center gap-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Year</span>
-                  <div className="flex items-center gap-3">
-                    {Array.from({ length: lighthouseYearsToGoal }, (_, i) => {
-                      const stepNum = i + 1;
-                      const isCompleted = stepNum < lighthouseStepYear;
-                      const isCurrent = stepNum === lighthouseStepYear;
-                      return (
-                        <div key={stepNum} className="flex flex-col items-center">
-                          <div 
-                            className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                              isCompleted 
-                                ? 'bg-accent text-background' 
-                                : isCurrent 
-                                  ? 'bg-accent/30 text-accent ring-2 ring-accent ring-offset-2 ring-offset-background' 
-                                  : 'bg-muted/50 text-muted-foreground'
-                            }`}
-                          >
-                            {isCompleted ? <Check className="h-5 w-5" /> : stepNum}
-                          </div>
-                          {isCurrent && (
-                            <span className="text-[10px] text-accent mt-1 font-medium">NOW</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {/* Lighthouse Icon at the end */}
-                    <div className="flex flex-col items-center">
-                      <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
-                        <Lightbulb className="h-5 w-5 text-accent" />
-                      </div>
-                      <span className="text-[10px] text-muted-foreground mt-1">GOAL</span>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Status - Only show if FIR differs from Lighthouse */}
-                {!isFIRSyncedWithLighthouse && (
-                  <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-400/10 rounded-lg px-4 py-2">
-                    <AlertCircle className="h-4 w-4" />
-                    <span>FIR (${Math.round(currentYear.targetRevenue).toLocaleString()}) differs from Lighthouse target (${Math.round(lighthouseStepTarget || 0).toLocaleString()})</span>
-                  </div>
-                )}
-                {isFIRSyncedWithLighthouse && (
-                  <div className="flex items-center gap-2 text-sm text-green-400 bg-green-400/10 rounded-lg px-4 py-2">
-                    <CheckCircle className="h-4 w-4" />
-                    <span>FIR synced with Year {lighthouseStepYear} target</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Weekly Breakdown Table */}
       <Card>

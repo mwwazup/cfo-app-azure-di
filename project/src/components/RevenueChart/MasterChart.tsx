@@ -39,6 +39,7 @@ import {
   Filler,
   Legend
 } from 'chart.js';
+import { QuoteMarquee } from '../quotes';
 
 ChartJS.register(
   CategoryScale,
@@ -292,6 +293,18 @@ export function MasterChart() {
     const remainingTarget = targetAnnual - ytdActual;
     const requiredMonthlyAvg = remainingMonths > 0 ? remainingTarget / remainingMonths : 0;
 
+    // NEW: Monthly Gap - Current month's FIR target minus current month's actual
+    const currentMonthActual = monthlyRevenue[currentMonth] || 0;
+    const currentMonthFIR = getFIRData[currentMonth] || 0;
+    const monthlyGap = currentMonthFIR - currentMonthActual;
+    
+    // NEW: Weekly Momentum - Monthly gap divided by ~4.33 weeks per month
+    const weeksPerMonth = 4.33;
+    const weeklyMomentum = monthlyGap / weeksPerMonth;
+    
+    // NEW: Monthly Momentum - Current month actual as % of current month FIR target
+    const monthlyMomentum = currentMonthFIR > 0 ? (currentMonthActual / currentMonthFIR) * 100 : 0;
+
     return {
       onPaceAnnual,
       targetAnnual,
@@ -299,7 +312,12 @@ export function MasterChart() {
       status,
       gapAmount: Math.abs(targetAnnual - onPaceAnnual),
       requiredMonthlyAvg: Math.max(0, requiredMonthlyAvg),
-      remainingMonths
+      remainingMonths,
+      monthlyGap,
+      weeklyMomentum,
+      monthlyMomentum,
+      currentMonthActual,
+      currentMonthFIR
     };
   };
 
@@ -449,26 +467,64 @@ export function MasterChart() {
   const firData = getFIRData;
   const gapData = calculateGapData;
   
-  // Get previous year data for comparison line and YoY calculations
+  // Get previous year and next year data for comparison lines
   const previousYearData = getYearData(selectedYear - 1);
+  const nextYearData = getYearData(selectedYear + 1);
 
   // Create chart data based on view mode and whether it's historical or current year
   const createChartDatasets = () => {
     if (isHistoricalYear) {
-      return [
-        {
-          label: "Actual Revenue",
-          data: actualData,
-          borderColor: "rgba(53, 51, 205, 1)",
-          backgroundColor: "rgba(39, 86, 162, 0.2)",
-          fill: true,
+      const datasets = [];
+      
+      // Previous year comparison (dashed gold line - same style as 2024 Comparison)
+      if (previousYearData.data.length > 0 && previousYearData.data.some(d => d.revenue > 0)) {
+        datasets.push({
+          label: `${selectedYear - 1} Actual`,
+          data: previousYearData.data.map(item => item.revenue),
+          borderColor: "rgba(156, 163, 175, 0.5)", // Muted gray (same as 2024 Comparison)
+          backgroundColor: "transparent",
+          fill: false,
           tension: 0.4,
           borderWidth: 2,
+          borderDash: [5, 5],
           pointRadius: 0,
           pointHoverRadius: 0,
           pointHitRadius: 10
-        }
-      ];
+        });
+      }
+      
+      // Next year comparison (dashed gold line - same style as 2024 Comparison)
+      if (nextYearData.data.length > 0 && nextYearData.data.some(d => d.revenue > 0)) {
+        datasets.push({
+          label: `${selectedYear + 1} Actual`,
+          data: nextYearData.data.map(item => item.revenue),
+          borderColor: "rgba(156, 163, 175, 0.5)", // Muted gray (same as 2024 Comparison)
+          backgroundColor: "transparent",
+          fill: false,
+          tension: 0.4,
+          borderWidth: 2,
+          borderDash: [5, 5],
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          pointHitRadius: 10
+        });
+      }
+      
+      // Selected year actual (solid line - main focus)
+      datasets.push({
+        label: `${selectedYear} Actual`,
+        data: actualData,
+        borderColor: "rgba(53, 51, 205, 1)",
+        backgroundColor: "rgba(39, 86, 162, 0.2)",
+        fill: true,
+        tension: 0.4,
+        borderWidth: 3,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        pointHitRadius: 10
+      });
+      
+      return datasets;
     }
 
     const datasets = [];
@@ -567,8 +623,28 @@ export function MasterChart() {
         callbacks: {
           beforeBody: function(tooltipItems: any) {
             if (isHistoricalYear) {
-              const currentValue = tooltipItems[0]?.raw || 0;
-              return [`Actual: $${Math.round(currentValue).toLocaleString()}`];
+              const monthIndex = tooltipItems[0]?.dataIndex || 0;
+              const currentValue = actualData[monthIndex] || 0;
+              const prevYearValue = previousYearData.data[monthIndex]?.revenue || 0;
+              const nextYearValue = nextYearData.data[monthIndex]?.revenue || 0;
+              
+              const lines = [];
+              
+              // Order from newest to oldest (top to bottom on graph)
+              // Show next year first if data exists (highest on graph)
+              if (nextYearValue > 0) {
+                lines.push(`${selectedYear + 1}: $${Math.round(nextYearValue).toLocaleString()}`);
+              }
+              
+              // Current selected year (middle)
+              lines.push(`${selectedYear}: $${Math.round(currentValue).toLocaleString()}`);
+              
+              // Show previous year last if data exists (lowest on graph)
+              if (prevYearValue > 0) {
+                lines.push(`${selectedYear - 1}: $${Math.round(prevYearValue).toLocaleString()}`);
+              }
+              
+              return lines;
             } else {
               const monthIndex = tooltipItems[0]?.dataIndex || 0;
               
@@ -721,39 +797,40 @@ export function MasterChart() {
                 {generateCoachingMessage(insights)}
               </p>
               
-              {/* Gap to Goal Tracker */}
+              {/* Gap to Goal Tracker - Monthly focused metrics */}
               <div className="bg-muted/30 rounded-lg p-4 border border-gray-700">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="text-center">
                     <div className="flex items-center justify-center gap-2 mb-2">
                       <Target className="h-4 w-4 text-accent" />
-                      <span className="text-sm font-medium text-accent">Gap to Goal</span>
+                      <span className="text-sm font-medium text-accent">Monthly Gap</span>
                     </div>
-                    <div className={`text-xl font-bold ${insights.gapAmount > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                      ${Math.round(insights.gapAmount).toLocaleString()}
+                    <div className={`text-xl font-bold ${insights.monthlyGap > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                      ${Math.abs(Math.round(insights.monthlyGap)).toLocaleString()}
                     </div>
+                    <p className="text-xs text-gray-500 mt-1">{insights.monthlyGap > 0 ? 'behind' : 'ahead'} this month</p>
                   </div>
                   
-                  {insights.remainingMonths > 0 && (
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-2 mb-2">
-                        <Activity className="h-4 w-4 text-accent" />
-                        <span className="text-sm font-medium text-accent">Required Monthly Avg</span>
-                      </div>
-                      <div className="text-xl font-bold text-white">
-                        ${Math.round(insights.requiredMonthlyAvg).toLocaleString()}
-                      </div>
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <Activity className="h-4 w-4 text-accent" />
+                      <span className="text-sm font-medium text-accent">Weekly Momentum</span>
                     </div>
-                  )}
+                    <div className={`text-xl font-bold ${insights.weeklyMomentum > 0 ? 'text-white' : 'text-green-400'}`}>
+                      ${Math.abs(Math.round(insights.weeklyMomentum)).toLocaleString()}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{insights.weeklyMomentum > 0 ? 'revenue needed/week' : 'ahead/week'}</p>
+                  </div>
                   
                   <div className="text-center">
                     <div className="flex items-center justify-center gap-2 mb-2">
                       <Gauge className="h-4 w-4 text-accent" />
-                      <span className="text-sm font-medium text-accent">Performance vs Target</span>
+                      <span className="text-sm font-medium text-accent">Monthly Momentum</span>
                     </div>
-                    <div className={`text-xl font-bold ${insights.percentageDiff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {insights.percentageDiff >= 0 ? '+' : ''}{insights.percentageDiff.toFixed(1)}%
+                    <div className={`text-xl font-bold ${insights.monthlyMomentum >= 100 ? 'text-green-400' : insights.monthlyMomentum >= 80 ? 'text-yellow-400' : 'text-red-400'}`}>
+                      {insights.monthlyMomentum.toFixed(0)}%
                     </div>
+                    <p className="text-xs text-gray-500 mt-1">of monthly target</p>
                   </div>
                 </div>
               </div>
@@ -878,12 +955,13 @@ export function MasterChart() {
                 <div className="bg-accent/10 rounded-lg p-3 border border-accent/20 max-w-md">
                   <div className="flex items-center gap-2 mb-1">
                     <Target className="h-3 w-3 text-accent" />
-                    <span className="text-xs font-medium text-accent">Future Inspired Revenue (FIR)</span>
+                    <span className="text-sm font-medium text-accent">Future Inspired Revenue (FIR)</span>
                   </div>
-                  <p className="text-xs text-gray-400">
-                    Your FIR line is based on your annual target of ${Math.round(annualFIRTarget).toLocaleString()}, 
-                    distributed using your previous year's seasonal pattern. This creates a stable benchmark 
-                    that doesn't change when you update monthly actuals.
+                  <p className="text-sm text-gray-400">
+                    {hasLighthouse && isFIRSyncedWithLighthouse 
+                      ? `Your FIR line is driven by your Lighthouse Goal (Year ${lighthouseStepYear} target: $${Math.round(annualFIRTarget).toLocaleString()}), distributed using your previous year's seasonal pattern.`
+                      : `Your FIR line is based on your annual target of $${Math.round(annualFIRTarget).toLocaleString()}, distributed using your previous year's seasonal pattern. This creates a stable benchmark that doesn't change when you update monthly actuals.`
+                    }
                   </p>
                 </div>
               )}
@@ -1011,14 +1089,9 @@ export function MasterChart() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-8">
-            {/* Legend */}
+            {/* Legend - only show for current year view */}
             <div className="flex justify-center gap-8 flex-wrap">
-              {isHistoricalYear ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "rgba(68, 156, 249, 1)" }}></div>
-                  <span>Actual Revenue</span>
-                </div>
-              ) : (
+              {isHistoricalYear ? null : (
                 <>
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "rgba(0, 123, 255, 1)" }}></div>
@@ -1326,6 +1399,11 @@ export function MasterChart() {
             </CardContent>
           )}
         </Card>
+      </div>
+
+      {/* Motivational Quote Marquee */}
+      <div className="pt-6 pb-2">
+        <QuoteMarquee />
       </div>
     </div>
   );

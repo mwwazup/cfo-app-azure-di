@@ -21,6 +21,7 @@ import EmployeeHubPage from './pages/EmployeeHubPage';
 import CompanySettingsPage from './pages/CompanySettingsPage';
 import { BusinessIntelligencePage } from './pages/BusinessIntelligencePage';
 import { BonusROIAnalysisPage } from './pages/BonusROIAnalysisPage';
+import PatternInterruptTestPage from './pages/PatternInterruptTestPage';
 import ProfitImpactPage from './pages/coach/profit-impact';
 import { YourBigFigPage } from './pages/coach/your-big-fig';
 import { MomentumPage } from './pages/momentum';
@@ -142,19 +143,9 @@ function AppRoutes() {
               <Route path="wizard" element={<MomentumWizardPage />} />
             </Route>
             
-            {/* Service Mix page */}
-            <Route path="/service-mix" element={<DashboardLayout />}>
-              <Route index element={<ServiceMixPage />} />
-            </Route>
-            
             {/* Test page for Service Mix feature */}
             <Route path="/service-mix-test" element={<DashboardLayout />}>
               <Route index element={<ServiceMixTestPage />} />
-            </Route>
-            
-            {/* Budget vs Actual Tracking */}
-            <Route path="/budget-vs-actual" element={<DashboardLayout />}>
-              <Route index element={<BudgetVsActualPage />} />
             </Route>
             
             {/* Employee Hub */}
@@ -172,14 +163,21 @@ function AppRoutes() {
               <Route index element={<CompanySettingsPage />} />
             </Route>
             
-            {/* Business Intelligence */}
+            {/* Business Intelligence with nested routes */}
             <Route path="/business-intelligence" element={<DashboardLayout />}>
               <Route index element={<BusinessIntelligencePage />} />
+              <Route path="budget-vs-actual" element={<BudgetVsActualPage />} />
+              <Route path="service-mix" element={<ServiceMixPage />} />
             </Route>
             
             {/* Bonus ROI Analysis */}
             <Route path="/bonus-roi" element={<DashboardLayout />}>
               <Route index element={<BonusROIAnalysisPage />} />
+            </Route>
+            
+            {/* Pattern Interrupt Test Page */}
+            <Route path="/pattern-test" element={<DashboardLayout />}>
+              <Route index element={<PatternInterruptTestPage />} />
             </Route>
             
             {/* Redirect any unknown routes to dashboard if authenticated, otherwise to home */}

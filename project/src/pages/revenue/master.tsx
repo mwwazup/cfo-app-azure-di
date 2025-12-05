@@ -158,8 +158,8 @@ export function MasterRevenuePage() {
               <div className="space-y-6">
                 {historicalYears
                   .filter(year => !year.isSample && year.data.some(d => d.revenue > 0))
-                  .slice(-3)
-                  .reverse()
+                  .sort((a, b) => b.year - a.year) // Sort newest to oldest
+                  .slice(0, 4) // Show up to 4 historical years (5 total with current year)
                   .map((year) => {
                   const yearTotal = year.data.reduce((sum, item) => sum + item.revenue, 0);
                   

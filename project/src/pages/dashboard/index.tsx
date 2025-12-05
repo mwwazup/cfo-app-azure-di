@@ -161,7 +161,7 @@ export function DashboardPage() {
         <p className="text-muted text-lg">
           {currentYear.isHistorical 
             ? `Viewing historical data for ${currentYear.year}` 
-            : `Here's your business performance overview for ${currentYear.year}`
+            : `Your ${currentYear.year} Real-Time Wins and Gaps. Let's Ride The Momentum Of Your Current Wave`
           }
         </p>
       </div>

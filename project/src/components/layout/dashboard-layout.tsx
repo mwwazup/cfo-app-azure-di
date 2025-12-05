@@ -10,11 +10,11 @@ import {
   FastForward,
   Menu,
   X,
-  BarChart3,
-  Target,
   Users,
   Brain,
   Building2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { useState } from 'react';
 import { ZepChatBubble } from '../ZepChatBubble';
@@ -26,6 +26,19 @@ export function DashboardLayout() {
   const clerk = useClerk();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set());
+
+  const toggleMenu = (menuName: string) => {
+    setExpandedMenus(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(menuName)) {
+        newSet.delete(menuName);
+      } else {
+        newSet.add(menuName);
+      }
+      return newSet;
+    });
+  };
 
   if (!isLoaded) {
     return null;
@@ -40,9 +53,10 @@ export function DashboardLayout() {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Master Revenue', href: '/revenue/master', icon: TrendingUp },
-    { name: 'Budget vs Actual', href: '/budget-vs-actual', icon: Target },
-    { name: 'Service Mix', href: '/service-mix', icon: BarChart3 },
-    { name: 'Business Intelligence', href: '/business-intelligence', icon: Brain },
+    { name: 'Business Intelligence', href: '/business-intelligence', icon: Brain, children: [
+      { name: 'Budget vs Actual', href: '/business-intelligence/budget-vs-actual' },
+      { name: 'Service Mix', href: '/business-intelligence/service-mix' },
+    ]},
     { name: 'Employee Hub', href: '/employees', icon: Users, children: [
       { name: 'LER Tracking', href: '/employee-ler' },
       { name: 'Bonus ROI', href: '/bonus-roi' },
@@ -82,43 +96,79 @@ export function DashboardLayout() {
             </div>
             <nav className="mt-8 px-2 space-y-1">
               {navigation.map((item) => {
-                const isActive = location.pathname === item.href;
+                const isActive = location.pathname === item.href || location.pathname.startsWith(item.href + '/');
                 const hasChildren = 'children' in item && item.children;
                 const isChildActive = hasChildren && item.children?.some((child: any) => location.pathname === child.href);
+                const isExpanded = expandedMenus.has(item.name) || isChildActive;
                 return (
                   <div key={item.name}>
-                    <Link
-                      to={item.href}
-                      className={`group flex items-center px-3 py-2 text-base font-medium rounded-lg transition-colors ${
-                        isActive || isChildActive
-                          ? 'bg-accent text-background'
-                          : 'text-foreground hover:bg-border'
-                      }`}
-                      onClick={() => setSidebarOpen(false)}
-                    >
-                      <item.icon className="mr-4 h-6 w-6" />
-                      {item.name}
-                    </Link>
-                    {hasChildren && (
-                      <div className="ml-10 mt-1 space-y-1">
-                        {item.children?.map((child: any) => {
-                          const isChildItemActive = location.pathname === child.href;
-                          return (
-                            <Link
-                              key={child.name}
-                              to={child.href}
-                              className={`block px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                                isChildItemActive
-                                  ? 'bg-accent/20 text-accent'
-                                  : 'text-muted-foreground hover:text-foreground hover:bg-border'
-                              }`}
-                              onClick={() => setSidebarOpen(false)}
-                            >
-                              {child.name}
-                            </Link>
-                          );
-                        })}
+                    {hasChildren ? (
+                      // Parent with children - show chevron toggle
+                      <div className="flex flex-col">
+                        <div className="flex items-center">
+                          <Link
+                            to={item.href}
+                            className={`flex-1 group flex items-center px-3 py-2 text-base font-medium rounded-l-lg transition-colors ${
+                              isActive || isChildActive
+                                ? 'bg-accent text-background'
+                                : 'text-foreground hover:bg-border'
+                            }`}
+                            onClick={() => setSidebarOpen(false)}
+                          >
+                            <item.icon className="mr-4 h-6 w-6" />
+                            {item.name}
+                          </Link>
+                          <button
+                            onClick={() => toggleMenu(item.name)}
+                            className={`px-2 py-2 rounded-r-lg transition-colors ${
+                              isActive || isChildActive
+                                ? 'bg-accent text-background'
+                                : 'text-foreground hover:bg-border'
+                            }`}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                        {isExpanded && (
+                          <div className="ml-10 mt-1 space-y-1">
+                            {item.children?.map((child: any) => {
+                              const isChildItemActive = location.pathname === child.href;
+                              return (
+                                <Link
+                                  key={child.name}
+                                  to={child.href}
+                                  className={`block px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                    isChildItemActive
+                                      ? 'bg-accent/20 text-accent'
+                                      : 'text-muted-foreground hover:text-foreground hover:bg-border'
+                                  }`}
+                                  onClick={() => setSidebarOpen(false)}
+                                >
+                                  {child.name}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
+                    ) : (
+                      // Regular nav item without children
+                      <Link
+                        to={item.href}
+                        className={`group flex items-center px-3 py-2 text-base font-medium rounded-lg transition-colors ${
+                          isActive
+                            ? 'bg-accent text-background'
+                            : 'text-foreground hover:bg-border'
+                        }`}
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        <item.icon className="mr-4 h-6 w-6" />
+                        {item.name}
+                      </Link>
                     )}
                   </div>
                 );
@@ -152,41 +202,76 @@ export function DashboardLayout() {
             </div>
             <nav className="mt-8 flex-1 px-2 space-y-1">
               {navigation.map((item) => {
-                const isActive = location.pathname === item.href;
+                const isActive = location.pathname === item.href || location.pathname.startsWith(item.href + '/');
                 const hasChildren = 'children' in item && item.children;
                 const isChildActive = hasChildren && item.children?.some((child: any) => location.pathname === child.href);
+                const isExpanded = expandedMenus.has(item.name) || isChildActive;
                 return (
                   <div key={item.name}>
-                    <Link
-                      to={item.href}
-                      className={`group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                        isActive || isChildActive
-                          ? 'bg-accent text-background'
-                          : 'text-foreground hover:bg-border'
-                      }`}
-                    >
-                      <item.icon className="mr-3 h-5 w-5" />
-                      {item.name}
-                    </Link>
-                    {hasChildren && (
-                      <div className="ml-8 mt-1 space-y-1">
-                        {item.children?.map((child: any) => {
-                          const isChildItemActive = location.pathname === child.href;
-                          return (
-                            <Link
-                              key={child.name}
-                              to={child.href}
-                              className={`block px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                                isChildItemActive
-                                  ? 'bg-accent/20 text-accent'
-                                  : 'text-muted-foreground hover:text-foreground hover:bg-border'
-                              }`}
-                            >
-                              {child.name}
-                            </Link>
-                          );
-                        })}
+                    {hasChildren ? (
+                      // Parent with children - show chevron toggle
+                      <div className="flex flex-col">
+                        <div className="flex items-center">
+                          <Link
+                            to={item.href}
+                            className={`flex-1 group flex items-center px-3 py-2 text-sm font-medium rounded-l-lg transition-colors ${
+                              isActive || isChildActive
+                                ? 'bg-accent text-background'
+                                : 'text-foreground hover:bg-border'
+                            }`}
+                          >
+                            <item.icon className="mr-3 h-5 w-5" />
+                            {item.name}
+                          </Link>
+                          <button
+                            onClick={() => toggleMenu(item.name)}
+                            className={`px-2 py-2 rounded-r-lg transition-colors ${
+                              isActive || isChildActive
+                                ? 'bg-accent text-background'
+                                : 'text-foreground hover:bg-border'
+                            }`}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                        {isExpanded && (
+                          <div className="ml-8 mt-1 space-y-1">
+                            {item.children?.map((child: any) => {
+                              const isChildItemActive = location.pathname === child.href;
+                              return (
+                                <Link
+                                  key={child.name}
+                                  to={child.href}
+                                  className={`block px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                    isChildItemActive
+                                      ? 'bg-accent/20 text-accent'
+                                      : 'text-muted-foreground hover:text-foreground hover:bg-border'
+                                  }`}
+                                >
+                                  {child.name}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
+                    ) : (
+                      // Regular nav item without children
+                      <Link
+                        to={item.href}
+                        className={`group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                          isActive
+                            ? 'bg-accent text-background'
+                            : 'text-foreground hover:bg-border'
+                        }`}
+                      >
+                        <item.icon className="mr-3 h-5 w-5" />
+                        {item.name}
+                      </Link>
                     )}
                   </div>
                 );
