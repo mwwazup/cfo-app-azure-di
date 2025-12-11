@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { X, Plus, Trash2, Edit2, Calendar, DollarSign, Hash, Save, TrendingUp, Activity } from 'lucide-react';
+import { X, Plus, Trash2, Edit2, Calendar, DollarSign, Hash, Save, TrendingUp, Activity, HelpCircle } from 'lucide-react';
 import { useServices, useServiceActivities, getWeekOfMonth, getWeekDates } from '../../hooks/useServices';
 import { Button } from '../ui/button';
+import { Tooltip } from '../ui/tooltip';
 
 interface ServiceTrackerModalProps {
   open: boolean;
@@ -12,17 +13,6 @@ interface ServiceTrackerModalProps {
 
 // Gold accent color for all services
 const ACCENT_COLOR = '#D0B46A'; // Gold accent
-
-const SERVICE_CATEGORIES = [
-  'Recurring',
-  'One-Time',
-  'Seasonal',
-  'Emergency',
-  'Maintenance',
-  'Installation',
-  'Repair',
-  'Consultation',
-];
 
 export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities', onServiceAdded }: ServiceTrackerModalProps) {
   const { services, createService, updateService, deleteService, refreshServices } = useServices();
@@ -335,100 +325,173 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities', 
               {services.length > 0 && (
                 <div className="space-y-2 mb-6">
                   {services.map((service) => (
-                    <div
-                      key={service.id}
-                      className="flex items-center justify-between p-4 border border-border rounded-lg bg-background"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-4 h-4 rounded-full"
-                          style={{ backgroundColor: service.color || '#3B82F6' }}
-                        />
-                        <div>
-                          <p className="font-medium text-foreground">{service.serviceName}</p>
-                          {service.serviceCategory && (
-                            <p className="text-xs text-muted-foreground">{service.serviceCategory}</p>
-                          )}
-                          <div className="flex gap-3 mt-1">
-                            {service.defaultPrice && (
-                              <p className="text-xs text-blue-400">
-                                Price: ${Number(service.defaultPrice).toFixed(2)}
-                              </p>
-                            )}
-                            {service.cogsCost && (
-                              <p className="text-xs text-orange-400">
-                                COGS: ${Number(service.cogsCost).toFixed(2)}
-                              </p>
-                            )}
+                    <div key={service.id}>
+                      {/* Inline Edit Form - shows when this service is being edited */}
+                      {editingServiceId === service.id ? (
+                        <div className="p-4 border border-accent rounded-lg bg-muted/30 space-y-4">
+                          <h4 className="text-sm font-medium text-accent">Edit Service</h4>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-2">
+                              Service Name *
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g., Lawn Mowing"
+                              value={serviceName}
+                              onChange={(e) => setServiceName(e.target.value)}
+                              className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
+                            />
                           </div>
-                          {service.isAutoPricingEnabled && (
-                            <p className="text-xs text-green-400">
-                              Auto-pricing enabled
-                            </p>
-                          )}
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                                Default Price
+                                <Tooltip content="Use if you have a flat-rate pricing for this service, otherwise leave blank if service rate is variable. Used to auto-calculate revenue (Appointments × Price) in Service Tracker only." position="top">
+                                  <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                                </Tooltip>
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={defaultPrice}
+                                onChange={(e) => setDefaultPrice(e.target.value)}
+                                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                                COGS Cost (per service)
+                                <Tooltip content="Estimated material/supply cost per job. Important: This value is used in Employee LER and Service Hub calculations. If left blank ($0), profit margins will appear inflated. Enter your best estimate for accurate reporting." position="top">
+                                  <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                                </Tooltip>
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={cogsCost}
+                                onChange={(e) => setCogsCost(e.target.value)}
+                                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={autoPricing}
+                                onChange={(e) => setAutoPricing(e.target.checked)}
+                                className="rounded"
+                              />
+                              <span className="text-sm text-foreground">Auto-calculate revenue</span>
+                              <Tooltip content="When enabled, revenue is auto-calculated as Appointments × Default Price in Service Tracker. If you do not have standard flat-rate pricing for this service, leave this unchecked." position="top">
+                                <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                              </Tooltip>
+                            </label>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={handleCancelEdit}
+                              variant="outline"
+                              disabled={isSaving}
+                              className="flex-1"
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              onClick={handleSaveService}
+                              disabled={!serviceName.trim() || isSaving}
+                              className="flex-1"
+                            >
+                              <Save className="h-4 w-4 mr-2" />
+                              Save Changes
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEditService(service)}
-                          className="p-2 hover:bg-gray-700 rounded transition-colors"
-                          title="Edit service"
-                        >
-                          <Edit2 className="h-4 w-4 text-blue-400" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteService(service.id, service.serviceName)}
-                          className="p-2 hover:bg-gray-700 rounded transition-colors"
-                          title="Delete service"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-400" />
-                        </button>
-                      </div>
+                      ) : (
+                        /* Service Card - shows when not editing */
+                        <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-muted/20">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="w-4 h-4 rounded-full"
+                              style={{ backgroundColor: service.color || '#3B82F6' }}
+                            />
+                            <div>
+                              <p className="font-medium text-foreground">{service.serviceName}</p>
+                              <div className="flex gap-3 mt-1">
+                                {service.defaultPrice && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Price: ${Number(service.defaultPrice).toFixed(2)}
+                                  </p>
+                                )}
+                                {service.cogsCost && (
+                                  <p className="text-xs text-accent">
+                                    COGS: ${Number(service.cogsCost).toFixed(2)}
+                                  </p>
+                                )}
+                              </div>
+                              {service.isAutoPricingEnabled && (
+                                <p className="text-xs text-green-400">
+                                  Auto-pricing enabled
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleEditService(service)}
+                              className="p-2 hover:bg-muted rounded transition-colors"
+                              title="Edit service"
+                            >
+                              <Edit2 className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteService(service.id, service.serviceName)}
+                              className="p-2 hover:bg-muted rounded transition-colors"
+                              title="Delete service"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-400" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Add/Edit Service Form */}
-              <div className="p-4 border border-border rounded-lg bg-background space-y-4">
+              {/* Add New Service Form - only show when not editing */}
+              {!editingServiceId && (
+              <div className="p-4 border border-border rounded-lg bg-muted/20 space-y-4">
                 <h4 className="text-sm font-medium text-foreground">
-                  {editingServiceId ? 'Edit Service' : 'Add New Service'}
+                  Add New Service
                 </h4>
                 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Service Name *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., Lawn Mowing"
-                      value={serviceName}
-                      onChange={(e) => setServiceName(e.target.value)}
-                      className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Category
-                    </label>
-                    <select
-                      value={serviceCategory}
-                      onChange={(e) => setServiceCategory(e.target.value)}
-                      className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
-                    >
-                      <option value="">Select category</option>
-                      {SERVICE_CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Service Name *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g., Lawn Mowing"
+                    value={serviceName}
+                    onChange={(e) => setServiceName(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-background text-foreground"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
+                    <label className="block text-sm font-medium text-foreground mb-2 flex items-center gap-2">
                       Default Price
+                      <Tooltip content="Use if you have a flat-rate pricing for this service, otherwise leave blank if service rate is variable. Used to auto-calculate revenue (Appointments × Price) in Service Tracker only." position="top">
+                        <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </Tooltip>
                     </label>
                     <input
                       type="number"
@@ -440,8 +503,11 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities', 
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
+                    <label className="block text-sm font-medium text-foreground mb-2 flex items-center gap-2">
                       COGS Cost (per service)
+                      <Tooltip content="Estimated material/supply cost per job. Important: This value is used in Employee LER and Service Hub calculations. If left blank ($0), profit margins will appear inflated. Enter your best estimate for accurate reporting." position="top">
+                        <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </Tooltip>
                     </label>
                     <input
                       type="number"
@@ -463,39 +529,24 @@ export function ServiceTrackerModal({ open, onClose, defaultTab = 'activities', 
                       className="rounded"
                     />
                     <span className="text-sm text-foreground">Auto-calculate revenue</span>
+                    <Tooltip content="When enabled, revenue is auto-calculated as Appointments × Default Price in Service Tracker. If you do not have standard flat-rate pricing for this service, leave this unchecked." position="top">
+                      <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </Tooltip>
                   </label>
                 </div>
 
                 <div className="flex gap-2">
-                  {editingServiceId && (
-                    <Button
-                      onClick={handleCancelEdit}
-                      variant="outline"
-                      disabled={isSaving}
-                      className="flex-1"
-                    >
-                      Cancel
-                    </Button>
-                  )}
                   <Button
-                    onClick={editingServiceId ? handleSaveService : handleAddService}
+                    onClick={handleAddService}
                     disabled={!serviceName.trim() || isSaving}
                     className="flex-1"
                   >
-                    {editingServiceId ? (
-                      <>
-                        <Save className="h-4 w-4 mr-2" />
-                        Save Changes
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Service
-                      </>
-                    )}
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Service
                   </Button>
                 </div>
               </div>
+              )}
             </div>
             )}
 

@@ -60,6 +60,10 @@ export interface DailyRecord {
       revenue: number;
     }>;
   };
+  // Crew tracking fields (Phase 2)
+  crew_id?: string;
+  is_crew_job?: boolean;
+  tracking_mode?: 'employee' | 'crew';
 }
 
 export interface COGSSettings {
@@ -90,6 +94,9 @@ export interface CompanySettings {
   numberOfCrews?: number;  // How many crews do you run?
   employeesPerCrew?: number;  // How many employees per crew?
   monthlyCrewCapacity?: number;  // Expected revenue per crew per month
+  // Crew-specific bonus thresholds (crews have higher labor costs)
+  crewBonusThresholdMin?: number;  // Default 15% (lower than solo 25%)
+  crewBonusThresholdMax?: number;  // Default 100%
 }
 
 // ============================================
@@ -285,6 +292,163 @@ export async function createPayPeriod(userId: string, period: PayPeriod): Promis
   return data;
 }
 
+// Get or create pay period for a specific date
+// Used for crew entry mode where we need to find/create periods for multiple employees
+export async function getOrCreatePayPeriod(
+  userId: string,
+  employeeId: string,
+  date: string,
+  paySchedule: 'weekly' | 'bi-weekly' | 'semi-monthly' | 'monthly' | 'custom' = 'bi-weekly',
+  payDayOfWeek: number = 5,
+  payReferenceDate?: string,
+  paySemiMonthlyDates?: [number, number]
+): Promise<PayPeriod | null> {
+  if (!userId || !date) return null;
+  
+  // Parse the date
+  const targetDate = new Date(date + 'T00:00:00');
+  const year = targetDate.getFullYear();
+  
+  // Get existing pay periods for this user
+  const existingPeriods = await getPayPeriods(userId);
+  
+  // Find a period that contains this date
+  const matchingPeriod = existingPeriods.find(p => {
+    const startDate = new Date(p.start_date + 'T00:00:00');
+    const endDate = new Date(p.end_date + 'T00:00:00');
+    return targetDate >= startDate && targetDate <= endDate;
+  });
+  
+  if (matchingPeriod) {
+    return matchingPeriod;
+  }
+  
+  // No matching period found - create one
+  // Calculate period boundaries based on pay schedule
+  let periodStart: Date;
+  let periodEnd: Date;
+  let periodName: string;
+  
+  if (paySchedule === 'bi-weekly') {
+    // Find the start of the bi-weekly period
+    // Use reference date or default to a known Friday
+    const refDate = payReferenceDate ? new Date(payReferenceDate + 'T00:00:00') : new Date('2024-01-05T00:00:00');
+    const daysSinceRef = Math.floor((targetDate.getTime() - refDate.getTime()) / (1000 * 60 * 60 * 24));
+    const periodNumber = Math.floor(daysSinceRef / 14);
+    
+    periodStart = new Date(refDate.getTime() + periodNumber * 14 * 24 * 60 * 60 * 1000);
+    periodEnd = new Date(periodStart.getTime() + 13 * 24 * 60 * 60 * 1000);
+    
+    const startMonth = periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endMonth = periodEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    periodName = `${startMonth} - ${endMonth}, ${year}`;
+  } else if (paySchedule === 'semi-monthly') {
+    const [firstDate, secondDate] = paySemiMonthlyDates || [1, 16];
+    const day = targetDate.getDate();
+    
+    if (day < secondDate) {
+      periodStart = new Date(year, targetDate.getMonth(), firstDate);
+      periodEnd = new Date(year, targetDate.getMonth(), secondDate - 1);
+    } else {
+      periodStart = new Date(year, targetDate.getMonth(), secondDate);
+      // End on last day of month
+      periodEnd = new Date(year, targetDate.getMonth() + 1, 0);
+    }
+    
+    const monthName = targetDate.toLocaleDateString('en-US', { month: 'long' });
+    periodName = `${monthName} ${periodStart.getDate()}-${periodEnd.getDate()}, ${year}`;
+  } else if (paySchedule === 'monthly') {
+    periodStart = new Date(year, targetDate.getMonth(), 1);
+    periodEnd = new Date(year, targetDate.getMonth() + 1, 0);
+    periodName = targetDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  } else if (paySchedule === 'weekly') {
+    // Find the start of the week (based on payDayOfWeek)
+    const currentDay = targetDate.getDay();
+    const daysToStart = (currentDay - payDayOfWeek + 7) % 7;
+    periodStart = new Date(targetDate.getTime() - daysToStart * 24 * 60 * 60 * 1000);
+    periodEnd = new Date(periodStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+    
+    const startStr = periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endStr = periodEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    periodName = `Week of ${startStr} - ${endStr}, ${year}`;
+  } else {
+    // Custom - default to monthly
+    periodStart = new Date(year, targetDate.getMonth(), 1);
+    periodEnd = new Date(year, targetDate.getMonth() + 1, 0);
+    periodName = targetDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+  
+  // Format dates as YYYY-MM-DD (local timezone safe)
+  const formatDate = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  
+  // Create the new period
+  const newPeriod = await createPayPeriod(userId, {
+    period_name: periodName,
+    start_date: formatDate(periodStart),
+    end_date: formatDate(periodEnd),
+    year
+  });
+  
+  return newPeriod;
+}
+
+// Get daily records for a specific pay period and employee (used for checking duplicates)
+// Now also returns is_crew_job to allow one solo + one crew record per day
+export async function getDailyRecordsForPeriod(
+  payPeriodId: string, 
+  employeeId?: string
+): Promise<Array<{ date: string; is_crew_job: boolean }>> {
+  let query = supabase
+    .from('employee_daily_records')
+    .select('date, is_crew_job')
+    .eq('pay_period_id', payPeriodId);
+  
+  // Filter by employee if provided
+  if (employeeId) {
+    query = query.eq('employee_id', employeeId);
+  }
+  
+  const { data, error } = await query;
+  
+  if (error) {
+    console.error('Error fetching daily records for period:', error);
+    return [];
+  }
+  
+  return (data || []).map(r => ({
+    date: r.date,
+    is_crew_job: r.is_crew_job || false
+  }));
+}
+
+// Find all linked crew records (same date, same crew_id, is_crew_job=true)
+// Used for editing crew records - when one is edited, all linked records should be updated
+export async function findLinkedCrewRecords(
+  userId: string,
+  date: string,
+  crewId: string
+): Promise<Array<{ id: string; employee_id: string; pay_period_id: string }>> {
+  const { data, error } = await supabase
+    .from('employee_daily_records')
+    .select('id, employee_id, pay_period_id')
+    .eq('user_id', userId)
+    .eq('date', date)
+    .eq('crew_id', crewId)
+    .eq('is_crew_job', true);
+  
+  if (error) {
+    console.error('Error finding linked crew records:', error);
+    return [];
+  }
+  
+  return data || [];
+}
+
 // Update a pay period
 export async function updatePayPeriod(payPeriodId: string, updates: { period_name?: string; start_date?: string; end_date?: string; year?: number }): Promise<boolean> {
   const { error } = await supabase
@@ -455,7 +619,11 @@ export async function createDailyRecord(payPeriodId: string, record: DailyRecord
       daily_net_profit_after_bonus: record.daily_net_profit_after_bonus,
       daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
       notes: record.notes,
-      service_breakdown: record.service_breakdown || { services: [] }
+      service_breakdown: record.service_breakdown || { services: [] },
+      // Crew tracking fields
+      crew_id: record.crew_id || null,
+      is_crew_job: record.is_crew_job || false,
+      tracking_mode: record.tracking_mode || 'employee'
     }])
     .select()
     .single();
@@ -504,7 +672,11 @@ export async function updateDailyRecord(recordId: string, record: DailyRecord): 
       daily_net_profit_after_bonus: record.daily_net_profit_after_bonus,
       daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
       notes: record.notes,
-      service_breakdown: record.service_breakdown || { services: [] }
+      service_breakdown: record.service_breakdown || { services: [] },
+      // Crew tracking fields
+      crew_id: record.crew_id || null,
+      is_crew_job: record.is_crew_job || false,
+      tracking_mode: record.tracking_mode || 'employee'
     };
   
   // Include employee_id if provided
@@ -668,7 +840,9 @@ export async function getCompanySettings(userId: string): Promise<CompanySetting
       paySchedule: 'bi-weekly',
       payDayOfWeek: 5,  // Friday
       payReferenceDate: undefined,
-      paySemiMonthlyDates: [1, 16]
+      paySemiMonthlyDates: [1, 16],
+      crewBonusThresholdMin: 15,
+      crewBonusThresholdMax: 100
     };
   }
 
@@ -689,7 +863,9 @@ export async function getCompanySettings(userId: string): Promise<CompanySetting
       paySchedule: 'bi-weekly',
       payDayOfWeek: 5,  // Friday
       payReferenceDate: undefined,
-      paySemiMonthlyDates: [1, 16]
+      paySemiMonthlyDates: [1, 16],
+      crewBonusThresholdMin: 15,
+      crewBonusThresholdMax: 100
     };
   }
 
@@ -703,7 +879,9 @@ export async function getCompanySettings(userId: string): Promise<CompanySetting
       paySchedule: 'bi-weekly',
       payDayOfWeek: 5,  // Friday
       payReferenceDate: undefined,
-      paySemiMonthlyDates: [1, 15]
+      paySemiMonthlyDates: [1, 15],
+      crewBonusThresholdMin: 15,
+      crewBonusThresholdMax: 100
     };
   }
 
@@ -725,7 +903,10 @@ export async function getCompanySettings(userId: string): Promise<CompanySetting
     // Crew capacity settings
     numberOfCrews: data.number_of_crews ? parseInt(data.number_of_crews) : 0,
     employeesPerCrew: data.employees_per_crew ? parseInt(data.employees_per_crew) : 0,
-    monthlyCrewCapacity: data.monthly_crew_capacity ? parseFloat(data.monthly_crew_capacity) : 0
+    monthlyCrewCapacity: data.monthly_crew_capacity ? parseFloat(data.monthly_crew_capacity) : 0,
+    // Crew-specific bonus thresholds
+    crewBonusThresholdMin: parseFloat(data.crew_bonus_threshold_min) || 15,
+    crewBonusThresholdMax: parseFloat(data.crew_bonus_threshold_max) || 100
   };
 }
 
@@ -753,7 +934,10 @@ export async function saveCompanySettings(userId: string, settings: CompanySetti
       // Crew capacity settings
       number_of_crews: settings.numberOfCrews || null,
       employees_per_crew: settings.employeesPerCrew || null,
-      monthly_crew_capacity: settings.monthlyCrewCapacity || null
+      monthly_crew_capacity: settings.monthlyCrewCapacity || null,
+      // Crew-specific bonus thresholds
+      crew_bonus_threshold_min: settings.crewBonusThresholdMin || 15,
+      crew_bonus_threshold_max: settings.crewBonusThresholdMax || 100
     }, {
       onConflict: 'user_id'
     });

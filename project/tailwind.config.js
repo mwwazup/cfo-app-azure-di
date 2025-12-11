@@ -43,7 +43,16 @@ export default {
         '16': '4rem',     // 64px
         '20': '5rem',     // 80px
         '24': '6rem',     // 96px
-      }
+      },
+      animation: {
+        'bounce-x': 'bounce-x 1s ease-in-out infinite',
+      },
+      keyframes: {
+        'bounce-x': {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '50%': { transform: 'translateX(-25%)' },
+        },
+      },
     },
   },
   plugins: [],

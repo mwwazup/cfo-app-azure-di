@@ -12,6 +12,7 @@ import {
   Clock, 
   Award,
   Users,
+  User,
   Calendar,
   Plus,
   AlertCircle,
@@ -20,17 +21,17 @@ import {
   ChevronDown,
   ChevronUp,
   Upload,
-  Filter,
   X
 } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { AddDailyRecordWithServices } from '../components/employee/AddDailyRecordWithServices';
+import { AddDailyRecordWithServices, EmployeeForCrewEntry } from '../components/employee/AddDailyRecordWithServices';
 import { CompanySettingsDialog } from '../components/employee/CompanySettingsDialog';
 import { CSVUploadDialog } from '../components/employee/CSVUploadDialog';
 import { COMPANY_SETTINGS } from '../components/employee/AddDailyRecordWithServices';
-import { Settings } from 'lucide-react';
 import * as employeeLERService from '../services/employeeLERService';
 import * as serviceLaborService from '../services/serviceLaborService';
+import * as crewService from '../services/crewService';
+import type { Crew, CrewRole, CrewMember, CrewPerformanceMetrics, CrewVsSoloComparison } from '../services/crewService';
 import type { ServiceBreakdownItem } from '../services/serviceLaborService';
 import { useAuthContext } from '../contexts/auth-context';
 import { useRevenue } from '../contexts/revenue-context';
@@ -70,6 +71,10 @@ interface DailyRecord {
   dailyNetProfitAfterBonusPercent: number;
   notes: string;
   serviceBreakdown?: ServiceBreakdownItem[];
+  // Crew tracking fields
+  crewId?: string;
+  isCrewJob?: boolean;
+  trackingMode?: 'employee' | 'crew';
 }
 
 interface PayPeriod {
@@ -115,39 +120,8 @@ const EmployeeLERPage: React.FC = () => {
   // Get Clerk user ID
   const { dbUserId } = useAuthContext();
   
-  // Lighthouse integration
-  const { lighthouse, currentYear: revenueCurrentYear } = useRevenue();
-  const hasLighthouse = !!lighthouse.goal && lighthouse.planStatus === 'committed';
-  const lighthouseStepTarget = lighthouse.currentStepTarget;
-  const lighthouseStepYear = lighthouse.currentStepYear;
-  const _lighthouseYearsToGoal = lighthouse.plan?.yearsToGoal || 0;
-  
-  // Theme titles for Lighthouse (matches other pages)
-  const EARLY_THEMES = [
-    'Find the Lighthouse', 'Learn the Waves', 'Steady the Boat', 
-    'Know Your Numbers', 'Fix the Leaks', 'Fill the Calendar'
-  ];
-  const GROWTH_THEMES = [
-    'Ride Bigger Waves', 'Make Each Job Worth More', 'Keep Good Customers Close',
-    'Build a Strong Crew', 'Smooth the Seasons', 'Follow the WAVE'
-  ];
-  const FREEDOM_THEMES = [
-    'Work Less, Lead More', 'Buy Back Your Time', 'Pay Yourself First',
-    'Protect the Lighthouse', 'Live the Story You Wrote'
-  ];
-  const ALL_THEMES = [...EARLY_THEMES, ...GROWTH_THEMES, ...FREEDOM_THEMES];
-  
-  // Get current step's theme
-  const currentStepOverride = lighthouse.stepOverrides?.find(
-    (s: any) => s.yearIndex === lighthouseStepYear - 1
-  );
-  const currentThemeIndex = currentStepOverride?.themeIndex ?? (lighthouseStepYear - 1);
-  const _currentThemeTitle = ALL_THEMES[currentThemeIndex % ALL_THEMES.length] || 'Find the Lighthouse';
-  
-  // Check if FIR differs from Lighthouse (only show warning if they differ by more than 1%)
-  const _isFIRSyncedWithLighthouse = hasLighthouse && lighthouseStepTarget 
-    ? Math.abs(revenueCurrentYear.targetRevenue - lighthouseStepTarget) / lighthouseStepTarget < 0.01
-    : true;
+  // Revenue context for FIR targets
+  const { currentYear: revenueCurrentYear } = useRevenue();
   
   // Multi-employee state (uses DB type with snake_case)
   const [allEmployees, setAllEmployees] = useState<EmployeeInfoDB[]>([]);
@@ -170,6 +144,7 @@ const EmployeeLERPage: React.FC = () => {
   
   // Dialog state
   const [showAddDay, setShowAddDay] = useState(false);
+  const [openInCrewMode, setOpenInCrewMode] = useState(false); // When true, modal opens in crew mode
   const [showCOGSSettings, setShowCOGSSettings] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const [servicesWithCOGS, setServicesWithCOGS] = useState<{ [key: string]: number }>({});
@@ -181,6 +156,25 @@ const EmployeeLERPage: React.FC = () => {
   const [needsCalculation, setNeedsCalculation] = useState(false);
   const [filterYear, setFilterYear] = useState<number | 'all'>('all');
   const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
+  
+  // Crew tracking state
+  const [crews, setCrews] = useState<Crew[]>([]);
+  const [crewRoles, setCrewRoles] = useState<CrewRole[]>([]);
+  const [crewMembersMap, setCrewMembersMap] = useState<{ [crewId: string]: CrewMember[] }>({});
+  const [crewEarningsSummary, setCrewEarningsSummary] = useState<{
+    totalAttributedRevenue: number;
+    totalAttributedBonus: number;
+    totalAttributedHours: number;
+    crewJobCount: number;
+  }>({ totalAttributedRevenue: 0, totalAttributedBonus: 0, totalAttributedHours: 0, crewJobCount: 0 });
+
+  // Crew Performance View state
+  const [viewMode, setViewMode] = useState<'individual' | 'crew'>('individual');
+  const [selectedCrewId, setSelectedCrewId] = useState<string>('');
+  const [crewPerformance, setCrewPerformance] = useState<CrewPerformanceMetrics | null>(null);
+  const [crewVsSolo, setCrewVsSolo] = useState<CrewVsSoloComparison | null>(null);
+  const [crewFilterYear, setCrewFilterYear] = useState<number>(new Date().getFullYear());
+  const [crewFilterMonth, setCrewFilterMonth] = useState<number | 'ytd'>('ytd');
 
   // Helper function to convert DailyRecord to Supabase format
   function convertToSupabaseFormat(record: DailyRecord): employeeLERService.DailyRecord {
@@ -212,7 +206,11 @@ const EmployeeLERPage: React.FC = () => {
       daily_net_profit_after_bonus: record.dailyNetProfitAfterBonus,
       daily_net_profit_after_bonus_percent: record.dailyNetProfitAfterBonusPercent,
       notes: record.notes,
-      service_breakdown: record.serviceBreakdown ? { services: record.serviceBreakdown } : { services: [] }
+      service_breakdown: record.serviceBreakdown ? { services: record.serviceBreakdown } : { services: [] },
+      // Crew tracking fields
+      crew_id: record.crewId,
+      is_crew_job: record.isCrewJob || false,
+      tracking_mode: record.trackingMode || 'employee'
     };
   }
 
@@ -238,6 +236,24 @@ const EmployeeLERPage: React.FC = () => {
       console.log('👥 All employees loaded:', employees.length);
       
       setAllEmployees(employees);
+      
+      // Load crew data for crew job tracking
+      const [crewList, roleList] = await Promise.all([
+        crewService.getCrews(dbUserId),
+        crewService.getCrewRoles(dbUserId)
+      ]);
+      setCrews(crewList);
+      setCrewRoles(roleList);
+      
+      // Load crew members for each crew
+      const membersMap: { [crewId: string]: CrewMember[] } = {};
+      for (const crew of crewList) {
+        if (crew.id) {
+          membersMap[crew.id] = await crewService.getCrewMembers(crew.id);
+        }
+      }
+      setCrewMembersMap(membersMap);
+      console.log('👥 Crews loaded:', crewList.length, 'with members for', Object.keys(membersMap).length, 'crews');
       
       // If no employees exist, show needs setup state
       if (employees.length === 0) {
@@ -273,7 +289,42 @@ const EmployeeLERPage: React.FC = () => {
       console.error('Error refreshing services:', error);
     }
   }
-  
+
+  // Load crew performance data when crew view is selected
+  async function loadCrewPerformance(crewId: string) {
+    if (!dbUserId || !crewId) return;
+    
+    try {
+      const month = crewFilterMonth === 'ytd' ? undefined : crewFilterMonth;
+      const metrics = await crewService.getCrewPerformanceMetrics(dbUserId, crewId, crewFilterYear, month);
+      setCrewPerformance(metrics);
+    } catch (error) {
+      console.error('Error loading crew performance:', error);
+    }
+  }
+
+  // Load crew vs solo comparison
+  async function loadCrewVsSoloComparison() {
+    if (!dbUserId) return;
+    
+    try {
+      const month = crewFilterMonth === 'ytd' ? undefined : crewFilterMonth;
+      const comparison = await crewService.getCrewVsSoloComparison(dbUserId, crewFilterYear, month);
+      setCrewVsSolo(comparison);
+    } catch (error) {
+      console.error('Error loading crew vs solo comparison:', error);
+    }
+  }
+
+  // Load crew data when switching to crew view or changing filters
+  useEffect(() => {
+    if (viewMode === 'crew' && dbUserId) {
+      loadCrewVsSoloComparison();
+      if (selectedCrewId) {
+        loadCrewPerformance(selectedCrewId);
+      }
+    }
+  }, [viewMode, selectedCrewId, crewFilterYear, crewFilterMonth, dbUserId]);
 
   // Helper function to get week start date (Sunday)
   function getWeekStart(date: Date): string {
@@ -474,7 +525,11 @@ const EmployeeLERPage: React.FC = () => {
                   dailyNetProfitAfterBonus: r.daily_net_profit_after_bonus,
                   dailyNetProfitAfterBonusPercent: r.daily_net_profit_after_bonus_percent,
                   notes: r.notes,
-                  serviceBreakdown: r.service_breakdown?.services || []
+                  serviceBreakdown: r.service_breakdown?.services || [],
+                  // Crew tracking fields
+                  crewId: r.crew_id,
+                  isCrewJob: r.is_crew_job || false,
+                  trackingMode: r.tracking_mode || 'employee'
                 }));
               
               // Recalculate overtime considering both daily and weekly thresholds
@@ -522,6 +577,18 @@ const EmployeeLERPage: React.FC = () => {
           if (selectedPeriodIndex >= periodsWithRecords.length) {
             console.log('⚠️ Selected period index out of bounds, resetting to 0');
             setSelectedPeriodIndex(0);
+          }
+          
+          // Load crew earnings summary for this employee in the current pay period
+          const currentPeriodId = periodsWithRecords[selectedPeriodIndex]?.periodId || periodsWithRecords[0]?.periodId;
+          if (currentPeriodId) {
+            const crewSummary = await crewService.getEmployeeCrewEarningsSummary(
+              dbUserId!,
+              employeeId,
+              currentPeriodId
+            );
+            setCrewEarningsSummary(crewSummary);
+            console.log('👥 Crew earnings summary loaded:', crewSummary);
           }
         } else {
           console.log('⚠️ No pay periods found for employee');
@@ -919,10 +986,17 @@ const EmployeeLERPage: React.FC = () => {
 
           // Recalculate bonuses with current settings
           // Bonus qualification is based on gross profit PERCENTAGE, not LER ratio
+          // Use crew thresholds for crew jobs
           let bonusQualified = 0;
           let appointmentBonus = 0;
-          const qualifyForBonus = grossProfitPercent >= companySettings.bonusThresholdMin && 
-                                  grossProfitPercent <= companySettings.bonusThresholdMax;
+          const thresholdMin = record.isCrewJob 
+            ? (companySettings.crewBonusThresholdMin || 15)
+            : companySettings.bonusThresholdMin;
+          const thresholdMax = record.isCrewJob
+            ? (companySettings.crewBonusThresholdMax || 100)
+            : companySettings.bonusThresholdMax;
+          const qualifyForBonus = grossProfitPercent >= thresholdMin && 
+                                  grossProfitPercent <= thresholdMax;
 
           if (qualifyForBonus) {
             // CORRECT FORMULA: Bonus = LER × Daily Hours (same as Edit modal)
@@ -1520,92 +1594,562 @@ const EmployeeLERPage: React.FC = () => {
           <h1 className="text-3xl font-bold text-foreground dark:text-gray-100">
             Employee LER Tracking
           </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">
+          <p className="text-gray-400 dark:text-gray-400 mt-2">
             Track employee labor efficiency and performance-based compensation
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setShowCompanySettings(true)}
-            className="gap-2"
-          >
-            <Settings className="h-4 w-4" />
-            Company Settings
-          </Button>
-        </div>
       </div>
 
-      {/* Employee Selector */}
-      {allEmployees.length > 1 && (
-        <Card className="bg-muted/30">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <Label htmlFor="employee-select" className="text-sm font-medium whitespace-nowrap">
-                Select Employee:
-              </Label>
-              <select
-                id="employee-select"
-                value={selectedEmployeeId}
-                onChange={(e) => setSelectedEmployeeId(e.target.value)}
-                className="flex-1 px-3 py-2 border rounded-md bg-background text-foreground"
-              >
-                {allEmployees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name} - {emp.position}
-                  </option>
-                ))}
-              </select>
+      {/* Main Filter Container - Individual View */}
+      {viewMode === 'individual' && (
+        <Card className="border-border">
+          <CardContent className="pt-6 space-y-4">
+            {/* View Toggle - Only show if crews exist */}
+            {crews.length > 0 && (
+              <div className="bg-muted/30 rounded-lg p-4">
+                <div className="flex items-center gap-4">
+                  <span className="text-sm text-muted-foreground font-medium">View:</span>
+                  <div className="flex gap-3 flex-1">
+                    <button
+                      onClick={() => setViewMode('individual')}
+                      className={`flex-1 flex items-center justify-center gap-3 py-4 px-6 rounded-lg border-2 transition-all ${
+                        viewMode === 'individual' 
+                          ? 'bg-accent text-accent-foreground border-accent' 
+                          : 'bg-muted/30 text-muted-foreground border-border hover:border-accent/50 hover:bg-muted/50'
+                      }`}
+                    >
+                      <Users className="h-5 w-5" />
+                      <span className="text-lg font-semibold">Individual</span>
+                    </button>
+                    <button
+                      onClick={() => setViewMode('crew')}
+                      className={`flex-1 flex items-center justify-center gap-3 py-4 px-6 rounded-lg border-2 transition-all ${
+                        viewMode === 'crew' 
+                          ? 'bg-accent text-accent-foreground border-accent' 
+                          : 'bg-muted/30 text-muted-foreground border-border hover:border-accent/50 hover:bg-muted/50'
+                      }`}
+                    >
+                      <Users className="h-5 w-5" />
+                      <span className="text-lg font-semibold">Crew</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Employee Selector with Info */}
+            {allEmployees.length > 1 && (
+              <div className="bg-muted/30 rounded-lg p-4">
+                <div className="flex flex-wrap items-center gap-6">
+                  <div className="flex items-center gap-3">
+                    <Label htmlFor="employee-select" className="text-sm font-medium whitespace-nowrap">
+                      Select Employee:
+                    </Label>
+                    <select
+                      id="employee-select"
+                      value={selectedEmployeeId}
+                      onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                      className="px-3 py-2 border rounded-md bg-background text-foreground min-w-[250px]"
+                    >
+                      {allEmployees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name} - {emp.position}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {employeeInfo && (
+                    <div className="flex-1 flex items-center justify-evenly text-muted-foreground border-l border-border pl-6">
+                      <div className="flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        <span className="font-medium">{employeeInfo.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Award className="h-4 w-4" />
+                        <span>{employeeInfo.position}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4" />
+                        <span>Base Rate: ${employeeInfo.currentBaseRate}/hr</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Pay Period & Date Filters */}
+            <div className="bg-muted/30 rounded-lg p-4">
+              <div className="flex flex-wrap items-center gap-6">
+                {/* Pay Period Selector */}
+                <div className="flex items-center gap-3">
+                  <Label className="text-sm font-medium whitespace-nowrap">Pay Period:</Label>
+                  <select
+                    value={selectedPeriodIndex}
+                    onChange={(e) => setSelectedPeriodIndex(Number(e.target.value))}
+                    className="px-3 py-2 border rounded-md bg-background text-foreground min-w-[200px]"
+                  >
+                    {payPeriods.map((period, index) => (
+                      <option key={index} value={index}>
+                        {period.periodName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Divider */}
+                <div className="h-8 w-px bg-border" />
+
+                {/* Year Filter */}
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm text-muted-foreground whitespace-nowrap">Filter Records:</Label>
+                  <Calendar className="h-4 w-4 text-accent" />
+                  <Select 
+                    value={filterYear === 'all' ? 'all' : filterYear.toString()}
+                    onValueChange={(value) => setFilterYear(value === 'all' ? 'all' : parseInt(value))}
+                  >
+                    <SelectTrigger className="w-28">
+                      <SelectValue placeholder="Year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Years</SelectItem>
+                      {Array.from(new Set(payPeriodsData.flatMap(p => 
+                        p.dailyRecords.map(r => new Date(r.date).getFullYear())
+                      ))).sort((a, b) => b - a).map(year => (
+                        <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Month Filter */}
+                <div className="flex items-center gap-2">
+                  <Select 
+                    value={filterMonth === 'all' ? 'all' : filterMonth.toString()}
+                    onValueChange={(value) => setFilterMonth(value === 'all' ? 'all' : parseInt(value))}
+                  >
+                    <SelectTrigger className="w-36">
+                      <SelectValue placeholder="Month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Months</SelectItem>
+                      <SelectItem value="0">January</SelectItem>
+                      <SelectItem value="1">February</SelectItem>
+                      <SelectItem value="2">March</SelectItem>
+                      <SelectItem value="3">April</SelectItem>
+                      <SelectItem value="4">May</SelectItem>
+                      <SelectItem value="5">June</SelectItem>
+                      <SelectItem value="6">July</SelectItem>
+                      <SelectItem value="7">August</SelectItem>
+                      <SelectItem value="8">September</SelectItem>
+                      <SelectItem value="9">October</SelectItem>
+                      <SelectItem value="10">November</SelectItem>
+                      <SelectItem value="11">December</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Clear Filters Button */}
+                {(filterYear !== 'all' || filterMonth !== 'all') && (
+                  <Button
+                    onClick={() => {
+                      setFilterYear('all');
+                      setFilterMonth('all');
+                    }}
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Clear
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Employee Info & Actions */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4 text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                <span className="font-medium">{employeeInfo.name}</span>
+      {/* Main Filter Container - Crew View */}
+      {viewMode === 'crew' && (
+        <Card className="border-border">
+          <CardContent className="pt-6 space-y-4">
+            {/* View Toggle */}
+            {crews.length > 0 && (
+              <div className="bg-muted/30 rounded-lg p-4">
+                <div className="flex items-center gap-4">
+                  <span className="text-sm text-muted-foreground font-medium">View:</span>
+                  <div className="flex gap-3 flex-1">
+                    <button
+                      onClick={() => setViewMode('individual')}
+                      className={`flex-1 flex items-center justify-center gap-3 py-4 px-6 rounded-lg border-2 transition-all ${
+                        viewMode === 'individual' 
+                          ? 'bg-accent text-accent-foreground border-accent' 
+                          : 'bg-muted/30 text-muted-foreground border-border hover:border-accent/50 hover:bg-muted/50'
+                      }`}
+                    >
+                      <Users className="h-5 w-5" />
+                      <span className="text-lg font-semibold">Individual</span>
+                    </button>
+                    <button
+                      onClick={() => setViewMode('crew')}
+                      className={`flex-1 flex items-center justify-center gap-3 py-4 px-6 rounded-lg border-2 transition-all ${
+                        viewMode === 'crew' 
+                          ? 'bg-accent text-accent-foreground border-accent' 
+                          : 'bg-muted/30 text-muted-foreground border-border hover:border-accent/50 hover:bg-muted/50'
+                      }`}
+                    >
+                      <Users className="h-5 w-5" />
+                      <span className="text-lg font-semibold">Crew</span>
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Award className="h-5 w-5" />
-                <span>{employeeInfo.position}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                <span>Base Rate: ${employeeInfo.currentBaseRate}/hr</span>
+            )}
+
+            {/* Crew Selector and Filters */}
+            <div className="bg-muted/30 rounded-lg p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  {/* Crew Selector */}
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm font-medium whitespace-nowrap">Select Crew:</Label>
+                    <Select 
+                      value={selectedCrewId}
+                      onValueChange={setSelectedCrewId}
+                    >
+                      <SelectTrigger className="w-48">
+                        <SelectValue placeholder="Select Crew" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {crews.filter(c => c.is_active).map(crew => (
+                          <SelectItem key={crew.id} value={crew.id!}>
+                            {crew.crew_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="h-8 w-px bg-border" />
+
+                {/* Year Filter */}
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm text-muted-foreground whitespace-nowrap">Filter:</Label>
+                  <Calendar className="h-4 w-4 text-accent" />
+                  <Select 
+                    value={crewFilterYear.toString()}
+                    onValueChange={(value) => setCrewFilterYear(parseInt(value))}
+                  >
+                    <SelectTrigger className="w-28">
+                      <SelectValue placeholder="Year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 6 }, (_, i) => {
+                        const year = new Date().getFullYear() - (5 - i);
+                        return (
+                          <SelectItem key={year} value={year.toString()}>
+                            {year}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Month Filter */}
+                <div className="flex items-center gap-2">
+                  <Select 
+                    value={crewFilterMonth === 'ytd' ? 'ytd' : crewFilterMonth.toString()}
+                    onValueChange={(value) => {
+                      if (value === 'ytd') {
+                        setCrewFilterMonth('ytd');
+                      } else {
+                        setCrewFilterMonth(parseInt(value));
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-36">
+                      <SelectValue placeholder="Month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ytd">Year to Date</SelectItem>
+                      {Array.from({ length: 12 }, (_, i) => {
+                        const monthName = new Date(2024, i, 1).toLocaleDateString('en-US', { month: 'long' });
+                        return (
+                          <SelectItem key={i} value={i.toString()}>
+                            {monthName}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                </div>
+
+                {/* Add Crew Day Button */}
+                <Button 
+                  onClick={() => {
+                    refreshServices();
+                    setOpenInCrewMode(true);
+                    setShowAddDay(true);
+                  }} 
+                  className="bg-accent hover:bg-accent/90 text-background"
+                  size="sm"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Crew Day
+                </Button>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
+      {/* ==================== CREW VIEW ==================== */}
+      {viewMode === 'crew' && (
+        <>
+          {/* Crew vs Solo Comparison */}
+          {crewVsSolo && (
+            <Card className="bg-muted/30 border-border">
+              <CardHeader>
+                <CardTitle className="text-foreground flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-accent" />
+                  Crew vs Solo Comparison
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Crew Jobs */}
+                  <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
+                    <h4 className="text-lg font-semibold text-accent mb-4">Crew Jobs</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Jobs</p>
+                        <p className="text-xl font-bold text-foreground">{crewVsSolo.crewJobs.totalJobs}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Revenue</p>
+                        <p className="text-xl font-bold text-foreground">${crewVsSolo.crewJobs.totalRevenue.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
+                        <p className="text-xl font-bold text-foreground">${crewVsSolo.crewJobs.avgRevenuePerJob.toFixed(0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Avg LER</p>
+                        <p className={`text-xl font-bold ${crewVsSolo.crewJobs.avgLER >= 1 ? 'text-green-500' : 'text-yellow-500'}`}>
+                          {crewVsSolo.crewJobs.avgLER.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-      {/* Pay Period Selector */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-muted" />
-              <select
-                value={selectedPeriodIndex}
-                onChange={(e) => setSelectedPeriodIndex(Number(e.target.value))}
-                className="px-3 py-2 border rounded-md bg-background text-foreground"
-              >
-                {payPeriods.map((period, index) => (
-                  <option key={index} value={index}>
-                    {period.periodName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+                  {/* Solo Jobs */}
+                  <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                    <h4 className="text-lg font-semibold text-foreground mb-4">Solo Jobs</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Jobs</p>
+                        <p className="text-xl font-bold text-foreground">{crewVsSolo.soloJobs.totalJobs}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Revenue</p>
+                        <p className="text-xl font-bold text-foreground">${crewVsSolo.soloJobs.totalRevenue.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
+                        <p className="text-xl font-bold text-foreground">${crewVsSolo.soloJobs.avgRevenuePerJob.toFixed(0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Avg LER</p>
+                        <p className={`text-xl font-bold ${crewVsSolo.soloJobs.avgLER >= 1 ? 'text-green-500' : 'text-yellow-500'}`}>
+                          {crewVsSolo.soloJobs.avgLER.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
+          {/* Selected Crew Performance */}
+          {selectedCrewId && crewPerformance && (
+            <>
+              {/* Crew KPI Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card className="bg-muted/30">
+                  <CardContent className="pt-6">
+                    <div className="flex items-start gap-3">
+                      <div className="p-3 rounded-lg bg-accent/20">
+                        <TrendingUp className="h-5 w-5 text-accent" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-muted-foreground">Crew LER</p>
+                        <div className={`text-2xl font-bold mt-1 ${crewPerformance.avgLER >= 1 ? 'text-green-500' : crewPerformance.avgLER >= 0.7 ? 'text-yellow-500' : 'text-red-500'}`}>
+                          {crewPerformance.avgLER.toFixed(2)}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {crewPerformance.avgLER >= 1 ? 'Excellent efficiency' : crewPerformance.avgLER >= 0.7 ? 'Good performance' : 'Needs improvement'}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-muted/30">
+                  <CardContent className="pt-6">
+                    <div className="flex items-start gap-3">
+                      <div className="p-3 rounded-lg bg-accent/20">
+                        <DollarSign className="h-5 w-5 text-accent" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-muted-foreground">Total Revenue</p>
+                        <div className="text-2xl font-bold text-foreground mt-1">
+                          ${crewPerformance.totalRevenue.toLocaleString()}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {crewPerformance.totalJobs} jobs completed
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-muted/30">
+                  <CardContent className="pt-6">
+                    <div className="flex items-start gap-3">
+                      <div className="p-3 rounded-lg bg-accent/20">
+                        <Award className="h-5 w-5 text-accent" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
+                        <div className="text-2xl font-bold text-foreground mt-1">
+                          ${crewPerformance.avgRevenuePerJob.toFixed(0)}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Crew efficiency metric
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-muted/30">
+                  <CardContent className="pt-6">
+                    <div className="flex items-start gap-3">
+                      <div className="p-3 rounded-lg bg-accent/20">
+                        <DollarSign className="h-5 w-5 text-accent" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-muted-foreground">Gross Profit %</p>
+                        <div className={`text-2xl font-bold mt-1 ${crewPerformance.grossProfitPercent >= 25 ? 'text-green-500' : 'text-yellow-500'}`}>
+                          {crewPerformance.grossProfitPercent.toFixed(1)}%
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Before bonus distribution
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Member Contributions */}
+              <Card className="bg-muted/30">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="text-foreground">Member Contributions</CardTitle>
+                  {crewPerformance.memberContributions.length === 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        if (!dbUserId) return;
+                        const confirmed = window.confirm(
+                          'This will sync crew attribution data for all existing crew jobs.\n\nThis is needed if crew jobs were logged before the attribution system was set up.\n\nContinue?'
+                        );
+                        if (!confirmed) return;
+                        
+                        try {
+                          const result = await crewService.backfillCrewAttributions(dbUserId);
+                          alert(`Sync complete!\n\n${result.success} crew jobs synced\n${result.skipped} already had data\n${result.failed} failed`);
+                          // Reload crew performance data
+                          if (selectedCrewId) {
+                            loadCrewPerformance(selectedCrewId);
+                          }
+                        } catch (error) {
+                          console.error('Error syncing crew data:', error);
+                          alert('Error syncing crew data. Check console for details.');
+                        }
+                      }}
+                      className="text-accent border-accent hover:bg-accent/20"
+                    >
+                      <AlertCircle className="h-4 w-4 mr-2" />
+                      Sync Crew Data
+                    </Button>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  {crewPerformance.memberContributions.length === 0 ? (
+                    <div className="text-center py-4">
+                      <p className="text-muted-foreground mb-2">No crew job data for this period</p>
+                      <p className="text-sm text-muted-foreground">If you have crew jobs logged, click "Sync Crew Data" above to generate attribution data.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="text-left py-3 px-4 text-muted-foreground font-medium">Member</th>
+                            <th className="text-left py-3 px-4 text-muted-foreground font-medium">Role</th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">Bonus %</th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">Revenue</th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">Bonus</th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">Hours</th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">Jobs</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {crewPerformance.memberContributions.map((member, index) => (
+                            <tr key={member.employeeId} className={index % 2 === 0 ? 'bg-muted/20' : ''}>
+                              <td className="py-3 px-4 font-medium text-foreground">{member.employeeName}</td>
+                              <td className="py-3 px-4 text-muted-foreground">{member.roleName}</td>
+                              <td className="py-3 px-4 text-right text-accent">{member.bonusPercentage}%</td>
+                              <td className="py-3 px-4 text-right text-foreground">${member.attributedRevenue.toFixed(0)}</td>
+                              <td className="py-3 px-4 text-right text-green-500">${member.attributedBonus.toFixed(2)}</td>
+                              <td className="py-3 px-4 text-right text-foreground">{member.attributedHours.toFixed(1)}</td>
+                              <td className="py-3 px-4 text-right text-foreground">{member.jobCount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {/* No Crew Selected State */}
+          {!selectedCrewId && (
+            <Card className="bg-muted/30">
+              <CardContent className="py-12">
+                <div className="text-center">
+                  <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-foreground mb-2">Select a Crew</h3>
+                  <p className="text-muted-foreground">Choose a crew from the dropdown above to view detailed performance metrics</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* ==================== INDIVIDUAL VIEW ==================== */}
+      {viewMode === 'individual' && (
+        <>
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="bg-muted/30">
@@ -1769,71 +2313,6 @@ const EmployeeLERPage: React.FC = () => {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-foreground">Daily Performance Records</CardTitle>
             <div className="flex gap-3 items-center">
-              {/* Year Filter */}
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-accent" />
-                <Select 
-                  value={filterYear === 'all' ? 'all' : filterYear.toString()}
-                  onValueChange={(value) => setFilterYear(value === 'all' ? 'all' : parseInt(value))}
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue placeholder="Year" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Years</SelectItem>
-                    {Array.from(new Set(payPeriodsData.flatMap(p => 
-                      p.dailyRecords.map(r => new Date(r.date).getFullYear())
-                    ))).sort((a, b) => b - a).map(year => (
-                      <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Month Filter */}
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-accent" />
-                <Select 
-                  value={filterMonth === 'all' ? 'all' : filterMonth.toString()}
-                  onValueChange={(value) => setFilterMonth(value === 'all' ? 'all' : parseInt(value))}
-                >
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Month" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Months</SelectItem>
-                    <SelectItem value="0">January</SelectItem>
-                    <SelectItem value="1">February</SelectItem>
-                    <SelectItem value="2">March</SelectItem>
-                    <SelectItem value="3">April</SelectItem>
-                    <SelectItem value="4">May</SelectItem>
-                    <SelectItem value="5">June</SelectItem>
-                    <SelectItem value="6">July</SelectItem>
-                    <SelectItem value="7">August</SelectItem>
-                    <SelectItem value="8">September</SelectItem>
-                    <SelectItem value="9">October</SelectItem>
-                    <SelectItem value="10">November</SelectItem>
-                    <SelectItem value="11">December</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Clear Filters Button - Show when any filter is active */}
-              {(filterYear !== 'all' || filterMonth !== 'all') && (
-                <Button
-                  onClick={() => {
-                    setFilterYear('all');
-                    setFilterMonth('all');
-                  }}
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  title="Clear filters"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-
               {/* CSV Upload Button */}
               <Button 
                 onClick={async () => {
@@ -1895,10 +2374,34 @@ const EmployeeLERPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredDailyRecords.map((record, index) => (
+                  {filteredDailyRecords.map((record, index) => {
+                    // Check if this employee has both crew and solo records on the same day
+                    const hasBothTypesOnSameDay = filteredDailyRecords.some(
+                      r => r.date === record.date && r.isCrewJob !== record.isCrewJob
+                    );
+                    
+                    return (
                     <tr key={record.id || index} className="border-b border-gray-800 hover:bg-[rgb(17,24,39)]">
                       <td className="py-3 px-4 text-foreground">
-                        <div className="font-medium">{record.workDay}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium">{record.workDay}</div>
+                          {record.isCrewJob ? (
+                            <Badge variant="outline" className="text-accent border-accent/50 text-xs">
+                              <Users className="h-3 w-3 mr-1" />
+                              Crew
+                            </Badge>
+                          ) : hasBothTypesOnSameDay && (
+                            <Badge variant="outline" className="text-blue-400 border-blue-400/50 text-xs">
+                              <User className="h-3 w-3 mr-1" />
+                              Solo
+                            </Badge>
+                          )}
+                          {hasBothTypesOnSameDay && (
+                            <span className="text-xs text-muted-foreground" title="This employee worked both solo and crew jobs on this day">
+                              +{record.isCrewJob ? 'Solo' : 'Crew'}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-500">
                           {parseLocalDate(record.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </div>
@@ -2017,7 +2520,8 @@ const EmployeeLERPage: React.FC = () => {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                   
                   {/* Totals Row - Show when filters are active */}
                   {(filterYear !== 'all' || filterMonth !== 'all') && filteredDailyRecords.length > 0 && (
@@ -2137,6 +2641,51 @@ const EmployeeLERPage: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Crew Earnings Summary - Only show if employee has crew attributions */}
+        {crewEarningsSummary.crewJobCount > 0 && (
+          <Card className="bg-gradient-to-r from-accent/10 to-accent/5 border-accent/30">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-accent/20">
+                  <Users className="h-5 w-5 text-accent" />
+                </div>
+                <CardTitle className="text-foreground">Crew Earnings (Attributed)</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Crew Jobs</div>
+                  <div className="text-2xl font-bold text-accent">
+                    {crewEarningsSummary.crewJobCount}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Attributed Revenue</div>
+                  <div className="text-2xl font-bold text-foreground">
+                    ${crewEarningsSummary.totalAttributedRevenue.toFixed(2)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Attributed Bonus</div>
+                  <div className="text-2xl font-bold text-green-500">
+                    ${crewEarningsSummary.totalAttributedBonus.toFixed(2)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Attributed Hours</div>
+                  <div className="text-2xl font-bold text-foreground">
+                    {crewEarningsSummary.totalAttributedHours.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground mt-3">
+                These earnings are from crew jobs where this employee participated. Bonus is calculated based on their role percentage.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Employee Insights Panel */}
         <Card className="bg-muted/30">
@@ -2292,6 +2841,8 @@ const EmployeeLERPage: React.FC = () => {
             </p>
           </CardContent>
         </Card>
+        </>
+      )}
     </div>
     );
   }
@@ -2308,10 +2859,25 @@ const EmployeeLERPage: React.FC = () => {
         onClose={() => {
           setShowAddDay(false);
           setEditingRecord(null);
+          setOpenInCrewMode(false); // Reset crew mode when closing
         }}
         baseRate={selectedPeriod?.baseRate || employeeInfo.currentBaseRate}
         servicesWithCOGS={servicesWithCOGS}
         editingRecord={editingRecord?.record || null}
+        crews={crews}
+        crewRoles={crewRoles}
+        crewMembers={crewMembersMap}
+        allEmployees={allEmployees.map(emp => ({
+          id: emp.id,
+          name: emp.name,
+          position: emp.position,
+          base_rate: emp.current_base_rate || 0 // Map from current_base_rate to base_rate
+        } as EmployeeForCrewEntry))}
+        defaultCrewMode={openInCrewMode}
+        defaultCrewId={viewMode === 'crew' ? selectedCrewId : ''}
+        overheadPercent={companySettings.overheadPercent}
+        crewBonusThresholdMin={companySettings.crewBonusThresholdMin || 15}
+        crewBonusThresholdMax={companySettings.crewBonusThresholdMax || 100}
         onUpdate={async (record, serviceBreakdown: ServiceBreakdownItem[]) => {
           if (editingRecord) {
             const currentPeriod = payPeriodsData[selectedPeriodIndex];
@@ -2334,7 +2900,93 @@ const EmployeeLERPage: React.FC = () => {
             }
             
             try {
-              // Update daily record
+              // ========== CREW RECORD EDITING ==========
+              // If this is a crew record, find and update ALL linked crew member records
+              if (recordToUpdate.isCrewJob && recordToUpdate.crewId) {
+                console.log('👥 Editing crew record - finding all linked records...');
+                
+                const linkedRecords = await employeeLERService.findLinkedCrewRecords(
+                  dbUserId,
+                  recordToUpdate.date,
+                  recordToUpdate.crewId
+                );
+                
+                console.log(`📋 Found ${linkedRecords.length} linked crew records`);
+                
+                if (linkedRecords.length > 1) {
+                  // Update all linked records with the same service breakdown and shared data
+                  let updateCount = 0;
+                  
+                  for (const linkedRecord of linkedRecords) {
+                    const employee = allEmployees.find(e => e.id === linkedRecord.employee_id);
+                    if (!employee) continue;
+                    
+                    // Build the update record with shared crew data
+                    const crewUpdateRecord = {
+                      ...record,
+                      // Keep the original employee's base rate for their individual calculation
+                      baseRate: employee.current_base_rate || 0
+                    };
+                    
+                    const supabaseRecord = convertToSupabaseFormat(crewUpdateRecord);
+                    const success = await employeeLERService.updateDailyRecord(linkedRecord.id, supabaseRecord);
+                    
+                    if (success) {
+                      updateCount++;
+                      
+                      // Update service labor records for this employee
+                      const laborCosts = {
+                        basePay: record.employeeBasePay,
+                        overtimePay: record.overtimePay,
+                        bonuses: record.bonusQualifiedForPercent + record.appointmentBasedBonus,
+                        tips: record.tipAmount
+                      };
+                      
+                      await serviceLaborService.updateServiceLaborRecords(
+                        dbUserId,
+                        linkedRecord.employee_id,
+                        linkedRecord.pay_period_id,
+                        record.date,
+                        serviceBreakdown,
+                        laborCosts
+                      );
+                      
+                      // Update crew attributions
+                      await crewService.deleteCrewAttributions(linkedRecord.id);
+                    }
+                  }
+                  
+                  // Create new crew attributions for all members
+                  if (record.isCrewJob && record.crewId) {
+                    const crewMembers = crewMembersMap[record.crewId] || [];
+                    if (crewMembers.length > 0) {
+                      const totalBonus = record.bonusQualifiedForPercent + record.appointmentBasedBonus;
+                      // Create attributions for the first record (they're linked)
+                      await crewService.createCrewAttributions(
+                        dbUserId,
+                        recordToUpdate.id,
+                        record.crewId,
+                        record.totalJobRevenue,
+                        totalBonus,
+                        record.totalHoursWorked,
+                        crewMembers,
+                        crewRoles
+                      );
+                    }
+                  }
+                  
+                  console.log(`✅ Updated ${updateCount} of ${linkedRecords.length} linked crew records`);
+                  alert(`Updated ${updateCount} crew member records for this day.`);
+                  
+                  setShowAddDay(false);
+                  setEditingRecord(null);
+                  await loadEmployeeData(selectedEmployeeId);
+                  return;
+                }
+              }
+              // ========== END CREW RECORD EDITING ==========
+              
+              // Solo record update (original logic)
               const supabaseRecord = convertToSupabaseFormat(record);
               const success = await employeeLERService.updateDailyRecord(recordToUpdate.id, supabaseRecord);
               
@@ -2359,6 +3011,29 @@ const EmployeeLERPage: React.FC = () => {
                 serviceBreakdown,
                 laborCosts
               );
+              
+              // Handle crew attributions on update
+              // First delete existing attributions for this record
+              await crewService.deleteCrewAttributions(recordToUpdate.id);
+              
+              // If this is now a crew job, create new attributions
+              if (record.isCrewJob && record.crewId) {
+                const crewMembers = crewMembersMap[record.crewId] || [];
+                if (crewMembers.length > 0) {
+                  const totalBonus = record.bonusQualifiedForPercent + record.appointmentBasedBonus;
+                  await crewService.createCrewAttributions(
+                    dbUserId,
+                    recordToUpdate.id,
+                    record.crewId,
+                    record.totalJobRevenue,
+                    totalBonus,
+                    record.totalHoursWorked,
+                    crewMembers,
+                    crewRoles
+                  );
+                  console.log(`✅ Updated crew attributions for ${crewMembers.length} members`);
+                }
+              }
               
               setShowAddDay(false);
               setEditingRecord(null);
@@ -2410,11 +3085,346 @@ const EmployeeLERPage: React.FC = () => {
               laborCosts
             );
             
+            // If this is a crew job, create attributions for all crew members
+            if (record.isCrewJob && record.crewId && savedRecord.id) {
+              const crewMembers = crewMembersMap[record.crewId] || [];
+              if (crewMembers.length > 0) {
+                const totalBonus = record.bonusQualifiedForPercent + record.appointmentBasedBonus;
+                await crewService.createCrewAttributions(
+                  dbUserId,
+                  savedRecord.id,
+                  record.crewId,
+                  record.totalJobRevenue,
+                  totalBonus,
+                  record.totalHoursWorked,
+                  crewMembers,
+                  crewRoles
+                );
+                console.log(`✅ Created crew attributions for ${crewMembers.length} members`);
+              }
+            }
+            
             setShowAddDay(false);
             await loadEmployeeData(selectedEmployeeId);
           } catch (error) {
             console.error('Error saving record with service breakdown:', error);
             alert('Error saving record. Please try again.');
+          }
+        }}
+        onAddCrewRecords={async (records, serviceBreakdown, employeeIds, baseRates, employeeData) => {
+          // Crew mode - create records for all selected employees
+          if (!dbUserId) {
+            alert('Error: User not authenticated');
+            return;
+          }
+          
+          const baseRecord = records[0]; // Use first record as template
+          if (!baseRecord) {
+            alert('Error: No record data');
+            return;
+          }
+          
+          try {
+            console.log('🚀 Creating crew records for employees:', employeeIds);
+            console.log('📋 Base rates map:', baseRates);
+            console.log('📋 Employee data:', employeeData);
+            
+            // ========== PRE-SAVE VALIDATION ==========
+            // Check ALL crew members for existing records BEFORE saving any
+            const conflictingEmployees: string[] = [];
+            const payPeriodCache: { [empId: string]: { id: string; period_name: string } | null } = {};
+            
+            console.log('🔍 Pre-save validation: Checking all employees for conflicts...');
+            
+            for (const empId of employeeIds) {
+              const employee = allEmployees.find(e => e.id === empId);
+              if (!employee) {
+                conflictingEmployees.push(`Unknown employee (${empId})`);
+                continue;
+              }
+              
+              // Get pay period for this employee
+              const payPeriod = await employeeLERService.getOrCreatePayPeriod(
+                dbUserId,
+                empId,
+                baseRecord.date,
+                companySettings.paySchedule || 'bi-weekly',
+                companySettings.payDayOfWeek ?? 5,
+                companySettings.payReferenceDate,
+                companySettings.paySemiMonthlyDates
+              );
+              
+              if (!payPeriod?.id) {
+                conflictingEmployees.push(`${employee.name} (no pay period)`);
+                continue;
+              }
+              
+              // Cache the pay period for later use (with type assertion since we checked id exists)
+              payPeriodCache[empId] = { id: payPeriod.id, period_name: payPeriod.period_name };
+              
+              // Check for existing records
+              const existingRecords = await employeeLERService.getDailyRecordsForPeriod(payPeriod.id, empId);
+              const duplicateExists = existingRecords.some(r => 
+                r.date === baseRecord.date && r.is_crew_job === baseRecord.isCrewJob
+              );
+              
+              if (duplicateExists) {
+                conflictingEmployees.push(employee.name);
+              }
+            }
+            
+            // If ANY employee has a conflict, show error and abort ALL saves
+            if (conflictingEmployees.length > 0) {
+              const dateStr = new Date(baseRecord.date).toLocaleDateString('en-US', { 
+                weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+              });
+              alert(
+                `❌ Cannot save crew record!\n\n` +
+                `The following crew members already have a ${baseRecord.isCrewJob ? 'crew' : 'solo'} record for ${dateStr}:\n\n` +
+                `• ${conflictingEmployees.join('\n• ')}\n\n` +
+                `Please edit the existing records or choose a different date.\n\n` +
+                `No records were saved.`
+              );
+              return;
+            }
+            
+            console.log('✅ Pre-save validation passed - no conflicts found');
+            // ========== END PRE-SAVE VALIDATION ==========
+            
+            let successCount = 0;
+            let errorCount = 0;
+            
+            // Create a record for each selected employee
+            for (const empId of employeeIds) {
+              console.log(`\n📝 Processing employee: ${empId}`);
+              const employee = allEmployees.find(e => e.id === empId);
+              if (!employee) {
+                console.warn(`❌ Employee ${empId} not found in allEmployees, skipping`);
+                errorCount++;
+                continue;
+              }
+              
+              const empData = employeeData[empId];
+              const isHelper = empData?.isHelper || false;
+              console.log(`✓ Found employee: ${employee.name}, base_rate: ${employee.current_base_rate}, isHelper: ${isHelper}`);
+              
+              // Use cached pay period
+              const payPeriod = payPeriodCache[empId];
+              if (!payPeriod?.id) {
+                console.error(`❌ No cached pay period for employee ${empId}`);
+                errorCount++;
+                continue;
+              }
+              console.log(`✓ Using cached pay period: ${payPeriod.period_name} (${payPeriod.id})`);
+              
+              // Recalculate with this employee's base rate
+              const empBaseRate = baseRates[empId] || employee.current_base_rate || 0;
+              
+              // For helpers, use their specific hours/jobs/revenue if provided
+              // Otherwise fall back to the full crew values
+              const dailyHours = isHelper && empData?.helperHours 
+                ? empData.helperHours 
+                : baseRecord.totalHoursWorked;
+              const dailyJobs = isHelper && empData?.helperJobs !== undefined
+                ? empData.helperJobs
+                : baseRecord.numberOfJobs;
+              const dailyRevenue = isHelper && empData?.helperRevenue !== undefined
+                ? empData.helperRevenue
+                : baseRecord.totalJobRevenue;
+              
+              console.log(`📊 Using values - Hours: ${dailyHours}, Jobs: ${dailyJobs}, Revenue: ${dailyRevenue}`);
+              
+              // Calculate labor costs for this employee
+              let regularHours = dailyHours;
+              let overtimeHours = 0;
+              let employeeBasePay = 0;
+              let overtimePay = 0;
+              
+              if (dailyHours > (companySettings.overtimeHoursDaily || 12)) {
+                regularHours = companySettings.overtimeHoursDaily || 12;
+                overtimeHours = dailyHours - regularHours;
+                employeeBasePay = regularHours * empBaseRate;
+                overtimePay = overtimeHours * (empBaseRate * (companySettings.overtimeMultiplier || 1.5));
+              } else {
+                employeeBasePay = dailyHours * empBaseRate;
+              }
+              
+              const totalBasePay = employeeBasePay + overtimePay;
+              
+              // Calculate COGS - for helpers, scale based on their revenue portion
+              let cogsNoLabor = 0;
+              if (isHelper && empData?.helperRevenue !== undefined && baseRecord.totalJobRevenue > 0) {
+                // Scale COGS proportionally to helper's revenue
+                const revenuePortion = empData.helperRevenue / baseRecord.totalJobRevenue;
+                serviceBreakdown.forEach(item => {
+                  const cogsPct = servicesWithCOGS[item.serviceName] || 0;
+                  cogsNoLabor += (item.revenue * revenuePortion) * (cogsPct / 100);
+                });
+              } else {
+                serviceBreakdown.forEach(item => {
+                  const cogsPct = servicesWithCOGS[item.serviceName] || 0;
+                  cogsNoLabor += item.revenue * (cogsPct / 100);
+                });
+              }
+              
+              // Calculate overhead and profit using the employee's actual revenue
+              const overheadAllocation = dailyRevenue * ((companySettings.overheadPercent || 32) / 100);
+              const totalCostOfJob = totalBasePay + cogsNoLabor + overheadAllocation;
+              const grossProfitBeforeBonus = dailyRevenue - totalCostOfJob;
+              const grossProfitBeforeBonusPercent = dailyRevenue > 0 
+                ? (grossProfitBeforeBonus / dailyRevenue) * 100 
+                : 0;
+              
+              // Calculate LER
+              const ler = totalBasePay > 0 ? grossProfitBeforeBonus / totalBasePay : 0;
+              
+              // Use pre-calculated bonus from the modal if available
+              // This ensures the bonus matches what was shown in the crew calculator
+              let bonusQualifiedForPercent = 0;
+              let appointmentBasedBonus = 0;
+              const qualifyForBonus = baseRecord.qualifyForBonus;
+              
+              if (empData?.calculatedBonus !== undefined && empData.calculatedBonus > 0) {
+                // Use the pre-calculated bonus from the modal
+                // This is the total bonus (LER bonus + appointment bonus combined)
+                const totalPreCalculatedBonus = empData.calculatedBonus;
+                
+                // Split between bonusQualifiedForPercent and appointmentBasedBonus
+                // The modal calculated the total, so we'll put it all in bonusQualifiedForPercent
+                // since that's what gets saved and displayed
+                bonusQualifiedForPercent = totalPreCalculatedBonus;
+                appointmentBasedBonus = 0; // Already included in calculatedBonus
+                
+                console.log(`💰 Using pre-calculated bonus for ${employee.name}: $${totalPreCalculatedBonus.toFixed(2)}`);
+              } else {
+                // Fallback to old calculation if no pre-calculated bonus
+                const thresholdMin = baseRecord.isCrewJob 
+                  ? (companySettings.crewBonusThresholdMin || 15)
+                  : (companySettings.bonusThresholdMin || 25);
+                const thresholdMax = baseRecord.isCrewJob
+                  ? (companySettings.crewBonusThresholdMax || 100)
+                  : (companySettings.bonusThresholdMax || 100);
+                
+                if (qualifyForBonus && grossProfitBeforeBonusPercent >= thresholdMax) {
+                  bonusQualifiedForPercent = grossProfitBeforeBonus * 0.10;
+                } else if (qualifyForBonus) {
+                  const bonusRange = thresholdMax - thresholdMin;
+                  const profitInRange = grossProfitBeforeBonusPercent - thresholdMin;
+                  const bonusPercent = (profitInRange / bonusRange) * 10;
+                  bonusQualifiedForPercent = grossProfitBeforeBonus * (bonusPercent / 100);
+                }
+                
+                // Calculate appointment bonus
+                if (companySettings.enableAppointmentBonus !== false) {
+                  const totalJobs = baseRecord.numberOfJobs;
+                  if (totalJobs >= 6) appointmentBasedBonus = companySettings.appointmentBonus6PlusJobs || 20;
+                  else if (totalJobs >= 5) appointmentBasedBonus = companySettings.appointmentBonus5Jobs || 15;
+                  else if (totalJobs >= 4) appointmentBasedBonus = companySettings.appointmentBonus4Jobs || 10;
+                  else if (totalJobs >= 3) appointmentBasedBonus = companySettings.appointmentBonus3Jobs || 7;
+                }
+                
+                console.log(`⚠️ No pre-calculated bonus for ${employee.name}, using fallback calculation: $${(bonusQualifiedForPercent + appointmentBasedBonus).toFixed(2)}`);
+              }
+              
+              // For helpers, scale tips proportionally to their hours
+              const tipAmount = isHelper && empData?.helperHours && baseRecord.totalHoursWorked > 0
+                ? baseRecord.tipAmount * (empData.helperHours / baseRecord.totalHoursWorked)
+                : baseRecord.tipAmount;
+              
+              const totalEmployeePay = totalBasePay + bonusQualifiedForPercent + appointmentBasedBonus + tipAmount;
+              const dailyNetProfitAfterBonus = grossProfitBeforeBonus - bonusQualifiedForPercent - appointmentBasedBonus;
+              const dailyNetProfitAfterBonusPercent = dailyRevenue > 0
+                ? (dailyNetProfitAfterBonus / dailyRevenue) * 100
+                : 0;
+              
+              // Build the record for this employee using their actual values
+              const employeeRecord = {
+                ...baseRecord,
+                // Override with helper-specific values if applicable
+                totalHoursWorked: dailyHours,
+                numberOfJobs: dailyJobs,
+                totalJobRevenue: dailyRevenue,
+                tipAmount: tipAmount,
+                baseRate: empBaseRate,
+                employeeBasePay: totalBasePay,
+                overtimeHours,
+                overtimePay,
+                cogsNoLabor,
+                cogsNoLaborPercent: dailyRevenue > 0 ? (cogsNoLabor / dailyRevenue) * 100 : 0,
+                overheadCostsPercent: companySettings.overheadPercent || 32,
+                grossProfitBeforeBonus,
+                grossProfitBeforeBonusPercent,
+                ler,
+                qualifyForBonus,
+                bonusQualifiedForPercent,
+                appointmentBasedBonus,
+                totalEmployeePay,
+                dailyHourlyWithTipsAndBonus: dailyHours > 0 ? totalEmployeePay / dailyHours : 0,
+                dailyNetProfitAfterBonus,
+                dailyNetProfitAfterBonusPercent
+              };
+              
+              // Save the record
+              const supabaseRecord = convertToSupabaseFormat(employeeRecord);
+              const savedRecord = await employeeLERService.createDailyRecord(payPeriod.id, supabaseRecord, empId);
+              
+              if (!savedRecord) {
+                console.error(`Failed to save record for ${employee.name}`);
+                errorCount++;
+                continue;
+              }
+              
+              // Save service labor records for this employee
+              const laborCosts = {
+                basePay: totalBasePay,
+                overtimePay,
+                bonuses: bonusQualifiedForPercent + appointmentBasedBonus,
+                tips: baseRecord.tipAmount
+              };
+              
+              await serviceLaborService.createServiceLaborRecords(
+                dbUserId,
+                empId,
+                payPeriod.id,
+                baseRecord.date,
+                serviceBreakdown,
+                laborCosts
+              );
+              
+              // Create crew attribution if this is a crew job
+              if (baseRecord.isCrewJob && baseRecord.crewId && savedRecord.id) {
+                const crewMembersList = crewMembersMap[baseRecord.crewId] || [];
+                if (crewMembersList.length > 0) {
+                  const totalBonus = bonusQualifiedForPercent + appointmentBasedBonus;
+                  await crewService.createCrewAttributions(
+                    dbUserId,
+                    savedRecord.id,
+                    baseRecord.crewId,
+                    baseRecord.totalJobRevenue,
+                    totalBonus,
+                    baseRecord.totalHoursWorked,
+                    crewMembersList,
+                    crewRoles
+                  );
+                }
+              }
+              
+              successCount++;
+              console.log(`✅ Created record for ${employee.name}`);
+            }
+            
+            // Show summary
+            if (errorCount > 0) {
+              alert(`Created ${successCount} records. ${errorCount} employees were skipped (may already have records for this date).`);
+            } else {
+              alert(`Successfully created records for ${successCount} crew members!`);
+            }
+            
+            setShowAddDay(false);
+            await loadEmployeeData(selectedEmployeeId);
+          } catch (error) {
+            console.error('Error creating crew records:', error);
+            alert('Error creating crew records. Please try again.');
           }
         }}
       />

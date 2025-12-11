@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { useWeeklyBudget, useYTDBudget } from '../hooks/useWeeklyBudget';
-import { Calendar, TrendingUp, TrendingDown, DollarSign, CheckCircle, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronUp, Filter } from 'lucide-react';
+import { Calendar, TrendingUp, TrendingDown, DollarSign, CheckCircle, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronUp, Filter, Target } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -349,7 +349,7 @@ export function BudgetVsActualPage() {
         </CardContent>
       </Card>
 
-      {/* Monthly Summary Cards */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="bg-muted/30">
           <CardContent className="pt-6">
@@ -358,12 +358,14 @@ export function BudgetVsActualPage() {
                 <DollarSign className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-accent">Monthly Budget</p>
+                <p className="text-sm text-accent">{selectedMonth === 'ytd' ? 'YTD Budget' : 'Monthly Budget'}</p>
                 <div className="text-2xl font-bold text-foreground mt-1">
                   ${Math.round(totalBudget).toLocaleString()}
                 </div>
                 <p className="text-xs text-accent mt-1">
-                  {monthlyFirTotal > 0 && Math.abs(totalBudget - monthlyFirTotal) > 1 ? (
+                  {selectedMonth === 'ytd' ? (
+                    'From Master Revenue'
+                  ) : monthlyFirTotal > 0 && Math.abs(totalBudget - monthlyFirTotal) > 1 ? (
                     <span className="text-yellow-600">
                       FIR: ${Math.round(monthlyFirTotal).toLocaleString()} • Click Refresh
                     </span>
@@ -423,11 +425,114 @@ export function BudgetVsActualPage() {
               <div className="flex-1">
                 <p className="text-sm text-accent">Total Jobs</p>
                 <div className="text-2xl font-bold text-foreground mt-1">{totalJobs}</div>
-                <p className="text-xs text-accent mt-1">Completed this month</p>
+                <p className="text-xs text-accent mt-1">Completed {selectedMonth === 'ytd' ? 'this year' : 'this month'}</p>
               </div>
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Jobs Guidance Card */}
+      {(() => {
+        // Always use YTD average ticket for consistency across all months
+        const ytdTotalRevenue = ytdData.reduce((sum, week) => sum + week.actualRevenue, 0);
+        const ytdTotalJobs = ytdData.reduce((sum, week) => sum + week.jobsCompleted, 0);
+        const avgTicket = ytdTotalJobs > 0 ? ytdTotalRevenue / ytdTotalJobs : 0;
+        
+        // Only show if we have YTD average ticket and a budget
+        if (avgTicket <= 0 || totalBudget <= 0) return null;
+        
+        const jobsNeeded = Math.ceil(totalBudget / avgTicket);
+        const jobsRemaining = jobsNeeded - totalJobs;
+        const hasCurrentData = totalJobs > 0;
+        const isYTDMode = selectedMonth === 'ytd';
+        
+        // Weekly calculation: YTD uses 52 weeks/year, monthly uses 4.33 weeks/month
+        const weeksInPeriod = isYTDMode ? 52 : 4.33;
+        const weeklyJobsNeeded = Math.ceil(jobsNeeded / weeksInPeriod);
+        
+        // Dynamic labels based on filter mode
+        const periodLabel = isYTDMode ? 'YTD' : 'Monthly';
+        const periodUnit = isYTDMode ? 'year' : 'month';
+        const timeframeText = isYTDMode ? 'this year' : 'this month';
+        
+        return (
+          <Card className="bg-muted/30 border border-accent/30">
+            <CardContent className="py-4">
+              <div className="flex flex-col gap-4">
+                {/* Header */}
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-lg bg-accent/20">
+                    <Target className="h-5 w-5 text-accent" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-accent">Jobs Needed to Hit Budget</span>
+                    <p className="text-xs text-muted-foreground">
+                      Based on your YTD average ticket of ${Math.round(avgTicket).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Jobs Calculation */}
+                <div className="flex flex-col md:flex-row items-center justify-around gap-6 pt-2">
+                  {/* Period Jobs Needed */}
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{periodLabel} Target</p>
+                    <p className="text-3xl font-bold text-accent">
+                      {jobsNeeded}
+                    </p>
+                    <p className="text-sm text-muted-foreground">jobs/{periodUnit}</p>
+                  </div>
+                  
+                  {/* Weekly Jobs Needed */}
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Weekly Target</p>
+                    <p className="text-3xl font-bold text-accent">
+                      {weeklyJobsNeeded}
+                    </p>
+                    <p className="text-sm text-muted-foreground">jobs/week</p>
+                  </div>
+                  
+                  {/* Current Pace */}
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Current Pace</p>
+                    <p className={`text-3xl font-bold ${totalJobs >= jobsNeeded ? 'text-green-500' : 'text-foreground'}`}>
+                      {totalJobs}
+                    </p>
+                    <p className="text-sm text-muted-foreground">jobs completed</p>
+                  </div>
+                </div>
+                
+                {/* Status Message */}
+                <div className="border-t border-border pt-3 text-center">
+                  {jobsRemaining <= 0 ? (
+                    <p className="text-sm text-green-500 font-medium">
+                      You've hit your {periodLabel.toLowerCase()} job target! Keep up the great work.
+                    </p>
+                  ) : hasCurrentData ? (
+                    <p className="text-sm text-muted-foreground">
+                      Roughly <span className="font-semibold text-foreground">{jobsRemaining} jobs short</span> {timeframeText} of hitting your budget
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      You only need roughly <span className="font-semibold text-foreground">{jobsNeeded} jobs</span> {timeframeText} to hit your budget
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* Inspirational Quote */}
+      <div className="py-8 text-center">
+        <p 
+          className="text-xl md:text-2xl text-foreground/90 leading-relaxed max-w-3xl mx-auto mb-12 mt-12"
+          style={{ fontFamily: "'Lora', normal" }}
+        >
+          "Your business should fuel your dreams—not crush them!"
+        </p>
       </div>
 
       {/* Weekly Breakdown Table */}

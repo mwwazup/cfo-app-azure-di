@@ -53,9 +53,9 @@ export function DashboardLayout() {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Master Revenue', href: '/revenue/master', icon: TrendingUp },
-    { name: 'Business Intelligence', href: '/business-intelligence', icon: Brain, children: [
-      { name: 'Budget vs Actual', href: '/business-intelligence/budget-vs-actual' },
-      { name: 'Service Mix', href: '/business-intelligence/service-mix' },
+    { name: 'Service Hub', href: '/service-hub', icon: Brain, children: [
+      { name: 'Budget vs Actual', href: '/service-hub/budget-vs-actual' },
+      { name: 'Service Mix', href: '/service-hub/service-mix' },
     ]},
     { name: 'Employee Hub', href: '/employees', icon: Users, children: [
       { name: 'LER Tracking', href: '/employee-ler' },
@@ -282,10 +282,10 @@ export function DashboardLayout() {
                 to="/pricing"
                 className="flex items-center justify-center rounded-lg border border-dashed border-[#d5b274]/50 bg-[#d5b274]/10 px-3 py-2 text-sm font-semibold text-[#d5b274] transition hover:border-[#d5b274]"
               >
-                Start Your Free Trial
+                F.R.A.P. Challenge
               </Link>
               <p className="mt-1 text-xs text-gray-400">
-                14-day trial · no credit card required
+                Free FRAP Challenge · no credit card required
               </p>
             </div>
           </div>

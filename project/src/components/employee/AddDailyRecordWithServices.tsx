@@ -4,8 +4,18 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Checkbox } from '../ui/checkbox';
-import { Plus, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, Users, User, UserPlus } from 'lucide-react';
 import { useServices } from '../../hooks/useServices';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import type { Crew, CrewRole, CrewMember } from '../../services/crewService';
+
+// Employee type for crew entry mode
+export interface EmployeeForCrewEntry {
+  id: string;
+  name: string;
+  position: string;
+  base_rate: number;
+}
 
 // Company Settings
 export const COMPANY_SETTINGS = {
@@ -27,7 +37,10 @@ export const COMPANY_SETTINGS = {
   // Crew capacity settings
   numberOfCrews: undefined as number | undefined,
   employeesPerCrew: undefined as number | undefined,
-  monthlyCrewCapacity: undefined as number | undefined
+  monthlyCrewCapacity: undefined as number | undefined,
+  // Crew-specific bonus thresholds (lower than solo due to higher labor costs)
+  crewBonusThresholdMin: 15,
+  crewBonusThresholdMax: 100
 };
 
 interface ServiceBreakdownItem {
@@ -68,7 +81,29 @@ interface DailyRecord {
   dailyNetProfitAfterBonus: number;
   dailyNetProfitAfterBonusPercent: number;
   notes: string;
-  serviceBreakdown?: ServiceBreakdownItem[]; // NEW: Service breakdown
+  serviceBreakdown?: ServiceBreakdownItem[];
+  // Crew tracking fields
+  crewId?: string;
+  isCrewJob?: boolean;
+  trackingMode?: 'employee' | 'crew';
+}
+
+// Helper's participation in a specific appointment
+interface HelperAppointment {
+  appointmentIndex: number; // Index in serviceBreakdown array
+  hours: number; // Hours helper worked on this specific job
+}
+
+// Selected employee for crew entry (includes base rate and bonus percentage)
+interface SelectedCrewEmployee {
+  employeeId: string;
+  employeeName: string;
+  baseRate: number;
+  isHelper: boolean; // true if added as helper (not part of original crew)
+  bonusPercentage: number; // % of crew bonus this employee receives (0-100)
+  // Helper-specific fields - only used when isHelper is true
+  helperHours?: number; // Total hours helper worked (sum of all appointment hours)
+  helperAppointments?: HelperAppointment[]; // Which specific appointments helper worked on
 }
 
 interface AddDailyRecordWithServicesProps {
@@ -79,6 +114,35 @@ interface AddDailyRecordWithServicesProps {
   editingRecord?: DailyRecord | null;
   onUpdate?: (record: DailyRecord, serviceBreakdown: ServiceBreakdownItem[]) => void;
   servicesWithCOGS: { [serviceName: string]: number };
+  // Crew tracking props
+  crews?: Crew[];
+  crewRoles?: CrewRole[];
+  crewMembers?: { [crewId: string]: CrewMember[] };
+  // New props for crew entry mode
+  allEmployees?: EmployeeForCrewEntry[];
+  onAddCrewRecords?: (
+    records: DailyRecord[], 
+    serviceBreakdown: ServiceBreakdownItem[], 
+    employeeIds: string[],
+    baseRates: { [employeeId: string]: number },
+    employeeData: { [employeeId: string]: {
+      isHelper: boolean;
+      bonusPercentage: number;
+      helperHours?: number;
+      helperJobs?: number;
+      helperRevenue?: number;
+      calculatedBonus?: number;
+      calculatedRevenue?: number;
+    }}
+  ) => void;
+  // When true, modal opens in crew mode by default
+  defaultCrewMode?: boolean;
+  // Pre-selected crew ID when opening in crew mode
+  defaultCrewId?: string;
+  // Company settings for bonus calculations
+  overheadPercent?: number;
+  crewBonusThresholdMin?: number;
+  crewBonusThresholdMax?: number;
 }
 
 // Helper function to round to 2 decimal places
@@ -93,7 +157,17 @@ export function AddDailyRecordWithServices({
   baseRate, 
   editingRecord = null, 
   onUpdate,
-  servicesWithCOGS 
+  servicesWithCOGS,
+  crews = [],
+  crewRoles = [],
+  crewMembers = {},
+  allEmployees = [],
+  onAddCrewRecords,
+  defaultCrewMode = false,
+  defaultCrewId = '',
+  overheadPercent = 32,
+  crewBonusThresholdMin = 15,
+  crewBonusThresholdMax = 100
 }: AddDailyRecordWithServicesProps) {
   const { services } = useServices(); // Fetch services from database
   
@@ -101,11 +175,20 @@ export function AddDailyRecordWithServices({
   const [tips, setTips] = useState('0');
   const [notes, setNotes] = useState('');
   const [applyAppointmentBonus, setApplyAppointmentBonus] = useState(COMPANY_SETTINGS.enableAppointmentBonus);
-  const [totalDailyHours, setTotalDailyHours] = useState<string>(''); // NEW: Total clock in/out hours
+  const [totalDailyHours, setTotalDailyHours] = useState<string>(''); // Total clock in/out hours
   
-  // NEW: Service breakdown state
+  // Service breakdown state
   const [serviceBreakdown, setServiceBreakdown] = useState<ServiceBreakdownItem[]>([]);
   const [validationError, setValidationError] = useState<string>('');
+  
+  // Crew tracking state
+  const [isCrewJob, setIsCrewJob] = useState(false);
+  const [selectedCrewId, setSelectedCrewId] = useState<string>('');
+  
+  // Crew entry mode state - selected employees for bulk record creation
+  const [selectedCrewEmployees, setSelectedCrewEmployees] = useState<SelectedCrewEmployee[]>([]);
+  const [showHelperSelector, setShowHelperSelector] = useState(false);
+  // helperBonusPercent removed - now auto-calculated from hours
 
   // Initialize with one empty service row
   useEffect(() => {
@@ -117,8 +200,40 @@ export function AddDailyRecordWithServices({
         hours: 0,
         revenue: 0
       }]);
+      
+      // If opening in crew mode, set the crew state
+      if (defaultCrewMode && crews.length > 0) {
+        setIsCrewJob(true);
+        // Use defaultCrewId if provided, otherwise use first active crew
+        const crewId = defaultCrewId || crews.find(c => c.is_active)?.id || '';
+        setSelectedCrewId(crewId);
+      }
     }
-  }, [open, editingRecord]);
+  }, [open, editingRecord, defaultCrewMode, defaultCrewId, crews]);
+
+  // Auto-populate crew members when a crew is selected
+  useEffect(() => {
+    if (isCrewJob && selectedCrewId && crewMembers[selectedCrewId]) {
+      const members = crewMembers[selectedCrewId];
+      const crewEmployees: SelectedCrewEmployee[] = members.map(member => {
+        // Find the employee's base rate from allEmployees
+        const employee = allEmployees.find(e => e.id === member.employee_id);
+        // Get bonus percentage from crew role
+        const role = crewRoles.find(r => r.id === member.role_id);
+        return {
+          employeeId: member.employee_id,
+          employeeName: member.employee_name || 'Unknown',
+          baseRate: employee?.base_rate || baseRate,
+          isHelper: false,
+          bonusPercentage: role?.bonus_percentage || 0
+        };
+      });
+      setSelectedCrewEmployees(crewEmployees);
+    } else if (!isCrewJob) {
+      setSelectedCrewEmployees([]);
+      setShowHelperSelector(false);
+    }
+  }, [isCrewJob, selectedCrewId, crewMembers, allEmployees, baseRate, crewRoles]);
 
   // Load editing record data
   useEffect(() => {
@@ -130,6 +245,27 @@ export function AddDailyRecordWithServices({
       setTips(editingRecord.tipAmount.toString());
       setNotes(editingRecord.notes || '');
       setTotalDailyHours(editingRecord.totalHoursWorked.toString());
+      
+      // Load crew data if this is a crew record
+      if (editingRecord.isCrewJob && editingRecord.crewId) {
+        console.log('👥 Loading crew record data:', editingRecord.crewId);
+        setIsCrewJob(true);
+        setSelectedCrewId(editingRecord.crewId);
+        
+        // Find the crew and load its members
+        const crew = crews.find(c => c.id === editingRecord.crewId);
+        if (crew && crew.members) {
+          const crewEmployees: SelectedCrewEmployee[] = crew.members.map(member => ({
+            employeeId: member.employeeId,
+            employeeName: member.employeeName,
+            baseRate: member.baseRate || 0,
+            isHelper: false,
+            bonusPercentage: 100 / crew.members.length // Even split by default
+          }));
+          setSelectedCrewEmployees(crewEmployees);
+          console.log('✅ Loaded crew members:', crewEmployees);
+        }
+      }
       
       // Load service breakdown if it exists
       if (editingRecord.serviceBreakdown && editingRecord.serviceBreakdown.length > 0) {
@@ -167,7 +303,7 @@ export function AddDailyRecordWithServices({
         }]);
       }
     }
-  }, [editingRecord, open, services]);
+  }, [editingRecord, open, services, crews]);
 
   // Add new service row
   const addServiceRow = () => {
@@ -210,7 +346,8 @@ export function AddDailyRecordWithServices({
 
   // Calculate totals from service breakdown
   const calculateTotals = () => {
-    const totalJobs = serviceBreakdown.reduce((sum, item) => sum + (item.jobs || 0), 0);
+    // Each appointment row = 1 job (count rows with valid service selected)
+    const totalJobs = serviceBreakdown.filter(item => item.serviceId).length;
     const totalJobTime = serviceBreakdown.reduce((sum, item) => sum + (parseFloat(item.hours?.toString() || '0') || 0), 0);
     const totalRevenue = serviceBreakdown.reduce((sum, item) => sum + (parseFloat(item.revenue?.toString() || '0') || 0), 0);
     const dailyHours = parseFloat(totalDailyHours) || 0;
@@ -223,20 +360,22 @@ export function AddDailyRecordWithServices({
   const validateBreakdown = (): boolean => {
     setValidationError('');
     
+    // Check if crew mode has employees selected
+    if (isCrewJob && selectedCrewEmployees.length === 0) {
+      setValidationError('Please select at least one crew member');
+      return false;
+    }
+    
     // Check if at least one service is selected
-    const hasServices = serviceBreakdown.some(item => item.serviceId && item.jobs > 0);
+    const hasServices = serviceBreakdown.some(item => item.serviceId);
     if (!hasServices) {
-      setValidationError('Please add at least one service with jobs completed');
+      setValidationError('Please add at least one appointment');
       return false;
     }
     
     // Check that all selected services have valid data
     for (const item of serviceBreakdown) {
       if (item.serviceId) {
-        if (item.jobs <= 0) {
-          setValidationError(`${item.serviceName}: Jobs must be greater than 0`);
-          return false;
-        }
         if (item.hours <= 0) {
           setValidationError(`${item.serviceName}: Hours must be greater than 0`);
           return false;
@@ -255,29 +394,58 @@ export function AddDailyRecordWithServices({
     const { totalJobs, totalJobTime, totalRevenue, dailyHours, nonJobTime } = calculateTotals();
     
     // Calculate labor costs based on TOTAL DAILY HOURS (clock in/out), not job time
+    // For crew mode: calculate total labor for all crew members
     let regularHours = dailyHours;
     let overtimeHours = 0;
-    let employeeBaseHourlyPay = 0;
+    let basePay = 0;
     let overtimePay = 0;
     
-    // Overtime automatically applied based on company settings (12 hrs/day)
-    // Weekly overtime (40 hrs/week) is calculated on page load
-    if (dailyHours > COMPANY_SETTINGS.overtimeHoursDaily) {
-      regularHours = COMPANY_SETTINGS.overtimeHoursDaily;
-      overtimeHours = dailyHours - COMPANY_SETTINGS.overtimeHoursDaily;
-      employeeBaseHourlyPay = regularHours * baseRate;
-      overtimePay = overtimeHours * (baseRate * COMPANY_SETTINGS.overtimeMultiplier);
+    if (isCrewJob && selectedCrewEmployees.length > 0) {
+      // Crew mode: sum labor costs for all crew members (not helpers)
+      const crewOnly = selectedCrewEmployees.filter(e => !e.isHelper);
+      basePay = crewOnly.reduce((sum, emp) => {
+        let empRegularPay = 0;
+        let empOvertimePay = 0;
+        
+        if (dailyHours > COMPANY_SETTINGS.overtimeHoursDaily) {
+          const regHrs = COMPANY_SETTINGS.overtimeHoursDaily;
+          const otHrs = dailyHours - COMPANY_SETTINGS.overtimeHoursDaily;
+          empRegularPay = regHrs * emp.baseRate;
+          empOvertimePay = otHrs * (emp.baseRate * COMPANY_SETTINGS.overtimeMultiplier);
+        } else {
+          empRegularPay = dailyHours * emp.baseRate;
+        }
+        
+        return sum + empRegularPay + empOvertimePay;
+      }, 0);
+      
+      // Add helper labor costs
+      const helpers = selectedCrewEmployees.filter(e => e.isHelper);
+      basePay += helpers.reduce((sum, h) => sum + ((h.helperHours || 0) * h.baseRate), 0);
+      
+      // Calculate overtime for display (based on first crew member for simplicity)
+      if (dailyHours > COMPANY_SETTINGS.overtimeHoursDaily) {
+        overtimeHours = dailyHours - COMPANY_SETTINGS.overtimeHoursDaily;
+        overtimePay = crewOnly.reduce((sum, emp) => 
+          sum + (overtimeHours * (emp.baseRate * COMPANY_SETTINGS.overtimeMultiplier)), 0);
+      }
     } else {
-      employeeBaseHourlyPay = dailyHours * baseRate;
+      // Solo mode: single employee
+      if (dailyHours > COMPANY_SETTINGS.overtimeHoursDaily) {
+        regularHours = COMPANY_SETTINGS.overtimeHoursDaily;
+        overtimeHours = dailyHours - COMPANY_SETTINGS.overtimeHoursDaily;
+        basePay = (regularHours * baseRate) + (overtimeHours * (baseRate * COMPANY_SETTINGS.overtimeMultiplier));
+        overtimePay = overtimeHours * (baseRate * COMPANY_SETTINGS.overtimeMultiplier);
+      } else {
+        basePay = dailyHours * baseRate;
+      }
     }
     
-    const basePay = employeeBaseHourlyPay + overtimePay;
-    
-    // Calculate COGS dynamically based on services performed
+    // Calculate COGS dynamically based on services performed (1 job per appointment row)
     const cogsNoLaborDollars = serviceBreakdown.reduce((total, item) => {
       if (!item.serviceId) return total;
       const costPerService = servicesWithCOGS[item.serviceName] || 0;
-      return total + (item.jobs * costPerService);
+      return total + costPerService; // Each row = 1 job
     }, 0);
     
     const cogsNoLaborPercent = totalRevenue > 0 ? (cogsNoLaborDollars / totalRevenue) * 100 : 0;
@@ -347,6 +515,7 @@ export function AddDailyRecordWithServices({
       ler: roundToTwo(ler),
       qualifyForBonus,
       bonusQualifiedForPercent: roundToTwo(bonusQualifiedForDollars),
+      bonusQualifiedForDollars: roundToTwo(bonusQualifiedForDollars),
       appointmentBasedBonus,
       totalEmployeePay: roundToTwo(totalEmployeePay),
       dailyHourlyWithTipsAndBonus: roundToTwo(dailyHourlyWithTipsAndBonus),
@@ -481,15 +650,158 @@ export function AddDailyRecordWithServices({
       dailyNetProfitAfterBonus: preview.dailyNetProfitAfterBonus,
       dailyNetProfitAfterBonusPercent: preview.dailyNetProfitAfterBonusPercent,
       notes,
-      serviceBreakdown: serviceBreakdown.filter(item => item.serviceId && item.jobs > 0)
+      serviceBreakdown: serviceBreakdown.filter(item => item.serviceId && item.jobs > 0),
+      // Crew tracking fields
+      crewId: isCrewJob ? selectedCrewId : undefined,
+      isCrewJob: isCrewJob,
+      trackingMode: isCrewJob ? 'crew' : 'employee'
     };
 
     // Filter out empty service rows
     const validServiceBreakdown = serviceBreakdown.filter(item => item.serviceId && item.jobs > 0);
 
     if (editingRecord && onUpdate) {
+      // Editing mode - single record update
       onUpdate(record, validServiceBreakdown);
+    } else if (isCrewJob && selectedCrewEmployees.length > 0 && onAddCrewRecords) {
+      // Crew mode - create records for all selected employees
+      // Build base rates map and employee data for each employee
+      const baseRates: { [employeeId: string]: number } = {};
+      const employeeData: { [employeeId: string]: {
+        isHelper: boolean;
+        bonusPercentage: number;
+        helperHours?: number;
+        helperAppointments?: HelperAppointment[];
+        calculatedBonus?: number; // Pre-calculated bonus from the modal
+        calculatedRevenue?: number; // Revenue share for this employee
+      }} = {};
+      
+      // Calculate the per-person bonus breakdown (same logic as the display)
+      const totalDailyBonus = preview.bonusQualifiedForDollars + preview.appointmentBasedBonus;
+      const crewMembers = selectedCrewEmployees.filter(e => !e.isHelper);
+      const helpers = selectedCrewEmployees.filter(e => e.isHelper);
+      
+      // Check if bonus percentages are set - if all are 0, split evenly
+      const totalBonusPercent = crewMembers.reduce((sum, m) => sum + (m.bonusPercentage || 0), 0);
+      const useEvenSplit = totalBonusPercent === 0;
+      
+      // Helper function to get crew member's bonus share
+      const getCrewBonusShare = (member: SelectedCrewEmployee, crewBonus: number) => {
+        if (useEvenSplit) {
+          return crewMembers.length > 0 ? crewBonus / crewMembers.length : 0;
+        }
+        return crewBonus * ((member.bonusPercentage || 0) / 100);
+      };
+      
+      // Calculate bonus breakdown per job
+      const jobBreakdown = serviceBreakdown
+        .filter(appt => appt.serviceId)
+        .map((appt, index) => {
+          const revenueShare = preview.totalRevenue > 0 ? (appt.revenue || 0) / preview.totalRevenue : 0;
+          const jobBonus = revenueShare * totalDailyBonus;
+          
+          // Check if any helper worked on this job
+          const helperOnJob = helpers.find(h => 
+            h.helperAppointments?.some(ha => ha.appointmentIndex === index)
+          );
+          
+          if (helperOnJob && helperOnJob.helperAppointments) {
+            const helperAppt = helperOnJob.helperAppointments.find(ha => ha.appointmentIndex === index);
+            const helperHrs = helperAppt?.hours || 0;
+            const crewDailyHours = parseFloat(totalDailyHours) || 0;
+            const totalJobHours = (crewDailyHours * crewMembers.length) + helperHrs;
+            const helperShare = totalJobHours > 0 ? helperHrs / totalJobHours : 0;
+            const helperBonus = jobBonus * helperShare;
+            const crewBonus = jobBonus - helperBonus;
+            
+            return {
+              revenue: appt.revenue || 0,
+              jobBonus,
+              hasHelper: true,
+              helperId: helperOnJob.employeeId,
+              helperBonus,
+              crewBonus,
+              crewAllocations: crewMembers.map(m => ({
+                employeeId: m.employeeId,
+                bonus: getCrewBonusShare(m, crewBonus)
+              }))
+            };
+          } else {
+            return {
+              revenue: appt.revenue || 0,
+              jobBonus,
+              hasHelper: false,
+              crewBonus: jobBonus,
+              crewAllocations: crewMembers.map(m => ({
+                employeeId: m.employeeId,
+                bonus: getCrewBonusShare(m, jobBonus)
+              }))
+            };
+          }
+        });
+      
+      // Calculate person totals from job breakdown
+      const personBonusTotals: { [employeeId: string]: number } = {};
+      const personRevenueTotals: { [employeeId: string]: number } = {};
+      
+      // Initialize all employees
+      selectedCrewEmployees.forEach(emp => {
+        personBonusTotals[emp.employeeId] = 0;
+        personRevenueTotals[emp.employeeId] = 0;
+      });
+      
+      // Sum up bonuses from each job
+      jobBreakdown.forEach(job => {
+        // Crew members get their share of every job
+        job.crewAllocations.forEach(alloc => {
+          personBonusTotals[alloc.employeeId] = (personBonusTotals[alloc.employeeId] || 0) + alloc.bonus;
+        });
+        
+        // Helpers only get bonus from jobs they worked on
+        if (job.hasHelper && job.helperId) {
+          personBonusTotals[job.helperId] = (personBonusTotals[job.helperId] || 0) + (job.helperBonus || 0);
+        }
+      });
+      
+      // Calculate revenue per person (for helpers, only their jobs; for crew, split evenly)
+      const crewRevenuePerPerson = crewMembers.length > 0 ? totalRevenue / crewMembers.length : 0;
+      crewMembers.forEach(m => {
+        personRevenueTotals[m.employeeId] = crewRevenuePerPerson;
+      });
+      
+      // For helpers, calculate their revenue from their specific jobs
+      helpers.forEach(h => {
+        const helperRevenue = (h.helperAppointments || []).reduce((sum, ha) => {
+          const appt = serviceBreakdown[ha.appointmentIndex];
+          return sum + (appt?.revenue || 0);
+        }, 0);
+        personRevenueTotals[h.employeeId] = helperRevenue;
+      });
+      
+      // Build employee data with pre-calculated bonuses
+      selectedCrewEmployees.forEach(emp => {
+        baseRates[emp.employeeId] = emp.baseRate;
+        employeeData[emp.employeeId] = {
+          isHelper: emp.isHelper,
+          bonusPercentage: emp.bonusPercentage,
+          helperHours: emp.helperHours,
+          helperAppointments: emp.helperAppointments,
+          calculatedBonus: personBonusTotals[emp.employeeId] || 0,
+          calculatedRevenue: personRevenueTotals[emp.employeeId] || 0
+        };
+      });
+      
+      // Create array of records (one per employee, calculations will be done per-employee in the page)
+      const records: DailyRecord[] = selectedCrewEmployees.map(emp => ({
+        ...record,
+        baseRate: emp.baseRate, // Use each employee's base rate
+      }));
+      
+      const employeeIds = selectedCrewEmployees.map(emp => emp.employeeId);
+      
+      onAddCrewRecords(records, validServiceBreakdown, employeeIds, baseRates, employeeData);
     } else {
+      // Solo mode - single record
       onAdd(record, validServiceBreakdown);
     }
 
@@ -498,6 +810,10 @@ export function AddDailyRecordWithServices({
     setTips('0');
     setNotes('');
     setTotalDailyHours('');
+    setIsCrewJob(false);
+    setSelectedCrewId('');
+    setSelectedCrewEmployees([]);
+    setShowHelperSelector(false);
     setServiceBreakdown([{
       serviceId: '',
       serviceName: '',
@@ -514,7 +830,7 @@ export function AddDailyRecordWithServices({
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-card">
         <DialogHeader>
           <DialogTitle className="text-foreground">
-            {editingRecord ? 'Edit Daily Record' : 'Add Daily Record'}
+            {editingRecord ? 'Edit Daily Appointment Record' : 'Add Daily Appointment Record'}
           </DialogTitle>
         </DialogHeader>
 
@@ -527,14 +843,266 @@ export function AddDailyRecordWithServices({
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="bg-background text-foreground border-border"
+              className="bg-background text-foreground border-border [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:invert"
             />
           </div>
+
+          {/* Job Type Toggle - Solo vs Crew (hidden when opened in crew mode) */}
+          {crews.length > 0 && !defaultCrewMode && (
+            <div className="space-y-3">
+              <h4 className="text-xl text-accent font-semibold">Role Assignment</h4>
+              <div className="bg-muted/20 rounded-lg p-4 border border-border space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="lg"
+                    onClick={() => {
+                      setIsCrewJob(false);
+                      setSelectedCrewId('');
+                    }}
+                    className={`w-full py-4 text-base border-2 border-accent ${!isCrewJob ? "bg-accent text-accent-foreground hover:bg-accent/90" : "hover:bg-muted/50"}`}
+                  >
+                    <User className="h-5 w-5 mr-2" />
+                    Solo Job
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="lg"
+                    onClick={() => setIsCrewJob(true)}
+                    className={`w-full py-4 text-base border-2 border-accent ${isCrewJob ? "bg-accent text-accent-foreground hover:bg-accent/90" : "hover:bg-muted/50"}`}
+                  >
+                    <Users className="h-5 w-5 mr-2" />
+                    Crew Job
+                  </Button>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* Crew Selection - shown when in crew mode (either via toggle or defaultCrewMode) */}
+          {isCrewJob && crews.length > 0 && (
+            <div className="space-y-3">
+              {defaultCrewMode && (
+                <h4 className="text-xl text-accent font-semibold flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Crew Day Entry
+                </h4>
+              )}
+              <div>
+                <Label className="text-sm text-muted-foreground">Select Crew</Label>
+                <Select value={selectedCrewId} onValueChange={setSelectedCrewId}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder="Choose a crew..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {crews.filter(c => c.is_active).map(crew => (
+                      <SelectItem key={crew.id} value={crew.id!}>
+                        {crew.crew_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+                  {selectedCrewId && selectedCrewEmployees.length > 0 && (
+                    <div className="bg-muted/30 rounded-lg p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm text-muted-foreground">
+                          Crew Members ({selectedCrewEmployees.length} selected)
+                        </Label>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              // Re-select all original crew members
+                              const members = crewMembers[selectedCrewId] || [];
+                              const crewEmployees: SelectedCrewEmployee[] = members.map(member => {
+                                const employee = allEmployees.find(e => e.id === member.employee_id);
+                                const role = crewRoles.find(r => r.id === member.role_id);
+                                return {
+                                  employeeId: member.employee_id,
+                                  employeeName: member.employee_name || 'Unknown',
+                                  baseRate: employee?.base_rate || baseRate,
+                                  isHelper: false,
+                                  bonusPercentage: role?.bonus_percentage || 0
+                                };
+                              });
+                              setSelectedCrewEmployees(crewEmployees);
+                            }}
+                            className="text-xs h-7 px-2"
+                          >
+                            Select All
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      {/* Crew member checkboxes */}
+                      <div className="space-y-2">
+                        {selectedCrewEmployees.map(emp => {
+                          const originalMember = crewMembers[selectedCrewId]?.find(m => m.employee_id === emp.employeeId);
+                          const role = originalMember ? crewRoles.find(r => r.id === originalMember.role_id) : null;
+                          
+                          return (
+                            <div key={emp.employeeId} className="space-y-1">
+                              <div 
+                                className={`flex items-center justify-between text-sm py-2 px-3 rounded border ${
+                                  emp.isHelper 
+                                    ? 'bg-blue-500/10 border-blue-500/30' 
+                                    : 'bg-background/50 border-transparent'
+                                }`}
+                              >
+                              <div className="flex items-center gap-3">
+                                <Checkbox
+                                  id={`crew-emp-${emp.employeeId}`}
+                                  checked={true}
+                                  onCheckedChange={() => {
+                                    // Remove this employee from selection
+                                    setSelectedCrewEmployees(prev => 
+                                      prev.filter(e => e.employeeId !== emp.employeeId)
+                                    );
+                                  }}
+                                />
+                                <label 
+                                  htmlFor={`crew-emp-${emp.employeeId}`}
+                                  className="font-medium cursor-pointer"
+                                >
+                                  {emp.employeeName}
+                                  {emp.isHelper && (
+                                    <span className="ml-2 text-xs text-blue-400">(Helper)</span>
+                                  )}
+                                </label>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-muted-foreground text-xs">
+                                  ${(emp.baseRate || 0).toFixed(2)}/hr
+                                </span>
+                                {/* Bonus % - editable for helpers, display only for crew members */}
+                                {emp.isHelper ? (
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      value={emp.bonusPercentage}
+                                      onChange={(e) => {
+                                        const newPercent = parseFloat(e.target.value) || 0;
+                                        setSelectedCrewEmployees(prev => 
+                                          prev.map(p => p.employeeId === emp.employeeId 
+                                            ? { ...p, bonusPercentage: newPercent }
+                                            : p
+                                          )
+                                        );
+                                      }}
+                                      className="w-14 h-6 text-xs text-center"
+                                    />
+                                    <span className="text-accent text-xs">%</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-accent text-xs">
+                                    {emp.bonusPercentage}%
+                                  </span>
+                                )}
+                                {role && !emp.isHelper && (
+                                  <span className="text-muted-foreground text-xs">
+                                    {role.role_name}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {/* Helper note - configuration moved to after appointments */}
+                            {emp.isHelper && (
+                              <p className="ml-8 mt-1 text-xs text-blue-400">
+                                ↓ Configure which appointments this helper worked on below
+                              </p>
+                            )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Add Helper Button */}
+                      {!showHelperSelector ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowHelperSelector(true)}
+                          className="w-full mt-2 border-dashed"
+                        >
+                          <UserPlus className="h-4 w-4 mr-2" />
+                          Add Helper (Non-Crew Employee)
+                        </Button>
+                      ) : (
+                        <div className="mt-3 p-3 bg-blue-500/10 rounded-lg border border-blue-500/30">
+                          <Label className="text-sm text-blue-400 mb-2 block">Add Helper to Today's Crew</Label>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            Select an employee to add as a helper. Their bonus will be auto-calculated based on hours worked.
+                          </p>
+                          
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {allEmployees
+                              .filter(emp => !selectedCrewEmployees.some(s => s.employeeId === emp.id))
+                              .map(emp => (
+                                <div 
+                                  key={emp.id}
+                                  className="flex items-center justify-between text-sm py-2 px-3 bg-background/50 rounded cursor-pointer hover:bg-background/80"
+                                  onClick={() => {
+                                    setSelectedCrewEmployees(prev => [...prev, {
+                                      employeeId: emp.id,
+                                      employeeName: emp.name,
+                                      baseRate: emp.base_rate || 0,
+                                      isHelper: true,
+                                      bonusPercentage: 0, // Will be auto-calculated when hours are entered
+                                      helperHours: 0
+                                    }]);
+                                  }}
+                                >
+                                  <span className="font-medium">{emp.name}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground text-xs">{emp.position}</span>
+                                    <span className="text-muted-foreground text-xs">${(emp.base_rate || 0).toFixed(2)}/hr</span>
+                                    <UserPlus className="h-4 w-4 text-blue-400" />
+                                  </div>
+                                </div>
+                              ))}
+                            {allEmployees.filter(emp => !selectedCrewEmployees.some(s => s.employeeId === emp.id)).length === 0 && (
+                              <p className="text-sm text-muted-foreground text-center py-2">
+                                All employees are already in the crew
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setShowHelperSelector(false);
+                            }}
+                            className="w-full mt-2 text-muted-foreground"
+                          >
+                            Done Adding Helpers
+                          </Button>
+                        </div>
+                      )}
+
+                      <p className="text-sm text-accent mt-2 flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        Records will be created for all {selectedCrewEmployees.length} selected employees
+                      </p>
+                    </div>
+                  )}
+            </div>
+          )}
 
           {/* Service Breakdown Section */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="text-foreground font-semibold">Service Breakdown</Label>
+              <h4 className="text-xl text-accent font-semibold">Appointment Breakdown</h4>
               <Button
                 type="button"
                 variant="outline"
@@ -543,14 +1111,14 @@ export function AddDailyRecordWithServices({
                 className="bg-accent/20 text-accent border-accent/50 hover:bg-accent/30"
               >
                 <Plus className="h-4 w-4 mr-1" />
-                Add Service
+                Add Appointment
               </Button>
             </div>
 
             {serviceBreakdown.map((item, index) => (
               <div key={index} className="bg-muted/30 rounded-lg p-4 border border-border space-y-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-foreground">Service {index + 1}</span>
+                  <span className="text-sm font-medium text-foreground">Appointment {index + 1}</span>
                   {serviceBreakdown.length > 1 && (
                     <Button
                       type="button"
@@ -564,34 +1132,25 @@ export function AddDailyRecordWithServices({
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {/* Service Selection */}
                   <div>
                     <Label className="text-sm text-muted-foreground">Service</Label>
-                    <select
+                    <Select
                       value={item.serviceId}
-                      onChange={(e) => updateServiceRow(index, 'serviceId', e.target.value)}
-                      className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                      onValueChange={(value) => updateServiceRow(index, 'serviceId', value)}
                     >
-                      <option value="">Select service...</option>
-                      {services.map(service => (
-                        <option key={service.id} value={service.id}>
-                          {service.serviceName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Jobs */}
-                  <div>
-                    <Label className="text-sm text-muted-foreground">Jobs</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={item.jobs || ''}
-                      onChange={(e) => updateServiceRow(index, 'jobs', parseInt(e.target.value) || 0)}
-                      className="bg-background text-foreground border-border"
-                    />
+                      <SelectTrigger className="w-full bg-muted/30">
+                        <SelectValue placeholder="Select service..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {services.map(service => (
+                          <SelectItem key={service.id} value={service.id}>
+                            {service.serviceName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   {/* Job Time (hours on this specific service) */}
@@ -624,6 +1183,282 @@ export function AddDailyRecordWithServices({
               </div>
             ))}
           </div>
+
+          {/* Total Daily Hours Input - Right after appointments to tell the story of the day */}
+          <div>
+            <Label htmlFor="totalDailyHours" className="text-foreground font-semibold mb-3">
+              Total Daily Hours (Clock In/Out) *
+            </Label>
+            <Input
+              id="totalDailyHours"
+              type="number"
+              step="0.25"
+              min="0"
+              value={totalDailyHours}
+              onChange={(e) => setTotalDailyHours(e.target.value)}
+              className="bg-background text-foreground border-border"
+              placeholder="e.g., 8.0"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Total hours employee was clocked in (used for pay calculation)
+            </p>
+          </div>
+
+          {/* Helper Job Assignment Section - Only show if there are helpers and appointments */}
+          {isCrewJob && selectedCrewEmployees.some(emp => emp.isHelper) && serviceBreakdown.some(s => s.serviceName) && (
+            <div className="space-y-3 bg-blue-500/5 rounded-lg p-4 border border-blue-500/20">
+              <h4 className="text-lg text-blue-400 font-semibold flex items-center gap-2">
+                <UserPlus className="h-5 w-5" />
+                Helper Job Assignment
+              </h4>
+              <p className="text-sm text-muted-foreground">
+                Select which appointments each helper worked on. Their bonus will be calculated based only on those jobs.
+              </p>
+              
+              {selectedCrewEmployees.filter(emp => emp.isHelper).map(helper => (
+                <div key={helper.employeeId} className="bg-background/50 rounded-lg p-3 border border-border">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-medium text-foreground">{helper.employeeName}</span>
+                    <span className="text-xs text-muted-foreground">${helper.baseRate.toFixed(2)}/hr</span>
+                  </div>
+                  
+                  {/* Appointment checkboxes */}
+                  <div className="space-y-2">
+                    {serviceBreakdown.map((appt, apptIndex) => {
+                      if (!appt.serviceName) return null;
+                      
+                      const helperAppt = helper.helperAppointments?.find(ha => ha.appointmentIndex === apptIndex);
+                      const isSelected = !!helperAppt;
+                      
+                      return (
+                        <div key={apptIndex} className={`p-2 rounded border ${isSelected ? 'bg-blue-500/10 border-blue-500/30' : 'bg-muted/20 border-transparent'}`}>
+                          <div className="flex items-center gap-3">
+                            <Checkbox
+                              id={`helper-${helper.employeeId}-appt-${apptIndex}`}
+                              checked={isSelected}
+                              onCheckedChange={(checked) => {
+                                setSelectedCrewEmployees(prev => prev.map(emp => {
+                                  if (emp.employeeId !== helper.employeeId) return emp;
+                                  
+                                  let newAppointments = [...(emp.helperAppointments || [])];
+                                  if (checked) {
+                                    // Add this appointment
+                                    newAppointments.push({ appointmentIndex: apptIndex, hours: 0 });
+                                  } else {
+                                    // Remove this appointment
+                                    newAppointments = newAppointments.filter(ha => ha.appointmentIndex !== apptIndex);
+                                  }
+                                  
+                                  // Calculate total helper hours
+                                  const totalHelperHours = newAppointments.reduce((sum, ha) => sum + ha.hours, 0);
+                                  
+                                  // Calculate helper's revenue from selected appointments
+                                  const helperRevenue = newAppointments.reduce((sum, ha) => {
+                                    const appt = serviceBreakdown[ha.appointmentIndex];
+                                    return sum + (appt?.revenue || 0);
+                                  }, 0);
+                                  
+                                  // Calculate total revenue
+                                  const totalRevenue = serviceBreakdown.reduce((sum, s) => sum + (s.revenue || 0), 0);
+                                  
+                                  // Auto-calculate bonus % based on revenue share
+                                  const autoBonus = totalRevenue > 0 ? (helperRevenue / totalRevenue) * 100 : 0;
+                                  
+                                  return {
+                                    ...emp,
+                                    helperAppointments: newAppointments,
+                                    helperHours: totalHelperHours,
+                                    bonusPercentage: Math.round(autoBonus * 10) / 10
+                                  };
+                                }));
+                              }}
+                            />
+                            <label 
+                              htmlFor={`helper-${helper.employeeId}-appt-${apptIndex}`}
+                              className="flex-1 cursor-pointer"
+                            >
+                              <span className="text-sm font-medium">{appt.serviceName}</span>
+                              <span className="text-xs text-muted-foreground ml-2">
+                                (${(appt.revenue || 0).toFixed(0)})
+                              </span>
+                            </label>
+                            
+                            {/* Hours input - only show if selected */}
+                            {isSelected && (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.5"
+                                  value={helperAppt?.hours || ''}
+                                  onChange={(e) => {
+                                    const hours = parseFloat(e.target.value) || 0;
+                                    setSelectedCrewEmployees(prev => prev.map(emp => {
+                                      if (emp.employeeId !== helper.employeeId) return emp;
+                                      
+                                      const newAppointments = (emp.helperAppointments || []).map(ha => 
+                                        ha.appointmentIndex === apptIndex ? { ...ha, hours } : ha
+                                      );
+                                      
+                                      const totalHelperHours = newAppointments.reduce((sum, ha) => sum + ha.hours, 0);
+                                      
+                                      // Recalculate bonus % based on hours ratio
+                                      const crewMemberCount = selectedCrewEmployees.filter(e => !e.isHelper).length;
+                                      const crewDailyHours = parseFloat(totalDailyHours) || 0;
+                                      // Total hours = (crew members × daily hours) + helper hours
+                                      const totalCrewHours = (crewDailyHours * crewMemberCount) + totalHelperHours;
+                                      const autoBonus = totalCrewHours > 0 ? (totalHelperHours / totalCrewHours) * 100 : 0;
+                                      
+                                      return {
+                                        ...emp,
+                                        helperAppointments: newAppointments,
+                                        helperHours: totalHelperHours,
+                                        bonusPercentage: Math.round(autoBonus * 10) / 10
+                                      };
+                                    }));
+                                  }}
+                                  placeholder="hrs"
+                                  className="w-16 h-7 text-xs text-center"
+                                />
+                                <span className="text-xs text-muted-foreground">hrs</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  {/* Helper Summary with Detailed Breakdown */}
+                  {helper.helperAppointments && helper.helperAppointments.length > 0 && (() => {
+                    // Calculate detailed breakdown
+                    const helperHrs = helper.helperHours || 0;
+                    const crewMemberCount = selectedCrewEmployees.filter(e => !e.isHelper).length;
+                    const crewDailyHours = parseFloat(totalDailyHours) || 0;
+                    const totalCrewHours = (crewDailyHours * crewMemberCount) + helperHrs;
+                    
+                    // Helper's revenue from selected jobs
+                    const helperRevenue = helper.helperAppointments.reduce((sum, ha) => {
+                      const appt = serviceBreakdown[ha.appointmentIndex];
+                      return sum + (appt?.revenue || 0);
+                    }, 0);
+                    
+                    // Total revenue
+                    const totalRevenue = serviceBreakdown.reduce((sum, s) => sum + (s.revenue || 0), 0);
+                    
+                    // Crew revenue (jobs helper didn't work on)
+                    const crewOnlyRevenue = totalRevenue - helperRevenue;
+                    
+                    // Helper's labor cost
+                    const helperLabor = helperHrs * helper.baseRate;
+                    
+                    // Helper's COGS (from their jobs only - 1 job per appointment)
+                    const helperCOGS = helper.helperAppointments.reduce((sum, ha) => {
+                      const appt = serviceBreakdown[ha.appointmentIndex];
+                      if (!appt) return sum;
+                      const costPerService = servicesWithCOGS[appt.serviceName] || 0;
+                      return sum + costPerService; // Each appointment = 1 job
+                    }, 0);
+                    
+                    // Helper's overhead
+                    const helperOverhead = helperRevenue * (COMPANY_SETTINGS.overheadPercent / 100);
+                    
+                    // Helper's profit
+                    const helperProfit = helperRevenue - helperLabor - helperCOGS - helperOverhead;
+                    const helperProfitPct = helperRevenue > 0 ? (helperProfit / helperRevenue) * 100 : 0;
+                    
+                    // Helper's LER
+                    const helperLER = helperLabor > 0 ? helperProfit / helperLabor : 0;
+                    
+                    // Estimated bonus (if qualifies)
+                    const qualifies = helperProfitPct >= COMPANY_SETTINGS.bonusThresholdMin;
+                    const helperBonus = qualifies ? helperLER * helperHrs : 0;
+                    
+                    return (
+                      <div className="mt-3 space-y-2">
+                        {/* Jobs Helper Worked On */}
+                        <div className="p-3 bg-blue-500/10 rounded border border-blue-500/30">
+                          <p className="text-xs text-blue-400 font-medium mb-2">
+                            Jobs {helper.employeeName} Helped With:
+                          </p>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <span className="text-muted-foreground">Revenue:</span>
+                              <span className="ml-1 font-medium text-foreground">${helperRevenue.toFixed(2)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Labor:</span>
+                              <span className="ml-1 font-medium text-foreground">${helperLabor.toFixed(2)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">COGS:</span>
+                              <span className="ml-1 font-medium text-foreground">${helperCOGS.toFixed(2)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Overhead:</span>
+                              <span className="ml-1 font-medium text-foreground">${helperOverhead.toFixed(2)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Profit:</span>
+                              <span className={`ml-1 font-medium ${helperProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                ${helperProfit.toFixed(2)} ({helperProfitPct.toFixed(1)}%)
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">LER:</span>
+                              <span className={`ml-1 font-medium ${helperLER >= 1 ? 'text-green-400' : 'text-red-400'}`}>
+                                {helperLER.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-blue-500/20">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-muted-foreground">
+                                Bonus Qualified: {qualifies ? '✓ Yes' : '✗ No'} (need {COMPANY_SETTINGS.bonusThresholdMin}%+)
+                              </span>
+                              <span className="text-sm font-medium text-accent">
+                                Est. Bonus: ${helperBonus.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Crew-Only Jobs (without helper) */}
+                        {crewOnlyRevenue > 0 && (
+                          <div className="p-3 bg-muted/30 rounded border border-border">
+                            <p className="text-xs text-muted-foreground font-medium mb-1">
+                              Jobs Without Helper (Crew Only):
+                            </p>
+                            <span className="text-sm font-medium text-foreground">
+                              ${crewOnlyRevenue.toFixed(2)} revenue
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* Helper Hours Summary */}
+                        <div className="p-2 bg-accent/10 rounded border border-accent/30">
+                          <div className="text-sm space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground">Helper worked:</span>
+                              <span className="font-medium text-foreground">{helperHrs} hrs</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground">Crew ({crewMemberCount} members × {crewDailyHours} hrs):</span>
+                              <span className="font-medium text-foreground">{(crewDailyHours * crewMemberCount).toFixed(1)} hrs</span>
+                            </div>
+                            <div className="flex items-center justify-between pt-1 border-t border-accent/20">
+                              <span className="text-muted-foreground">Total labor hours:</span>
+                              <span className="font-medium text-accent">{totalCrewHours.toFixed(1)} hrs</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Validation Error */}
           {validationError && (
@@ -662,71 +1497,247 @@ export function AddDailyRecordWithServices({
             )}
           </div>
 
-          {/* Total Daily Hours Input */}
-          <div>
-            <Label htmlFor="totalDailyHours" className="text-foreground font-semibold">
-              Total Daily Hours (Clock In/Out) *
-            </Label>
-            <Input
-              id="totalDailyHours"
-              type="number"
-              step="0.25"
-              min="0"
-              value={totalDailyHours}
-              onChange={(e) => setTotalDailyHours(e.target.value)}
-              className="bg-background text-foreground border-border"
-              placeholder="e.g., 8.0"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Total hours employee was clocked in (used for pay calculation)
-            </p>
-          </div>
-
           {/* Bonus Options */}
-          <div className="space-y-3 bg-muted/20 rounded-lg p-4 border border-border">
-            <h4 className="font-semibold text-foreground text-sm">Bonus Options</h4>
-            
-            {/* Appointment Bonus Toggle */}
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="appointmentBonus"
-                  checked={applyAppointmentBonus}
-                  onCheckedChange={(checked) => setApplyAppointmentBonus(checked as boolean)}
-                />
-                <Label htmlFor="appointmentBonus" className="text-foreground cursor-pointer">
-                  Apply appointment-based bonus
-                </Label>
-              </div>
-              {applyAppointmentBonus && (
-                <div className="ml-6 text-xs text-muted-foreground space-y-1">
-                  <p>• 3 jobs: ${COMPANY_SETTINGS.appointmentBonus3Jobs}</p>
-                  <p>• 4 jobs: ${COMPANY_SETTINGS.appointmentBonus4Jobs}</p>
-                  <p>• 5 jobs: ${COMPANY_SETTINGS.appointmentBonus5Jobs}</p>
-                  <p>• 6+ jobs: ${COMPANY_SETTINGS.appointmentBonus6PlusJobs}</p>
-                  <p className="text-yellow-500 mt-2">💡 Configure values in Company Settings</p>
+          <div className="space-y-3">
+            <h4 className="text-xl text-accent font-semibold">Bonus Options</h4>
+            <div className="bg-muted/20 rounded-lg p-4 border border-border">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="appointmentBonus"
+                    checked={applyAppointmentBonus}
+                    onCheckedChange={(checked) => setApplyAppointmentBonus(checked as boolean)}
+                  />
+                  <Label htmlFor="appointmentBonus" className="text-foreground cursor-pointer text-base">
+                    Apply appointment-based bonus
+                  </Label>
                 </div>
-              )}
+              </div>
+            
+            {applyAppointmentBonus && (
+              <div>
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="text-center">
+                    <p className="text-muted-foreground">3 jobs</p>
+                    <p className="font-semibold text-foreground">${COMPANY_SETTINGS.appointmentBonus3Jobs}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-muted-foreground">4 jobs</p>
+                    <p className="font-semibold text-foreground">${COMPANY_SETTINGS.appointmentBonus4Jobs}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-muted-foreground">5 jobs</p>
+                    <p className="font-semibold text-foreground">${COMPANY_SETTINGS.appointmentBonus5Jobs}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-muted-foreground">6+ jobs</p>
+                    <p className="font-semibold text-foreground">${COMPANY_SETTINGS.appointmentBonus6PlusJobs}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-yellow-500 mt-8">💡 Configure in Company Settings</p>
+              </div>
+            )}
             </div>
           </div>
 
           {/* Notes */}
           <div>
-            <Label htmlFor="notes" className="text-foreground">Notes (Optional)</Label>
+            <Label htmlFor="notes" className="text-foreground mb-3">Notes (Optional)</Label>
             <textarea
               id="notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 border border-border rounded-md bg-muted/30 text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
               placeholder="Add any notes about this day..."
             />
           </div>
 
+          {/* Job-by-Job Bonus Breakdown - Only show for crew mode when there's bonus to distribute */}
+          {isCrewJob && preview.qualifyForBonus && serviceBreakdown.some(s => s.serviceId) && (() => {
+            const totalDailyBonus = preview.bonusQualifiedForDollars + preview.appointmentBasedBonus;
+            if (totalDailyBonus <= 0) return null;
+            
+            const crewMembers = selectedCrewEmployees.filter(e => !e.isHelper);
+            const helpers = selectedCrewEmployees.filter(e => e.isHelper);
+            
+            // Check if bonus percentages are set - if all are 0, split evenly
+            const totalBonusPercent = crewMembers.reduce((sum, m) => sum + (m.bonusPercentage || 0), 0);
+            const useEvenSplit = totalBonusPercent === 0;
+            const evenSplitPercent = crewMembers.length > 0 ? 100 / crewMembers.length : 0;
+            
+            // Helper function to get crew member's bonus share
+            const getCrewBonusShare = (member: SelectedCrewEmployee, crewBonus: number) => {
+              if (useEvenSplit) {
+                return crewBonus / crewMembers.length;
+              }
+              return crewBonus * ((member.bonusPercentage || 0) / 100);
+            };
+            
+            // Calculate bonus breakdown per job
+            const jobBreakdown = serviceBreakdown
+              .filter(appt => appt.serviceId)
+              .map((appt, index) => {
+                const revenueShare = preview.totalRevenue > 0 ? (appt.revenue || 0) / preview.totalRevenue : 0;
+                const jobBonus = revenueShare * totalDailyBonus;
+                
+                // Check if any helper worked on this job
+                const helperOnJob = helpers.find(h => 
+                  h.helperAppointments?.some(ha => ha.appointmentIndex === index)
+                );
+                
+                if (helperOnJob && helperOnJob.helperAppointments) {
+                  const helperAppt = helperOnJob.helperAppointments.find(ha => ha.appointmentIndex === index);
+                  const helperHrs = helperAppt?.hours || 0;
+                  const crewDailyHours = parseFloat(totalDailyHours) || 0;
+                  const totalJobHours = (crewDailyHours * crewMembers.length) + helperHrs;
+                  const helperShare = totalJobHours > 0 ? helperHrs / totalJobHours : 0;
+                  const helperBonus = jobBonus * helperShare;
+                  const crewBonus = jobBonus - helperBonus;
+                  
+                  return {
+                    serviceName: appt.serviceName,
+                    revenue: appt.revenue || 0,
+                    jobBonus,
+                    hasHelper: true,
+                    helperName: helperOnJob.employeeName,
+                    helperShare: helperShare * 100,
+                    helperBonus,
+                    crewBonus,
+                    crewAllocations: crewMembers.map(m => ({
+                      name: m.employeeName,
+                      bonus: getCrewBonusShare(m, crewBonus),
+                      percent: useEvenSplit ? evenSplitPercent : (m.bonusPercentage || 0)
+                    }))
+                  };
+                } else {
+                  return {
+                    serviceName: appt.serviceName,
+                    revenue: appt.revenue || 0,
+                    jobBonus,
+                    hasHelper: false,
+                    crewBonus: jobBonus,
+                    crewAllocations: crewMembers.map(m => ({
+                      name: m.employeeName,
+                      bonus: getCrewBonusShare(m, jobBonus),
+                      percent: useEvenSplit ? evenSplitPercent : (m.bonusPercentage || 0)
+                    }))
+                  };
+                }
+              });
+            
+            // Calculate person totals
+            const personTotals = [
+              ...crewMembers.map(m => ({
+                name: m.employeeName,
+                type: 'crew' as const,
+                totalBonus: jobBreakdown.reduce((sum, job) => {
+                  const alloc = job.crewAllocations.find(a => a.name === m.employeeName);
+                  return sum + (alloc?.bonus || 0);
+                }, 0)
+              })),
+              ...helpers.map(h => ({
+                name: h.employeeName,
+                type: 'helper' as const,
+                totalBonus: jobBreakdown.reduce((sum, job) => {
+                  if (job.hasHelper && job.helperName === h.employeeName) {
+                    return sum + (job.helperBonus || 0);
+                  }
+                  return sum;
+                }, 0)
+              }))
+            ];
+            
+            return (
+              <>
+                {/* Bonus Breakdown (Job by Job) */}
+                <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
+                  <h4 className="text-xl font-semibold text-accent mb-4">
+                    Bonus Breakdown (Job by Job)
+                  </h4>
+                  <div className="space-y-4">
+                    {jobBreakdown.map((job, index) => (
+                      <div 
+                        key={index} 
+                        className="p-4 bg-muted/30 rounded-lg border border-border"
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <span className="text-xl font-bold text-foreground">Job {index + 1}</span>
+                            <span className="text-lg text-muted-foreground ml-2">({job.serviceName})</span>
+                            <span className="text-lg text-muted-foreground ml-3">
+                              ${job.revenue.toFixed(0)} revenue
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-muted-foreground">Job Bonus</p>
+                            <p className="text-2xl font-bold text-accent">${job.jobBonus.toFixed(2)}</p>
+                          </div>
+                        </div>
+                        
+                        {job.hasHelper && (
+                          <p className="text-accent mb-3">
+                            {job.helperName} helped ({job.helperShare?.toFixed(1)}% of job hours)
+                          </p>
+                        )}
+                        
+                        <div className="flex flex-wrap gap-4">
+                          {job.crewAllocations.map((alloc, i) => (
+                            <div key={i} className="px-4 py-2 bg-background rounded-lg border border-border">
+                              <span className="text-muted-foreground">{alloc.name}:</span>
+                              <span className="text-xl font-bold text-foreground ml-2">${alloc.bonus.toFixed(2)}</span>
+                            </div>
+                          ))}
+                          {job.hasHelper && (
+                            <div className="px-4 py-2 bg-accent/20 rounded-lg border border-accent/30">
+                              <span className="text-accent">{job.helperName}:</span>
+                              <span className="text-xl font-bold text-accent ml-2">${job.helperBonus?.toFixed(2)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Bonus Summary (Per Person) */}
+                <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
+                  <h4 className="text-xl font-semibold text-accent mb-4">Bonus Summary (Per Person)</h4>
+                  <div className="space-y-3">
+                    {personTotals.map((person, index) => (
+                      <div 
+                        key={index} 
+                        className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border border-border"
+                      >
+                        <div>
+                          <span className="text-xl font-semibold text-foreground">{person.name}</span>
+                          {person.type === 'helper' && (
+                            <span className="text-accent ml-2">(Helper)</span>
+                          )}
+                        </div>
+                        <span className="text-2xl font-bold text-accent">${person.totalBonus.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Verification */}
+                  <div className="mt-4 p-3 rounded-lg bg-muted/30 flex items-center justify-between">
+                    <span className="text-foreground font-medium">
+                      Total Distributed: ${personTotals.reduce((sum, p) => sum + p.totalBonus, 0).toFixed(2)}
+                    </span>
+                    <span className="text-muted-foreground">
+                      (Expected: ${totalDailyBonus.toFixed(2)})
+                    </span>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+
           {/* Preview Section */}
-          <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-3">
+          <div className="bg-accent/10 rounded-lg p-4 border border-accent/30 space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="font-semibold text-foreground">Calculation Preview</h4>
+              <h4 className="text-xl font-semibold text-accent pb-4">Calculation Preview</h4>
               {/* COGS Warning Indicator */}
               {preview.cogsNoLaborPercent > 20 && (
                 <div className="flex items-center gap-2 text-red-500">
@@ -807,10 +1818,10 @@ export function AddDailyRecordWithServices({
             </div>
             
             {/* Formula Explanation */}
-            <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t border-border">
-              <p><strong>Total Cost of Job:</strong> Labor (${preview.basePay.toFixed(2)}) + COGS (${preview.cogsNoLabor.toFixed(2)}) + Overhead (${preview.overheadAllocation.toFixed(2)}) = ${preview.totalCostOfJob.toFixed(2)}</p>
-              <p><strong>Gross Profit Before Bonus:</strong> Revenue (${preview.totalRevenue.toFixed(2)}) - Total Cost (${preview.totalCostOfJob.toFixed(2)}) = ${preview.grossProfitBeforeBonus.toFixed(2)}</p>
-              <p><strong>LER Formula:</strong> Gross Profit (${preview.grossProfitBeforeBonus.toFixed(2)}) ÷ Labor (${preview.basePay.toFixed(2)}) = {preview.ler.toFixed(2)}</p>
+            <div className="text-sm text-muted-foreground space-y-1 pt-2 border-t border-border pt-8">
+              <p><strong className="text-accent">Total Cost of Job:</strong> Labor (${preview.basePay.toFixed(2)}) + COGS (${preview.cogsNoLabor.toFixed(2)}) + Overhead (${preview.overheadAllocation.toFixed(2)}) = ${preview.totalCostOfJob.toFixed(2)}</p>
+              <p><strong className="text-accent">Gross Profit Before Bonus:</strong> Revenue (${preview.totalRevenue.toFixed(2)}) - Total Cost (${preview.totalCostOfJob.toFixed(2)}) = ${preview.grossProfitBeforeBonus.toFixed(2)}</p>
+              <p><strong className="text-accent">LER Formula:</strong> Gross Profit (${preview.grossProfitBeforeBonus.toFixed(2)}) ÷ Labor (${preview.basePay.toFixed(2)}) = {preview.ler.toFixed(2)}</p>
             </div>
           </div>
 

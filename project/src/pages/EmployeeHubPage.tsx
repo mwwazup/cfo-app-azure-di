@@ -23,6 +23,8 @@ import {
 import { useAuthContext } from '../contexts/auth-context';
 import { useRevenue } from '../contexts/revenue-context';
 import * as employeeLERService from '../services/employeeLERService';
+import * as crewService from '../services/crewService';
+import type { Crew, CrewRole, CrewMember } from '../services/crewService';
 import { generateYearPayPeriods } from '../utils/payPeriodGenerator';
 import { Tooltip } from '../components/ui/tooltip';
 import { EmployeeSetupDialog } from '../components/employee/EmployeeSetupDialog';
@@ -90,6 +92,24 @@ const EmployeeHubPage: React.FC = () => {
   const [showAddPeriod, setShowAddPeriod] = useState(false);
   const [showEditPeriod, setShowEditPeriod] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<{ id: string; periodName: string; startDate: string; endDate: string } | null>(null);
+  
+  // Crew management state
+  const [crews, setCrews] = useState<Crew[]>([]);
+  const [crewRoles, setCrewRoles] = useState<CrewRole[]>([]);
+  const [selectedCrew, setSelectedCrew] = useState<Crew | null>(null);
+  const [crewMembers, setCrewMembers] = useState<CrewMember[]>([]);
+  const [showAddCrew, setShowAddCrew] = useState(false);
+  const [showEditCrew, setShowEditCrew] = useState(false);
+  const [showAddRole, setShowAddRole] = useState(false);
+  const [showEditRole, setShowEditRole] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<CrewRole | null>(null);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [newCrewName, setNewCrewName] = useState('');
+  const [newRoleName, setNewRoleName] = useState('');
+  const [newRoleBonusPercent, setNewRoleBonusPercent] = useState(0);
+  const [newRoleIsEligible, setNewRoleIsEligible] = useState(true);
+  const [newMemberEmployeeId, setNewMemberEmployeeId] = useState('');
+  const [newMemberRoleId, setNewMemberRoleId] = useState('');
   
   // Lighthouse state
   const hasLighthouse = !!lighthouse.goal && lighthouse.planStatus === 'committed';
@@ -162,6 +182,21 @@ const EmployeeHubPage: React.FC = () => {
           end_date: p.end_date,
           year: p.year
         })));
+        
+        // Load crews and roles
+        const [crewList, roleList] = await Promise.all([
+          crewService.getCrews(dbUserId),
+          crewService.getCrewRoles(dbUserId)
+        ]);
+        setCrews(crewList);
+        setCrewRoles(roleList);
+        
+        // Initialize default roles if none exist
+        if (roleList.length === 0) {
+          await crewService.initializeDefaultRoles(dbUserId);
+          const newRoles = await crewService.getCrewRoles(dbUserId);
+          setCrewRoles(newRoles);
+        }
       } catch (error) {
         console.error('Error loading employee hub data:', error);
       } finally {
@@ -171,6 +206,19 @@ const EmployeeHubPage: React.FC = () => {
     
     loadData();
   }, [dbUserId]);
+
+  // Load crew members when selected crew changes
+  useEffect(() => {
+    async function loadCrewMembers() {
+      if (selectedCrew?.id) {
+        const members = await crewService.getCrewMembers(selectedCrew.id);
+        setCrewMembers(members);
+      } else {
+        setCrewMembers([]);
+      }
+    }
+    loadCrewMembers();
+  }, [selectedCrew]);
 
   // Calculate crew capacity metrics
   const crewCapacityMetrics = useMemo(() => {
@@ -767,6 +815,17 @@ const EmployeeHubPage: React.FC = () => {
             </Card>
           </div>
 
+          {/* Inspirational Quote */}
+          <div className="py-8 text-center">
+            <p 
+              className="text-xl md:text-2xl text-foreground/90 leading-relaxed max-w-3xl mx-auto mb-12 mt-12"
+              style={{ fontFamily: "'Lora', normal" }}
+            >
+              "If the grind has taken over, it's time to take it back.<br />
+              Step out of survival mode and start creating the future you imagined when you first started."
+            </p>
+          </div>
+
           {/* Employee & Pay Period Management */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Employee Management */}
@@ -1282,6 +1341,605 @@ const EmployeeHubPage: React.FC = () => {
               </CardContent>
             </Card>
           </div>
+
+          {/* Crew Management Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-accent" />
+                Crew Management
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Define crews, assign roles with bonus percentages, and set default crew members.
+                When adding daily records, you can choose between solo (employee) or crew tracking.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Crews Column */}
+                <div className="p-4 bg-muted/20 rounded-lg border border-border/50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium text-sm">Crews</h4>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setNewCrewName('');
+                        setShowAddCrew(true);
+                      }}
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add
+                    </Button>
+                  </div>
+                  
+                  {showAddCrew && (
+                    <div className="p-3 bg-muted/30 rounded-lg space-y-2">
+                      <Input
+                        placeholder="Crew name (e.g., Crew Alpha)"
+                        value={newCrewName}
+                        onChange={(e) => setNewCrewName(e.target.value)}
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="bg-accent hover:bg-accent/90"
+                          onClick={async () => {
+                            if (!dbUserId || !newCrewName.trim()) return;
+                            const created = await crewService.createCrew(dbUserId, {
+                              crew_name: newCrewName.trim(),
+                              is_active: true
+                            });
+                            if (created) {
+                              setCrews(prev => [...prev, created]);
+                              setNewCrewName('');
+                              setShowAddCrew(false);
+                            }
+                          }}
+                          disabled={!newCrewName.trim()}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setNewCrewName('');
+                            setShowAddCrew(false);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {crews.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No crews defined yet
+                      </p>
+                    ) : (
+                      crews.map((crew) => (
+                        <div
+                          key={crew.id}
+                          className={`p-2 rounded-lg cursor-pointer flex items-center justify-between ${
+                            selectedCrew?.id === crew.id
+                              ? 'bg-accent/20 border border-accent/50'
+                              : 'bg-muted/30 hover:bg-muted/50'
+                          }`}
+                          onClick={() => setSelectedCrew(crew)}
+                        >
+                          <span className="text-sm font-medium">{crew.crew_name}</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="p-1.5 rounded hover:bg-accent/20 text-muted-foreground hover:text-accent transition-colors"
+                              title="Rename crew"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCrew(crew);
+                                setNewCrewName(crew.crew_name);
+                                setShowEditCrew(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              className="p-1.5 rounded hover:bg-red-500/10 text-red-400 hover:text-red-500 transition-colors"
+                              title="Delete crew"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (confirm(`Delete crew "${crew.crew_name}"?`)) {
+                                  const success = await crewService.deleteCrew(crew.id!);
+                                  if (success) {
+                                    setCrews(prev => prev.filter(c => c.id !== crew.id));
+                                    if (selectedCrew?.id === crew.id) {
+                                      setSelectedCrew(null);
+                                    }
+                                  }
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  
+                  {/* Edit Crew Inline */}
+                  {showEditCrew && selectedCrew && (
+                    <div className="p-3 bg-muted/30 rounded-lg space-y-2 border border-accent/30">
+                      <Label className="text-sm">Edit Crew Name</Label>
+                      <Input
+                        value={newCrewName}
+                        onChange={(e) => setNewCrewName(e.target.value)}
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="bg-accent hover:bg-accent/90"
+                          onClick={async () => {
+                            if (!selectedCrew?.id || !newCrewName.trim()) return;
+                            const success = await crewService.updateCrew(selectedCrew.id, {
+                              crew_name: newCrewName.trim()
+                            });
+                            if (success) {
+                              setCrews(prev => prev.map(c =>
+                                c.id === selectedCrew.id ? { ...c, crew_name: newCrewName.trim() } : c
+                              ));
+                              setSelectedCrew({ ...selectedCrew, crew_name: newCrewName.trim() });
+                              setShowEditCrew(false);
+                            }
+                          }}
+                        >
+                          Update
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setShowEditCrew(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Roles Column */}
+                <div className="p-4 bg-muted/20 rounded-lg border border-border/50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium text-sm">Roles & Bonus %</h4>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setNewRoleName('');
+                        setNewRoleBonusPercent(0);
+                        setNewRoleIsEligible(true);
+                        setShowAddRole(true);
+                      }}
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add
+                    </Button>
+                  </div>
+                  
+                  {/* Bonus Percentage Validation */}
+                  {crewRoles.length > 0 && (() => {
+                    const validation = crewService.validateBonusPercentages(crewRoles);
+                    return (
+                      <div className={`text-sm p-2 rounded ${
+                        validation.valid 
+                          ? 'bg-green-500/10 text-green-400' 
+                          : 'bg-amber-500/10 text-amber-400'
+                      }`}>
+                        {validation.valid ? (
+                          <span className="flex items-center gap-1">
+                            <CheckCircle className="h-4 w-4" />
+                            {validation.message}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <AlertCircle className="h-4 w-4" />
+                            {validation.message}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  
+                  {showAddRole && (
+                    <div className="p-3 bg-muted/30 rounded-lg space-y-2">
+                      <Input
+                        placeholder="Role name"
+                        value={newRoleName}
+                        onChange={(e) => setNewRoleName(e.target.value)}
+                        autoFocus
+                      />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          placeholder="Bonus %"
+                          value={newRoleBonusPercent}
+                          onChange={(e) => setNewRoleBonusPercent(parseFloat(e.target.value) || 0)}
+                          className="w-24"
+                          min={0}
+                          max={100}
+                        />
+                        <span className="text-sm text-muted-foreground">%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="newRoleEligible"
+                          checked={newRoleIsEligible}
+                          onCheckedChange={(checked) => setNewRoleIsEligible(!!checked)}
+                        />
+                        <Label htmlFor="newRoleEligible" className="text-sm">Bonus eligible</Label>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="bg-accent hover:bg-accent/90"
+                          onClick={async () => {
+                            if (!dbUserId || !newRoleName.trim()) return;
+                            const created = await crewService.createCrewRole(dbUserId, {
+                              role_name: newRoleName.trim(),
+                              bonus_percentage: newRoleBonusPercent,
+                              is_bonus_eligible: newRoleIsEligible,
+                              display_order: crewRoles.length
+                            });
+                            if (created) {
+                              setCrewRoles(prev => [...prev, created]);
+                              setNewRoleName('');
+                              setNewRoleBonusPercent(0);
+                              setShowAddRole(false);
+                            }
+                          }}
+                          disabled={!newRoleName.trim()}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setShowAddRole(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {crewRoles.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No roles defined yet
+                      </p>
+                    ) : (
+                      crewRoles.map((role) => (
+                        <div
+                          key={role.id}
+                          className="p-2 bg-muted/30 rounded-lg flex items-center justify-between"
+                        >
+                          <div>
+                            <span className="text-sm font-medium">{role.role_name}</span>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <span className={role.is_bonus_eligible ? 'text-accent' : 'text-muted-foreground'}>
+                                {role.bonus_percentage}%
+                              </span>
+                              {!role.is_bonus_eligible && (
+                                <span className="text-amber-400">(no bonus)</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="p-1.5 rounded hover:bg-accent/20 text-muted-foreground hover:text-accent transition-colors"
+                              title="Edit role"
+                              onClick={() => {
+                                setSelectedRole(role);
+                                setNewRoleName(role.role_name);
+                                setNewRoleBonusPercent(role.bonus_percentage);
+                                setNewRoleIsEligible(role.is_bonus_eligible);
+                                setShowEditRole(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              className="p-1.5 rounded hover:bg-red-500/10 text-red-400 hover:text-red-500 transition-colors"
+                              title="Delete role"
+                              onClick={async () => {
+                                if (confirm(`Delete role "${role.role_name}"?`)) {
+                                  const success = await crewService.deleteCrewRole(role.id!);
+                                  if (success) {
+                                    setCrewRoles(prev => prev.filter(r => r.id !== role.id));
+                                  }
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  
+                  {/* Edit Role Inline */}
+                  {showEditRole && selectedRole && (
+                    <div className="p-3 bg-muted/30 rounded-lg space-y-2 border border-accent/30">
+                      <Label className="text-sm">Edit Role</Label>
+                      <Input
+                        value={newRoleName}
+                        onChange={(e) => setNewRoleName(e.target.value)}
+                      />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={newRoleBonusPercent}
+                          onChange={(e) => setNewRoleBonusPercent(parseFloat(e.target.value) || 0)}
+                          className="w-24"
+                          min={0}
+                          max={100}
+                        />
+                        <span className="text-sm text-muted-foreground">%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="editRoleEligible"
+                          checked={newRoleIsEligible}
+                          onCheckedChange={(checked) => setNewRoleIsEligible(!!checked)}
+                        />
+                        <Label htmlFor="editRoleEligible" className="text-sm">Bonus eligible</Label>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="bg-accent hover:bg-accent/90"
+                          onClick={async () => {
+                            if (!selectedRole?.id) return;
+                            const success = await crewService.updateCrewRole(selectedRole.id, {
+                              role_name: newRoleName.trim(),
+                              bonus_percentage: newRoleBonusPercent,
+                              is_bonus_eligible: newRoleIsEligible
+                            });
+                            if (success) {
+                              setCrewRoles(prev => prev.map(r =>
+                                r.id === selectedRole.id
+                                  ? { ...r, role_name: newRoleName.trim(), bonus_percentage: newRoleBonusPercent, is_bonus_eligible: newRoleIsEligible }
+                                  : r
+                              ));
+                              setShowEditRole(false);
+                              setSelectedRole(null);
+                            }
+                          }}
+                        >
+                          Update
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setShowEditRole(false);
+                            setSelectedRole(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Crew Members Column */}
+                <div className="p-4 bg-muted/20 rounded-lg border border-border/50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium text-sm">
+                      {selectedCrew ? `${selectedCrew.crew_name} Members` : 'Crew Members'}
+                    </h4>
+                    {selectedCrew && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setNewMemberEmployeeId('');
+                          setNewMemberRoleId('');
+                          setShowAddMember(true);
+                        }}
+                        disabled={employees.length === 0}
+                      >
+                        <Plus className="h-3 w-3 mr-1" />
+                        Add
+                      </Button>
+                    )}
+                  </div>
+                  
+                  {!selectedCrew ? (
+                    <div className="flex flex-col items-center justify-center py-6 text-center">
+                      {crews.length === 0 ? (
+                        <>
+                          <div className="p-3 rounded-full bg-muted/50 mb-3">
+                            <Users className="h-6 w-6 text-muted-foreground" />
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Create a crew first to add members
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          {/* Animated arrow pointing left toward Crews list */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <svg 
+                              className="h-5 w-5 text-accent animate-bounce-x" 
+                              fill="none" 
+                              viewBox="0 0 24 24" 
+                              stroke="currentColor"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                            </svg>
+                            <span className="text-sm font-medium text-accent">Click a crew</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            to manage its members
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      {/* Auto-show add form when crew has no members, or when Add button clicked */}
+                      {(showAddMember || crewMembers.length === 0) && (
+                        <div className="p-3 bg-muted/30 rounded-lg space-y-2">
+                          {crewMembers.length === 0 && (
+                            <p className="text-sm text-accent font-medium mb-2">
+                              Add your first crew member:
+                            </p>
+                          )}
+                          <Select
+                            value={newMemberEmployeeId}
+                            onValueChange={setNewMemberEmployeeId}
+                          >
+                            <SelectTrigger className="h-8 text-sm">
+                              <SelectValue placeholder="Select employee" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {employees
+                                .filter(emp => !crewMembers.some(m => m.employee_id === emp.id))
+                                .map(emp => (
+                                  <SelectItem key={emp.id} value={emp.id}>
+                                    {emp.name}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={newMemberRoleId}
+                            onValueChange={setNewMemberRoleId}
+                          >
+                            <SelectTrigger className="h-8 text-sm">
+                              <SelectValue placeholder="Select role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {crewRoles.map(role => (
+                                <SelectItem key={role.id} value={role.id!}>
+                                  {role.role_name} ({role.bonus_percentage}%)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              className="bg-accent hover:bg-accent/90"
+                              onClick={async () => {
+                                if (!selectedCrew?.id || !newMemberEmployeeId) return;
+                                const created = await crewService.addCrewMember({
+                                  crew_id: selectedCrew.id,
+                                  employee_id: newMemberEmployeeId,
+                                  role_id: newMemberRoleId || undefined,
+                                  is_default: true
+                                });
+                                if (created) {
+                                  // Reload crew members to get joined data
+                                  const members = await crewService.getCrewMembers(selectedCrew.id);
+                                  setCrewMembers(members);
+                                  setShowAddMember(false);
+                                  setNewMemberEmployeeId('');
+                                  setNewMemberRoleId('');
+                                }
+                              }}
+                              disabled={!newMemberEmployeeId}
+                            >
+                              Add Member
+                            </Button>
+                            {/* Only show Cancel if there are existing members */}
+                            {crewMembers.length > 0 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setShowAddMember(false)}
+                              >
+                                Cancel
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {crewMembers.length === 0 ? null : (
+                          crewMembers.map((member) => (
+                            <div
+                              key={member.id}
+                              className="p-2 bg-muted/30 rounded-lg flex items-center justify-between"
+                            >
+                              <div>
+                                <span className="text-sm font-medium">{member.employee_name}</span>
+                                <div className="text-sm text-muted-foreground">
+                                  {member.role_name || 'No role'} 
+                                  {member.bonus_percentage !== undefined && (
+                                    <span className="text-accent ml-1">({member.bonus_percentage}%)</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex gap-1">
+                                <Select
+                                  value={member.role_id || ''}
+                                  onValueChange={async (roleId) => {
+                                    const success = await crewService.updateCrewMember(member.id!, {
+                                      role_id: roleId || undefined
+                                    });
+                                    if (success && selectedCrew?.id) {
+                                      const members = await crewService.getCrewMembers(selectedCrew.id);
+                                      setCrewMembers(members);
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 w-28 text-sm">
+                                    <SelectValue placeholder="Role" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {crewRoles.map(role => (
+                                      <SelectItem key={role.id} value={role.id!}>
+                                        {role.role_name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 text-red-500 hover:text-red-600"
+                                  onClick={async () => {
+                                    const success = await crewService.removeCrewMember(member.id!);
+                                    if (success) {
+                                      setCrewMembers(prev => prev.filter(m => m.id !== member.id));
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Save Button */}
           <div className="flex justify-end">

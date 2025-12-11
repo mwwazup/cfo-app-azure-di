@@ -520,7 +520,7 @@ export default function HeroSection() {
                     may need to increase pricing on.
                   </li>
                   <li>
-                    Business Intelligence – compare your top services with strategic recommendations to improve.
+                    Service Hub – compare your top services with strategic recommendations to improve.
                   </li>
                   <li>
                     Revenue Trend Analysis – see how your service mix is impacting your overall revenue trajectory.

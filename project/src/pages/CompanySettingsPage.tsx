@@ -7,19 +7,12 @@ import {
   Settings, 
   Percent, 
   Building2,
-  Wrench,
   Save,
   AlertTriangle
 } from 'lucide-react';
 import { useAuthContext } from '../contexts/auth-context';
 import * as employeeLERService from '../services/employeeLERService';
-import { supabase } from '../config/supabaseClient';
 
-interface ServiceCOGS {
-  id: string;
-  serviceName: string;
-  cogsPercent: number;
-}
 
 const CompanySettingsPage: React.FC = () => {
   const { dbUserId } = useAuthContext();
@@ -30,15 +23,13 @@ const CompanySettingsPage: React.FC = () => {
     bonusThresholdMin: 25,
     bonusThresholdMax: 100,
     overtimeHoursDaily: 12,
-    overtimeMultiplier: 1.5
+    overtimeMultiplier: 1.5,
+    crewBonusThresholdMin: 15,
+    crewBonusThresholdMax: 100
   });
-  
-  // Service COGS state
-  const [services, setServices] = useState<ServiceCOGS[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [savingCOGS, setSavingCOGS] = useState(false);
 
   // Load settings on mount
   useEffect(() => {
@@ -54,23 +45,11 @@ const CompanySettingsPage: React.FC = () => {
           bonusThresholdMin: settings.bonusThresholdMin,
           bonusThresholdMax: settings.bonusThresholdMax,
           overtimeHoursDaily: settings.overtimeHoursDaily,
-          overtimeMultiplier: settings.overtimeMultiplier
+          overtimeMultiplier: settings.overtimeMultiplier,
+          crewBonusThresholdMin: settings.crewBonusThresholdMin || 15,
+          crewBonusThresholdMax: settings.crewBonusThresholdMax || 100
         });
         
-        // Load services with COGS
-        const { data: servicesData } = await supabase
-          .from('services')
-          .select('id, service_name, cogs_percent')
-          .eq('user_id', dbUserId)
-          .order('service_name');
-        
-        if (servicesData) {
-          setServices(servicesData.map(s => ({
-            id: s.id,
-            serviceName: s.service_name,
-            cogsPercent: s.cogs_percent || 0
-          })));
-        }
       } catch (error) {
         console.error('Error loading company settings:', error);
       } finally {
@@ -97,7 +76,9 @@ const CompanySettingsPage: React.FC = () => {
         bonusThresholdMin: financialSettings.bonusThresholdMin,
         bonusThresholdMax: financialSettings.bonusThresholdMax,
         overtimeHoursDaily: financialSettings.overtimeHoursDaily,
-        overtimeMultiplier: financialSettings.overtimeMultiplier
+        overtimeMultiplier: financialSettings.overtimeMultiplier,
+        crewBonusThresholdMin: financialSettings.crewBonusThresholdMin,
+        crewBonusThresholdMax: financialSettings.crewBonusThresholdMax
       };
       
       const success = await employeeLERService.saveCompanySettings(dbUserId, updatedSettings);
@@ -111,40 +92,6 @@ const CompanySettingsPage: React.FC = () => {
       alert('Error saving settings. Please try again.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  
-  // Update local COGS state
-  const updateServiceCOGS = (serviceId: string, cogsPercent: number) => {
-    setServices(prev => prev.map(s => 
-      s.id === serviceId ? { ...s, cogsPercent } : s
-    ));
-  };
-
-  // Save all COGS at once
-  const handleSaveAllCOGS = async () => {
-    if (!dbUserId) return;
-    
-    setSavingCOGS(true);
-    try {
-      for (const service of services) {
-        const { error } = await supabase
-          .from('services')
-          .update({ cogs_percent: service.cogsPercent })
-          .eq('id', service.id)
-          .eq('user_id', dbUserId);
-        
-        if (error) {
-          console.error('Error saving COGS for', service.serviceName, error);
-        }
-      }
-      alert('Service COGS saved successfully!');
-    } catch (error) {
-      console.error('Error saving COGS:', error);
-      alert('Error saving COGS. Please try again.');
-    } finally {
-      setSavingCOGS(false);
     }
   };
 
@@ -168,7 +115,7 @@ const CompanySettingsPage: React.FC = () => {
             <Building2 className="h-8 w-8 text-accent" />
             Company Settings
           </h1>
-          <p className="text-muted-foreground mt-1">Configure company-wide financial settings and service costs</p>
+          <p className="text-muted-foreground mt-1">Configure company-wide financial settings and costs</p>
         </div>
       </div>
 
@@ -186,205 +133,195 @@ const CompanySettingsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Financial Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Percent className="h-5 w-5 text-accent" />
-              Financial Settings
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Core financial parameters used in profit calculations
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="overheadPercent">Overhead Allocation (%)</Label>
-              <div className="flex items-center gap-2 mt-1">
-                <Input
-                  id="overheadPercent"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.5"
-                  value={financialSettings.overheadPercent}
-                  onChange={(e) => setFinancialSettings(prev => ({
-                    ...prev,
-                    overheadPercent: parseFloat(e.target.value) || 0
-                  }))}
-                />
-                <span className="text-muted-foreground">%</span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Percentage of revenue allocated to overhead costs (rent, utilities, insurance, etc.)
-              </p>
-            </div>
-
-            <div className="border-t border-border pt-4">
-              <Label className="text-sm font-medium mb-3 block">LER Bonus Thresholds</Label>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="bonusMin" className="text-xs">Minimum (%)</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Input
-                      id="bonusMin"
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={financialSettings.bonusThresholdMin}
-                      onChange={(e) => setFinancialSettings(prev => ({
-                        ...prev,
-                        bonusThresholdMin: parseFloat(e.target.value) || 0
-                      }))}
-                    />
-                    <span className="text-muted-foreground text-sm">%</span>
-                  </div>
+      {/* Financial Settings - Full Width */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Percent className="h-5 w-5 text-accent" />
+            Financial Settings
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Core financial parameters used in profit calculations
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            {/* Row 1: Overhead & Crew Bonus */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Overhead Allocation */}
+              <div className="p-4 rounded-lg border border-border">
+                <p className="text-lg text-accent font-medium mb-3">Overhead Allocation</p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="overheadPercent"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={financialSettings.overheadPercent}
+                    onChange={(e) => setFinancialSettings(prev => ({
+                      ...prev,
+                      overheadPercent: parseFloat(e.target.value) || 0
+                    }))}
+                    className="w-24"
+                  />
+                  <span className="text-muted-foreground">%</span>
                 </div>
-                <div>
-                  <Label htmlFor="bonusMax" className="text-xs">Maximum (%)</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Input
-                      id="bonusMax"
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={financialSettings.bonusThresholdMax}
-                      onChange={(e) => setFinancialSettings(prev => ({
-                        ...prev,
-                        bonusThresholdMax: parseFloat(e.target.value) || 0
-                      }))}
-                    />
-                    <span className="text-muted-foreground text-sm">%</span>
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Gross profit % range where LER bonuses apply
-              </p>
-            </div>
-
-            <div className="border-t border-border pt-4">
-              <Label className="text-sm font-medium mb-3 block">Overtime Settings</Label>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="otHours" className="text-xs">Daily OT Threshold</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Input
-                      id="otHours"
-                      type="number"
-                      min="0"
-                      max="24"
-                      value={financialSettings.overtimeHoursDaily}
-                      onChange={(e) => setFinancialSettings(prev => ({
-                        ...prev,
-                        overtimeHoursDaily: parseFloat(e.target.value) || 8
-                      }))}
-                    />
-                    <span className="text-muted-foreground text-sm">hrs</span>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="otMult" className="text-xs">OT Multiplier</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Input
-                      id="otMult"
-                      type="number"
-                      min="1"
-                      max="3"
-                      step="0.1"
-                      value={financialSettings.overtimeMultiplier}
-                      onChange={(e) => setFinancialSettings(prev => ({
-                        ...prev,
-                        overtimeMultiplier: parseFloat(e.target.value) || 1.5
-                      }))}
-                    />
-                    <span className="text-muted-foreground text-sm">x</span>
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Hours before overtime kicks in and the pay multiplier
-              </p>
-            </div>
-
-            <div className="pt-4">
-              <Button 
-                onClick={handleSaveFinancialSettings}
-                disabled={saving}
-                className="w-full bg-accent hover:bg-accent/90"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                {saving ? 'Saving...' : 'Save Financial Settings'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Service COGS Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Wrench className="h-5 w-5 text-accent" />
-              Service COGS
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Cost of Goods Sold percentage for each service type
-            </p>
-          </CardHeader>
-          <CardContent>
-            {services.length === 0 ? (
-              <div className="text-center py-8">
-                <Wrench className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No services configured yet.</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Add services in the Service Mix page to configure COGS.
+                <p className="text-sm text-muted-foreground mt-2">
+                  Percentage of revenue allocated to overhead costs (rent, utilities, insurance, etc.)
                 </p>
               </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="bg-muted/30 rounded-lg p-3 mb-4">
-                  <p className="text-xs text-muted-foreground">
-                    COGS represents material costs as a percentage of service revenue (excluding labor).
-                    This affects gross profit calculations in Service Mix and Employee LER.
-                  </p>
-                </div>
-                
-                <div className="max-h-[400px] overflow-y-auto space-y-2">
-                  {services.map(service => (
-                    <div key={service.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-accent/50 transition-colors">
-                      <span className="font-medium">{service.serviceName}</span>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.5"
-                          value={service.cogsPercent}
-                          onChange={(e) => updateServiceCOGS(service.id, parseFloat(e.target.value) || 0)}
-                          className="w-20 text-right"
-                        />
-                        <span className="text-muted-foreground text-sm">%</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
 
-                <div className="pt-4 border-t border-border">
-                  <Button 
-                    onClick={handleSaveAllCOGS}
-                    disabled={savingCOGS}
-                    className="w-full bg-accent hover:bg-accent/90"
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    {savingCOGS ? 'Saving...' : 'Save All COGS'}
-                  </Button>
+              {/* Overtime Settings */}
+              <div className="p-4 rounded-lg border border-border">
+                <p className="text-lg text-accent font-medium mb-3">Overtime Settings</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="otHours" className="text-xs">Daily OT Threshold</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        id="otHours"
+                        type="number"
+                        min="0"
+                        max="24"
+                        value={financialSettings.overtimeHoursDaily}
+                        onChange={(e) => setFinancialSettings(prev => ({
+                          ...prev,
+                          overtimeHoursDaily: parseFloat(e.target.value) || 8
+                        }))}
+                      />
+                      <span className="text-muted-foreground text-sm">hrs</span>
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="otMult" className="text-xs">OT Multiplier</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        id="otMult"
+                        type="number"
+                        min="1"
+                        max="3"
+                        step="0.1"
+                        value={financialSettings.overtimeMultiplier}
+                        onChange={(e) => setFinancialSettings(prev => ({
+                          ...prev,
+                          overtimeMultiplier: parseFloat(e.target.value) || 1.5
+                        }))}
+                      />
+                      <span className="text-muted-foreground text-sm">x</span>
+                    </div>
+                  </div>
                 </div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Hours before overtime kicks in and the pay multiplier
+                </p>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+
+            {/* Row 2: Solo & Crew Bonus Thresholds */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Solo LER Bonus Thresholds */}
+              <div className="p-4 rounded-lg border border-border">
+                <p className="text-lg text-accent font-medium mb-3">Solo LER Bonus Thresholds</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="bonusMin" className="text-xs">Minimum (%)</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        id="bonusMin"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={financialSettings.bonusThresholdMin}
+                        onChange={(e) => setFinancialSettings(prev => ({
+                          ...prev,
+                          bonusThresholdMin: parseFloat(e.target.value) || 0
+                        }))}
+                      />
+                      <span className="text-muted-foreground text-sm">%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="bonusMax" className="text-xs">Maximum (%)</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        id="bonusMax"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={financialSettings.bonusThresholdMax}
+                        onChange={(e) => setFinancialSettings(prev => ({
+                          ...prev,
+                          bonusThresholdMax: parseFloat(e.target.value) || 0
+                        }))}
+                      />
+                      <span className="text-muted-foreground text-sm">%</span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Solo job gross profit % range where LER bonuses apply
+                </p>
+              </div>
+
+              {/* Crew LER Bonus Thresholds */}
+              <div className="p-4 rounded-lg border border-border">
+                <p className="text-lg text-accent font-medium mb-3">Crew LER Bonus Thresholds</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="crewBonusMin" className="text-xs">Minimum (%)</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        id="crewBonusMin"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={financialSettings.crewBonusThresholdMin}
+                        onChange={(e) => setFinancialSettings(prev => ({
+                          ...prev,
+                          crewBonusThresholdMin: parseFloat(e.target.value) || 0
+                        }))}
+                      />
+                      <span className="text-muted-foreground text-sm">%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="crewBonusMax" className="text-xs">Maximum (%)</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        id="crewBonusMax"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={financialSettings.crewBonusThresholdMax}
+                        onChange={(e) => setFinancialSettings(prev => ({
+                          ...prev,
+                          crewBonusThresholdMax: parseFloat(e.target.value) || 0
+                        }))}
+                      />
+                      <span className="text-muted-foreground text-sm">%</span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Crew job gross profit % range where LER bonuses apply (lower than solo due to higher labor costs)
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-12 flex justify-center pb-6">
+            <Button  
+              onClick={handleSaveFinancialSettings}
+              disabled={saving}
+              className="w-64 bg-accent hover:bg-accent/90"
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? 'Saving...' : 'Save Financial Settings'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Summary Card */}
       <Card>
@@ -401,16 +338,16 @@ const CompanySettingsPage: React.FC = () => {
               <p className="text-2xl font-bold">{financialSettings.overheadPercent}%</p>
             </div>
             <div className="p-4 rounded-lg bg-muted/30">
-              <p className="text-sm text-muted-foreground">Bonus Range</p>
+              <p className="text-sm text-muted-foreground">Solo Bonus</p>
               <p className="text-2xl font-bold">{financialSettings.bonusThresholdMin}-{financialSettings.bonusThresholdMax}%</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/30">
+              <p className="text-sm text-muted-foreground">Crew Bonus</p>
+              <p className="text-2xl font-bold">{financialSettings.crewBonusThresholdMin}-{financialSettings.crewBonusThresholdMax}%</p>
             </div>
             <div className="p-4 rounded-lg bg-muted/30">
               <p className="text-sm text-muted-foreground">OT After</p>
               <p className="text-2xl font-bold">{financialSettings.overtimeHoursDaily} hrs</p>
-            </div>
-            <div className="p-4 rounded-lg bg-muted/30">
-              <p className="text-sm text-muted-foreground">Services</p>
-              <p className="text-2xl font-bold">{services.length}</p>
             </div>
           </div>
         </CardContent>

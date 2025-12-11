@@ -19,7 +19,7 @@ import { BudgetVsActualPage } from './pages/BudgetVsActualPage';
 import EmployeeLERPage from './pages/EmployeeLERPage';
 import EmployeeHubPage from './pages/EmployeeHubPage';
 import CompanySettingsPage from './pages/CompanySettingsPage';
-import { BusinessIntelligencePage } from './pages/BusinessIntelligencePage';
+import { ServiceHubPage } from './pages/ServiceHubPage';
 import { BonusROIAnalysisPage } from './pages/BonusROIAnalysisPage';
 import PatternInterruptTestPage from './pages/PatternInterruptTestPage';
 import ProfitImpactPage from './pages/coach/profit-impact';
@@ -163,9 +163,9 @@ function AppRoutes() {
               <Route index element={<CompanySettingsPage />} />
             </Route>
             
-            {/* Business Intelligence with nested routes */}
-            <Route path="/business-intelligence" element={<DashboardLayout />}>
-              <Route index element={<BusinessIntelligencePage />} />
+            {/* Service Hub with nested routes */}
+            <Route path="/service-hub" element={<DashboardLayout />}>
+              <Route index element={<ServiceHubPage />} />
               <Route path="budget-vs-actual" element={<BudgetVsActualPage />} />
               <Route path="service-mix" element={<ServiceMixPage />} />
             </Route>
