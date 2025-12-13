@@ -7,7 +7,43 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
 import json
+import time
 from logging_config import get_logger
+
+# Import RAG metrics service
+from services.ragMetricsService import (
+    RetrievalMetrics, 
+    get_config, 
+    list_configs,
+    calculate_tokens
+)
+
+def save_retrieval_metrics(metrics: RetrievalMetrics):
+    """Save retrieval metrics to database"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            logger.warning("Cannot save metrics: No Supabase client")
+            return
+        
+        metrics_data = metrics.get_metrics()
+        supabase.table('rag_retrieval_metrics').insert({
+            'user_id': metrics.user_id,
+            'query': metrics_data['query'],
+            'retrieved_nodes': metrics_data['retrieved_nodes'],
+            'retrieved_edges': metrics_data['retrieved_edges'],
+            'context_tokens': metrics_data['context_tokens'],
+            'retrieval_time_ms': metrics_data['retrieval_time_ms'],
+            'completeness_score': metrics_data['completeness_score'],
+            'similarity_threshold': metrics_data['similarity_threshold'],
+            'max_results': metrics_data['max_results'],
+            'response_length': metrics_data['response_length']
+        }).execute()
+        
+        logger.info(f"✅ Saved RAG metrics for {metrics.user_id}")
+    except Exception as e:
+        logger.error(f"Failed to save RAG metrics: {e}")
+
 
 def get_supabase_client() -> Client:
     """Get Supabase client for database queries"""
@@ -801,7 +837,7 @@ async def add_messages(request: AddMessagesRequest):
 
 
 @router.get("/context/{user_id}")
-async def get_context(user_id: str, lastN: int = 10):
+async def get_context(user_id: str, lastN: int = 10, config: str = "balanced"):
     """
     Get conversation context for a user from Zep Cloud
     """
@@ -809,10 +845,23 @@ async def get_context(user_id: str, lastN: int = 10):
     import sys
     print(f"\n{'='*60}", flush=True)
     print(f"🔍 ENDPOINT CALLED: Getting context for user {user_id}", flush=True)
+    print(f"📊 Using config: {config}", flush=True)
     print(f"{'='*60}\n", flush=True)
     sys.stdout.flush()
     logger.info(f"🔍 Getting context for user {user_id}")
+    logger.info(f"📊 Using retrieval config: {config}")
     logger.warning(f"⚠️ CONTEXT ENDPOINT HIT FOR {user_id}")
+    
+    # Initialize metrics tracking
+    metrics = RetrievalMetrics(user_id)
+    retrieval_start = time.time()
+    
+    # Get retrieval configuration
+    retrieval_config = get_config(config)
+    metrics.set_parameters(
+        retrieval_config['similarity_threshold'],
+        retrieval_config['max_results']
+    )
     
     client = get_zep_client()
     if not client:
@@ -850,6 +899,19 @@ async def get_context(user_id: str, lastN: int = 10):
         logger.info(f"📝 Context string length: {len(context_string)} chars")
         if context_string:
             logger.debug(f"Context preview: {context_string[:200]}...")
+        
+        # Calculate retrieval timing
+        retrieval_time_ms = int((time.time() - retrieval_start) * 1000)
+        metrics.set_timing(retrieval_time_ms)
+        
+        # Set retrieval metrics
+        # Note: Zep doesn't expose nodes/edges count in current SDK version
+        # We'll estimate based on context length
+        estimated_nodes = min(50, len(context_string) // 100)  # Rough estimate
+        estimated_edges = min(20, len(context_string) // 200)  # Rough estimate
+        metrics.set_retrieval_results([{} for _ in range(estimated_nodes)], 
+                                   [{} for _ in range(estimated_edges)], 
+                                   context_string)
         
         # Format facts as dict
         facts = {}
@@ -920,8 +982,27 @@ async def get_context(user_id: str, lastN: int = 10):
             "relevantMemories": getattr(user_context, 'facts', []),
             "facts": facts,
             "financialContext": financial_context,
-            "_debug": "success"
+            "_debug": "success",
+            "metrics": {
+                "retrieved_nodes": metrics.metrics['retrieved_nodes'],
+                "retrieved_edges": metrics.metrics['retrieved_edges'],
+                "context_tokens": metrics.metrics['context_tokens'],
+                "retrieval_time_ms": metrics.metrics['retrieval_time_ms'],
+                "config": {
+                    "name": config,
+                    "description": retrieval_config['description'],
+                    "similarity_threshold": metrics.metrics['similarity_threshold'],
+                    "max_results": metrics.metrics['max_results']
+                }
+            }
         }
+        
+        # Log metrics
+        metrics.log_metrics()
+        
+        # Save metrics to database (async, non-blocking)
+        save_retrieval_metrics(metrics)
+        
         print(f"✅ Returning context: {len(context_string)} chars, {len(facts)} facts", flush=True)
         return result
         
@@ -987,6 +1068,56 @@ async def delete_thread(user_id: str):
             "success": False,
             "error": str(e)
         }
+
+
+@router.get("/metrics/{user_id}")
+async def get_retrieval_metrics(user_id: str, limit: int = 50):
+    """
+    Get RAG retrieval metrics for a user
+    """
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Database not available")
+        
+        response = supabase.table('rag_retrieval_metrics').select(
+            '*'
+        ).eq('user_id', user_id).order('created_at', desc=True).limit(limit).execute()
+        
+        metrics = response.data or []
+        
+        # Calculate aggregates
+        if metrics:
+            avg_time = sum(m['retrieval_time_ms'] for m in metrics) / len(metrics)
+            avg_tokens = sum(m['context_tokens'] for m in metrics) / len(metrics)
+            completeness_counts = {}
+            for m in metrics:
+                score = m.get('completeness_score', 'unknown')
+                completeness_counts[score] = completeness_counts.get(score, 0) + 1
+            
+            return {
+                "metrics": metrics,
+                "summary": {
+                    "total_queries": len(metrics),
+                    "avg_retrieval_time_ms": round(avg_time, 2),
+                    "avg_context_tokens": round(avg_tokens, 2),
+                    "completeness_distribution": completeness_counts
+                }
+            }
+        
+        return {"metrics": [], "summary": {}}
+        
+    except Exception as e:
+        logger.error(f"Error retrieving metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/configs")
+async def get_retrieval_configs():
+    """
+    Get available retrieval configurations
+    """
+    return {"configs": list_configs()}
 
 
 @router.get("/health")

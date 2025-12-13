@@ -1,13 +1,13 @@
 # WaveRider Project Rules for Cascade AI
 # Rename this file to: .windsurfrules (remove .md extension)
 # These rules guide AI behavior to maintain consistency and prevent unwanted changes
-
+ 
 ## CRITICAL: Data Safety
 - NEVER use DROP TABLE in migrations - always use ALTER TABLE
 - ALWAYS backup database before running migrations (python backup_database.py)
 - NEVER delete data without explicit user confirmation
 - Check for destructive SQL commands (DROP, DELETE, TRUNCATE) before suggesting migrations
-
+ 
 ## UI/Styling Guidelines - READ THIS CAREFULLY ⚠️
 - Use existing Tailwind CSS classes - DO NOT create custom CSS unless explicitly asked
 - Match the current design system - professional, clean, financial dashboard aesthetic
@@ -16,6 +16,25 @@
 - Keep consistent spacing and layout patterns across all pages
 - If user says "fix the button" - fix functionality, NOT the styling
 - DO NOT add fancy animations, gradients, or "modern" effects without permission
+ 
+### Dropdown/Select Components
+- ALWAYS use shadcn/ui Select component for dropdowns (Select, SelectTrigger, SelectContent, SelectItem, SelectValue)
+- NEVER use native HTML <select> elements - they cause styling inconsistencies and blue highlighting
+- Import from: '../components/ui/select'
+- Example usage:
+  ```tsx
+  <Select value={value} onValueChange={setValue}>
+    <SelectTrigger className="w-[250px]">
+      <SelectValue placeholder="Select option" />
+    </SelectTrigger>
+    <SelectContent>
+      {options.map(option => (
+        <SelectItem key={option.id} value={option.id}>
+          {option.name}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
 
 ## Component Standards
 - Use existing UI components from /components/ui/ (shadcn/ui library)
@@ -233,9 +252,42 @@
 - "This is way more complicated than it needs to be"
 - "Where did all my data go?" (from DROP TABLE)
 
+## Model Switching Guidelines
+
+### When to Use Cascade + Opus (Heavy Configuration)
+- Complex system design (e.g., bonus calculations, data flow architecture)
+- Non-trivial bugs or architectural decisions
+- Major feature implementation requiring deep reasoning
+- When Cascade says "consult your smart friend" or the problem is complex
+
+### When to Use Cascade Alone (Standard Configuration)
+- Routine coding tasks and clear implementations
+- Simple bug fixes with known solutions
+- Straightforward refactoring following existing patterns
+- Well-defined requirements with clear implementation path
+
+### When to Switch to Lighter Model
+- Simple documentation or explanation tasks
+- Quick code snippets or one-liners
+- Straightforward questions with known answers
+- When the task is clearly defined and requires minimal complexity
+
+### Model Switching Prompts
+Cascade will automatically suggest model switches based on task complexity:
+
+**Heavier model prompts:**
+- "This requires architectural thinking - consider adding Opus for strategic planning"
+- "Complex bug detected - would you like Opus to help debug this issue?"
+- "Major system change - recommend Opus for architecture review"
+
+**Lighter model prompts:**
+- "Simple documentation task - could use a lighter model for speed"
+- "Quick fix needed - Cascade alone is sufficient"
+- "Routine coding - no need for heavy analysis"
+
 ---
 
-**Last Updated:** November 2, 2025
+**Last Updated:** December 12, 2025
 **Project:** WaveRider CFO Dashboard
 **User:** Non-technical business owner learning to code
 **AI Assistant:** Cascade (be helpful, focused, and respectful of existing work)

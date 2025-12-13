@@ -240,6 +240,11 @@ export function AddDailyRecordWithServices({
     if (editingRecord && open) {
       console.log('🔍 Loading editing record:', editingRecord);
       console.log('📦 Service breakdown from record:', editingRecord.serviceBreakdown);
+      console.log('👥 Crew fields in editing record:', {
+        isCrewJob: editingRecord.isCrewJob,
+        crewId: editingRecord.crewId,
+        trackingMode: editingRecord.trackingMode
+      });
       
       setDate(editingRecord.date);
       setTips(editingRecord.tipAmount.toString());
@@ -249,22 +254,30 @@ export function AddDailyRecordWithServices({
       // Load crew data if this is a crew record
       if (editingRecord.isCrewJob && editingRecord.crewId) {
         console.log('👥 Loading crew record data:', editingRecord.crewId);
+        console.log('📋 Available crews:', crews);
         setIsCrewJob(true);
         setSelectedCrewId(editingRecord.crewId);
         
-        // Find the crew and load its members
+        // Find the crew and load its members from crewMembers
         const crew = crews.find(c => c.id === editingRecord.crewId);
-        if (crew && crew.members) {
-          const crewEmployees: SelectedCrewEmployee[] = crew.members.map(member => ({
-            employeeId: member.employeeId,
-            employeeName: member.employeeName,
-            baseRate: member.baseRate || 0,
-            isHelper: false,
-            bonusPercentage: 100 / crew.members.length // Even split by default
+        console.log('🔍 Found crew:', crew);
+        const members = crewMembers[editingRecord.crewId] || [];
+        console.log('👥 Crew members from map:', members);
+        if (members.length > 0) {
+          const crewEmployees: SelectedCrewEmployee[] = members.map(member => ({
+            employeeId: member.employee_id,
+            employeeName: member.employee_name || 'Unknown Employee',
+            baseRate: allEmployees.find(e => e.id === member.employee_id)?.current_base_rate || 0,
+            isHelper: member.role_name === 'Helper',
+            bonusPercentage: member.bonus_percentage || (100 / members.length)
           }));
           setSelectedCrewEmployees(crewEmployees);
-          console.log('✅ Loaded crew members:', crewEmployees);
+          console.log('✅ Loaded crew employees:', crewEmployees);
+        } else {
+          console.error('❌ No crew members found for crew:', editingRecord.crewId);
         }
+      } else {
+        console.log('📝 Not a crew record or missing crew data');
       }
       
       // Load service breakdown if it exists
@@ -273,6 +286,7 @@ export function AddDailyRecordWithServices({
         setServiceBreakdown(editingRecord.serviceBreakdown);
       } else {
         console.log('⚠️ No service breakdown found, using fallback rollup logic');
+        console.log('📊 Job types to convert:', editingRecord.jobTypes);
         // Convert old format to new format - distribute totals proportionally
         const breakdown: ServiceBreakdownItem[] = [];
         const jobTypesArray = Object.entries(editingRecord.jobTypes).filter(([_, jobs]) => jobs > 0);
@@ -466,10 +480,12 @@ export function AddDailyRecordWithServices({
     // Calculate LER (Labor Efficiency Ratio)
     const ler = basePay > 0 ? grossProfitBeforeBonusDollars / basePay : 0;
     
-    // Check if qualifies for bonus
+    // Check if qualifies for bonus - use crew thresholds for crew jobs
+    const thresholdMin = isCrewJob ? crewBonusThresholdMin : COMPANY_SETTINGS.bonusThresholdMin;
+    const thresholdMax = isCrewJob ? crewBonusThresholdMax : COMPANY_SETTINGS.bonusThresholdMax;
     const qualifyForBonus = 
-      grossProfitBeforeBonusPercent >= COMPANY_SETTINGS.bonusThresholdMin && 
-      grossProfitBeforeBonusPercent <= COMPANY_SETTINGS.bonusThresholdMax;
+      grossProfitBeforeBonusPercent >= thresholdMin && 
+      grossProfitBeforeBonusPercent <= thresholdMax;
     
     // Calculate Bonus Qualified For (based on daily hours)
     const bonusQualifiedForDollars = qualifyForBonus ? ler * dailyHours : 0;
@@ -952,8 +968,8 @@ export function AddDailyRecordWithServices({
                               <div 
                                 className={`flex items-center justify-between text-sm py-2 px-3 rounded border ${
                                   emp.isHelper 
-                                    ? 'bg-blue-500/10 border-blue-500/30' 
-                                    : 'bg-background/50 border-transparent'
+                                    ? 'bg-background/30 border-border' 
+                                    : 'bg-background/30 border-transparent'
                                 }`}
                               >
                               <div className="flex items-center gap-3">
@@ -973,12 +989,12 @@ export function AddDailyRecordWithServices({
                                 >
                                   {emp.employeeName}
                                   {emp.isHelper && (
-                                    <span className="ml-2 text-xs text-blue-400">(Helper)</span>
+                                    <span className="ml-2 text-xs text-accent-400">(Helper)</span>
                                   )}
                                 </label>
                               </div>
                               <div className="flex items-center gap-3">
-                                <span className="text-muted-foreground text-xs">
+                                <span className="text-muted-foreground text-sm">
                                   ${(emp.baseRate || 0).toFixed(2)}/hr
                                 </span>
                                 {/* Bonus % - editable for helpers, display only for crew members */}
@@ -1000,15 +1016,15 @@ export function AddDailyRecordWithServices({
                                       }}
                                       className="w-14 h-6 text-xs text-center"
                                     />
-                                    <span className="text-accent text-xs">%</span>
+                                    <span className="text-accent text-sm">%</span>
                                   </div>
                                 ) : (
-                                  <span className="text-accent text-xs">
+                                  <span className="text-accent text-sm">
                                     {emp.bonusPercentage}%
                                   </span>
                                 )}
                                 {role && !emp.isHelper && (
-                                  <span className="text-muted-foreground text-xs">
+                                  <span className="text-muted-foreground text-sm">
                                     {role.role_name}
                                   </span>
                                 )}
@@ -1016,7 +1032,7 @@ export function AddDailyRecordWithServices({
                             </div>
                             {/* Helper note - configuration moved to after appointments */}
                             {emp.isHelper && (
-                              <p className="ml-8 mt-1 text-xs text-blue-400">
+                              <p className="ml-8 mt-1 text-xs text-accent">
                                 ↓ Configure which appointments this helper worked on below
                               </p>
                             )}
@@ -1038,8 +1054,8 @@ export function AddDailyRecordWithServices({
                           Add Helper (Non-Crew Employee)
                         </Button>
                       ) : (
-                        <div className="mt-3 p-3 bg-blue-500/10 rounded-lg border border-blue-500/30">
-                          <Label className="text-sm text-blue-400 mb-2 block">Add Helper to Today's Crew</Label>
+                        <div className="mt-3 p-3 bg-background/10 rounded-lg border border-accent">
+                          <Label className="text-sm text-accent mb-2 block">Add Helper to Today's Crew</Label>
                           <p className="text-xs text-muted-foreground mb-3">
                             Select an employee to add as a helper. Their bonus will be auto-calculated based on hours worked.
                           </p>
@@ -1050,23 +1066,24 @@ export function AddDailyRecordWithServices({
                               .map(emp => (
                                 <div 
                                   key={emp.id}
-                                  className="flex items-center justify-between text-sm py-2 px-3 bg-background/50 rounded cursor-pointer hover:bg-background/80"
+                                  className="flex items-center justify-between p-2 rounded hover:bg-muted/50 cursor-pointer"
                                   onClick={() => {
                                     setSelectedCrewEmployees(prev => [...prev, {
                                       employeeId: emp.id,
                                       employeeName: emp.name,
                                       baseRate: emp.base_rate || 0,
                                       isHelper: true,
-                                      bonusPercentage: 0, // Will be auto-calculated when hours are entered
+                                      bonusPercentage: 0,
                                       helperHours: 0
                                     }]);
+                                    setShowHelperSelector(false); // Auto-close after selecting
                                   }}
                                 >
                                   <span className="font-medium">{emp.name}</span>
                                   <div className="flex items-center gap-2">
-                                    <span className="text-muted-foreground text-xs">{emp.position}</span>
-                                    <span className="text-muted-foreground text-xs">${(emp.base_rate || 0).toFixed(2)}/hr</span>
-                                    <UserPlus className="h-4 w-4 text-blue-400" />
+                                    <span className="text-muted-foreground text-sm">{emp.position}</span>
+                                    <span className="text-muted-foreground text-sm">${(emp.base_rate || 0).toFixed(2)}/hr</span>
+                                    <UserPlus className="h-4 w-4 text-accent" />
                                   </div>
                                 </div>
                               ))}
@@ -1076,18 +1093,7 @@ export function AddDailyRecordWithServices({
                               </p>
                             )}
                           </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setShowHelperSelector(false);
-                            }}
-                            className="w-full mt-2 text-muted-foreground"
-                          >
-                            Done Adding Helpers
-                          </Button>
-                        </div>
+                                                  </div>
                       )}
 
                       <p className="text-sm text-accent mt-2 flex items-center gap-2">
@@ -1206,8 +1212,8 @@ export function AddDailyRecordWithServices({
 
           {/* Helper Job Assignment Section - Only show if there are helpers and appointments */}
           {isCrewJob && selectedCrewEmployees.some(emp => emp.isHelper) && serviceBreakdown.some(s => s.serviceName) && (
-            <div className="space-y-3 bg-blue-500/5 rounded-lg p-4 border border-blue-500/20">
-              <h4 className="text-lg text-blue-400 font-semibold flex items-center gap-2">
+            <div className="space-y-3 bg-background/10 rounded-lg p-4 border border-accent/20">
+              <h4 className="text-lg text-accent font-semibold flex items-center gap-2">
                 <UserPlus className="h-5 w-5" />
                 Helper Job Assignment
               </h4>
@@ -1231,7 +1237,7 @@ export function AddDailyRecordWithServices({
                       const isSelected = !!helperAppt;
                       
                       return (
-                        <div key={apptIndex} className={`p-2 rounded border ${isSelected ? 'bg-blue-500/10 border-blue-500/30' : 'bg-muted/20 border-transparent'}`}>
+                        <div key={apptIndex} className={`p-2 rounded border ${isSelected ? 'bg-muted/30-500/10 border-accent/30' : 'bg-muted/20 border-transparent'}`}>
                           <div className="flex items-center gap-3">
                             <Checkbox
                               id={`helper-${helper.employeeId}-appt-${apptIndex}`}
@@ -1367,89 +1373,39 @@ export function AddDailyRecordWithServices({
                     const helperProfit = helperRevenue - helperLabor - helperCOGS - helperOverhead;
                     const helperProfitPct = helperRevenue > 0 ? (helperProfit / helperRevenue) * 100 : 0;
                     
-                    // Helper's LER
-                    const helperLER = helperLabor > 0 ? helperProfit / helperLabor : 0;
-                    
-                    // Estimated bonus (if qualifies)
-                    const qualifies = helperProfitPct >= COMPANY_SETTINGS.bonusThresholdMin;
-                    const helperBonus = qualifies ? helperLER * helperHrs : 0;
+                    // Calculate bonus using same logic as job breakdown
+                    const totalDailyBonus = preview.bonusQualifiedForDollars + preview.appointmentBasedBonus;
+                    const helperBonus = serviceBreakdown
+                      .filter((appt, index) => {
+                        return helper.helperAppointments?.some(ha => ha.appointmentIndex === index);
+                      })
+                      .reduce((sum: number, appt, index) => {
+                        const revenueShare = preview.totalRevenue > 0 ? (appt.revenue || 0) / preview.totalRevenue : 0;
+                        const jobBonus = revenueShare * totalDailyBonus;
+                        
+                        const helperAppt = helper.helperAppointments?.find(ha => ha.appointmentIndex === index);
+                        const helperHrs = helperAppt?.hours || 0;
+                        const crewDailyHours = parseFloat(totalDailyHours) || 0;
+                        const totalJobHours = (crewDailyHours * crewMemberCount) + helperHrs;
+                        const helperShare = totalJobHours > 0 ? helperHrs / totalJobHours : 0;
+                        
+                        return sum + (jobBonus * helperShare);
+                      }, 0);
                     
                     return (
                       <div className="mt-3 space-y-2">
-                        {/* Jobs Helper Worked On */}
-                        <div className="p-3 bg-blue-500/10 rounded border border-blue-500/30">
-                          <p className="text-xs text-blue-400 font-medium mb-2">
+                        {/* Jobs Helper Worked On - Simplified */}
+                        <div className="p-3 bg-background/10 rounded border border-accent/30">
+                          <p className="text-xs text-accent font-medium mb-2">
                             Jobs {helper.employeeName} Helped With:
                           </p>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div>
-                              <span className="text-muted-foreground">Revenue:</span>
-                              <span className="ml-1 font-medium text-foreground">${helperRevenue.toFixed(2)}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">Labor:</span>
-                              <span className="ml-1 font-medium text-foreground">${helperLabor.toFixed(2)}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">COGS:</span>
-                              <span className="ml-1 font-medium text-foreground">${helperCOGS.toFixed(2)}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">Overhead:</span>
-                              <span className="ml-1 font-medium text-foreground">${helperOverhead.toFixed(2)}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">Profit:</span>
-                              <span className={`ml-1 font-medium ${helperProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                ${helperProfit.toFixed(2)} ({helperProfitPct.toFixed(1)}%)
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">LER:</span>
-                              <span className={`ml-1 font-medium ${helperLER >= 1 ? 'text-green-400' : 'text-red-400'}`}>
-                                {helperLER.toFixed(2)}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="mt-2 pt-2 border-t border-blue-500/20">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-muted-foreground">
-                                Bonus Qualified: {qualifies ? '✓ Yes' : '✗ No'} (need {COMPANY_SETTINGS.bonusThresholdMin}%+)
-                              </span>
-                              <span className="text-sm font-medium text-accent">
-                                Est. Bonus: ${helperBonus.toFixed(2)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Crew-Only Jobs (without helper) */}
-                        {crewOnlyRevenue > 0 && (
-                          <div className="p-3 bg-muted/30 rounded border border-border">
-                            <p className="text-xs text-muted-foreground font-medium mb-1">
-                              Jobs Without Helper (Crew Only):
-                            </p>
-                            <span className="text-sm font-medium text-foreground">
-                              ${crewOnlyRevenue.toFixed(2)} revenue
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">
+                              Revenue: ${helperRevenue.toFixed(2)} | Hours: {helperHrs}
                             </span>
-                          </div>
-                        )}
-                        
-                        {/* Helper Hours Summary */}
-                        <div className="p-2 bg-accent/10 rounded border border-accent/30">
-                          <div className="text-sm space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-muted-foreground">Helper worked:</span>
-                              <span className="font-medium text-foreground">{helperHrs} hrs</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-muted-foreground">Crew ({crewMemberCount} members × {crewDailyHours} hrs):</span>
-                              <span className="font-medium text-foreground">{(crewDailyHours * crewMemberCount).toFixed(1)} hrs</span>
-                            </div>
-                            <div className="flex items-center justify-between pt-1 border-t border-accent/20">
-                              <span className="text-muted-foreground">Total labor hours:</span>
-                              <span className="font-medium text-accent">{totalCrewHours.toFixed(1)} hrs</span>
-                            </div>
+                            <span className="text-sm font-medium text-accent">
+                              Est. Bonus: ${helperBonus.toFixed(2)}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -1581,6 +1537,14 @@ export function AddDailyRecordWithServices({
                 const revenueShare = preview.totalRevenue > 0 ? (appt.revenue || 0) / preview.totalRevenue : 0;
                 const jobBonus = revenueShare * totalDailyBonus;
                 
+                // Calculate gross profit for this job
+                const jobRevenue = appt.revenue || 0;
+                const jobLabor = (jobRevenue * 40) / 100; // 40% labor cost
+                const jobCOGS = servicesWithCOGS[appt.serviceName] || 0;
+                const jobOverhead = jobRevenue * (COMPANY_SETTINGS.overheadPercent / 100);
+                const jobProfit = jobRevenue - jobLabor - jobCOGS - jobOverhead;
+                const grossProfitPct = jobRevenue > 0 ? (jobProfit / jobRevenue) * 100 : 0;
+                
                 // Check if any helper worked on this job
                 const helperOnJob = helpers.find(h => 
                   h.helperAppointments?.some(ha => ha.appointmentIndex === index)
@@ -1599,6 +1563,7 @@ export function AddDailyRecordWithServices({
                     serviceName: appt.serviceName,
                     revenue: appt.revenue || 0,
                     jobBonus,
+                    grossProfitPct,
                     hasHelper: true,
                     helperName: helperOnJob.employeeName,
                     helperShare: helperShare * 100,
@@ -1615,6 +1580,7 @@ export function AddDailyRecordWithServices({
                     serviceName: appt.serviceName,
                     revenue: appt.revenue || 0,
                     jobBonus,
+                    grossProfitPct,
                     hasHelper: false,
                     crewBonus: jobBonus,
                     crewAllocations: crewMembers.map(m => ({
@@ -1669,9 +1635,17 @@ export function AddDailyRecordWithServices({
                               ${job.revenue.toFixed(0)} revenue
                             </span>
                           </div>
-                          <div className="text-right">
-                            <p className="text-muted-foreground">Job Bonus</p>
-                            <p className="text-2xl font-bold text-accent">${job.jobBonus.toFixed(2)}</p>
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <p className="text-muted-foreground">Gross Profit</p>
+                              <p className={`text-xl font-bold ${(job.grossProfitPct || 0) >= 30 ? 'text-green-400' : (job.grossProfitPct || 0) >= 20 ? 'text-yellow-400' : 'text-red-400'}`}>
+                                {(job.grossProfitPct || 0).toFixed(1)}%
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-muted-foreground">Job Bonus</p>
+                              <p className="text-2xl font-bold text-accent">${job.jobBonus.toFixed(2)}</p>
+                            </div>
                           </div>
                         </div>
                         

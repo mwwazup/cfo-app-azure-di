@@ -269,6 +269,8 @@ export async function initializeDefaultRoles(userId: string): Promise<boolean> {
 export async function getCrewMembers(crewId: string): Promise<CrewMember[]> {
   if (!crewId) return [];
 
+  console.log('🔍 Fetching crew members for crewId:', crewId);
+  
   const { data, error } = await supabase
     .from('crew_members')
     .select(`
@@ -283,13 +285,19 @@ export async function getCrewMembers(crewId: string): Promise<CrewMember[]> {
     return [];
   }
 
+  console.log('📊 Raw crew members data:', data);
+  console.log('📊 Number of members found:', data?.length || 0);
+
   // Flatten joined data
-  return (data || []).map(member => ({
+  const flattened = (data || []).map(member => ({
     ...member,
     employee_name: (member.employee_info as any)?.name,
     role_name: (member.crew_roles as any)?.role_name,
     bonus_percentage: (member.crew_roles as any)?.bonus_percentage
   }));
+  
+  console.log('📋 Flattened crew members:', flattened);
+  return flattened;
 }
 
 export async function addCrewMember(member: Omit<CrewMember, 'id' | 'created_at' | 'updated_at'>): Promise<CrewMember | null> {

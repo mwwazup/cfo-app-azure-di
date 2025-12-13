@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Label } from '../components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -249,11 +249,14 @@ const EmployeeLERPage: React.FC = () => {
       const membersMap: { [crewId: string]: CrewMember[] } = {};
       for (const crew of crewList) {
         if (crew.id) {
-          membersMap[crew.id] = await crewService.getCrewMembers(crew.id);
+          const members = await crewService.getCrewMembers(crew.id);
+          console.log(`🔍 Loading members for crew ${crew.id} (${crew.crew_name}):`, members);
+          membersMap[crew.id] = members;
         }
       }
       setCrewMembersMap(membersMap);
       console.log('👥 Crews loaded:', crewList.length, 'with members for', Object.keys(membersMap).length, 'crews');
+      console.log('📊 Crew members map:', membersMap);
       
       // If no employees exist, show needs setup state
       if (employees.length === 0) {
@@ -1645,18 +1648,18 @@ const EmployeeLERPage: React.FC = () => {
                     <Label htmlFor="employee-select" className="text-sm font-medium whitespace-nowrap">
                       Select Employee:
                     </Label>
-                    <select
-                      id="employee-select"
-                      value={selectedEmployeeId}
-                      onChange={(e) => setSelectedEmployeeId(e.target.value)}
-                      className="px-3 py-2 border rounded-md bg-background text-foreground min-w-[250px]"
-                    >
-                      {allEmployees.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name} - {emp.position}
-                        </option>
-                      ))}
-                    </select>
+                    <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
+                      <SelectTrigger className="w-[250px]">
+                        <SelectValue placeholder="Select Employee" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allEmployees.map((emp) => (
+                          <SelectItem key={emp.id} value={emp.id}>
+                            {emp.name} - {emp.position}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   {employeeInfo && (
                     <div className="flex-1 flex items-center justify-evenly text-muted-foreground border-l border-border pl-6">
@@ -2391,7 +2394,7 @@ const EmployeeLERPage: React.FC = () => {
                               Crew
                             </Badge>
                           ) : hasBothTypesOnSameDay && (
-                            <Badge variant="outline" className="text-blue-400 border-blue-400/50 text-xs">
+                            <Badge variant="outline" className="text-amber-400 border-amber-400/50 text-xs">
                               <User className="h-3 w-3 mr-1" />
                               Solo
                             </Badge>
@@ -2488,7 +2491,7 @@ const EmployeeLERPage: React.FC = () => {
                               setEditingRecord({ record, index });
                               setShowAddDay(true);
                             }}
-                            className="text-blue-500 hover:text-blue-400"
+                            className="text-amber-500 hover:text-amber-400"
                           >
                             Edit
                           </Button>
@@ -3361,7 +3364,9 @@ const EmployeeLERPage: React.FC = () => {
                 totalEmployeePay,
                 dailyHourlyWithTipsAndBonus: dailyHours > 0 ? totalEmployeePay / dailyHours : 0,
                 dailyNetProfitAfterBonus,
-                dailyNetProfitAfterBonusPercent
+                dailyNetProfitAfterBonusPercent,
+                // Include service breakdown for saving
+                serviceBreakdown: serviceBreakdown
               };
               
               // Save the record
