@@ -51,7 +51,8 @@ interface ServiceBreakdownItem {
   revenue: number;
 }
 
-interface DailyRecord {
+export interface DailyRecord {
+  id?: string;
   workDay: string;
   date: string;
   calledOut: boolean;
@@ -86,6 +87,8 @@ interface DailyRecord {
   crewId?: string;
   isCrewJob?: boolean;
   trackingMode?: 'employee' | 'crew';
+  // Record type for hybrid tracking
+  recordType?: 'solo' | 'crew';
 }
 
 // Helper's participation in a specific appointment
@@ -143,6 +146,8 @@ interface AddDailyRecordWithServicesProps {
   overheadPercent?: number;
   crewBonusThresholdMin?: number;
   crewBonusThresholdMax?: number;
+  // When true, crew records are view-only (individual employee page)
+  crewRecordsReadOnly?: boolean;
 }
 
 // Helper function to round to 2 decimal places
@@ -165,9 +170,10 @@ export function AddDailyRecordWithServices({
   onAddCrewRecords,
   defaultCrewMode = false,
   defaultCrewId = '',
-  overheadPercent = 32,
+  // overheadPercent is used in calculations but not directly referenced
   crewBonusThresholdMin = 15,
-  crewBonusThresholdMax = 100
+  crewBonusThresholdMax = 100,
+  crewRecordsReadOnly = false
 }: AddDailyRecordWithServicesProps) {
   const { services } = useServices(); // Fetch services from database
   
@@ -190,16 +196,42 @@ export function AddDailyRecordWithServices({
   const [showHelperSelector, setShowHelperSelector] = useState(false);
   // helperBonusPercent removed - now auto-calculated from hours
 
-  // Initialize with one empty service row
+  // Determine if form should be read-only (crew record on individual page)
+  const isFormReadOnly = crewRecordsReadOnly && editingRecord?.isCrewJob;
+
+  // Auto-populate service breakdown for crew jobs
   useEffect(() => {
-    if (open && !editingRecord) {
+    if (isCrewJob && serviceBreakdown.length === 0 && services.length > 0) {
+      // Add one service row by default for crew jobs
       setServiceBreakdown([{
-        serviceId: '',
-        serviceName: '',
-        jobs: 0,
+        serviceId: services[0].id,
+        serviceName: services[0].serviceName,
+        jobs: 1,
         hours: 0,
         revenue: 0
       }]);
+    }
+  }, [isCrewJob, serviceBreakdown.length, services]);
+
+  // Initialize with one empty service row
+  useEffect(() => {
+    if (open && !editingRecord) {
+      // Clear all fields for new record
+      setDate('');
+      setTips('0');
+      setNotes('');
+      setTotalDailyHours('');
+      
+      // Only set empty service breakdown if not in crew mode
+      if (!defaultCrewMode) {
+        setServiceBreakdown([{
+          serviceId: '',
+          serviceName: '',
+          jobs: 1, // Each row = 1 appointment
+          hours: 0,
+          revenue: 0
+        }]);
+      }
       
       // If opening in crew mode, set the crew state
       if (defaultCrewMode && crews.length > 0) {
@@ -207,6 +239,10 @@ export function AddDailyRecordWithServices({
         // Use defaultCrewId if provided, otherwise use first active crew
         const crewId = defaultCrewId || crews.find(c => c.is_active)?.id || '';
         setSelectedCrewId(crewId);
+      } else {
+        setIsCrewJob(false);
+        setSelectedCrewId('');
+        setSelectedCrewEmployees([]);
       }
     }
   }, [open, editingRecord, defaultCrewMode, defaultCrewId, crews]);
@@ -235,16 +271,22 @@ export function AddDailyRecordWithServices({
     }
   }, [isCrewJob, selectedCrewId, crewMembers, allEmployees, baseRate, crewRoles]);
 
-  // Load editing record data
+  // Load editing record data - this runs after the reset effect
   useEffect(() => {
     if (editingRecord && open) {
       console.log('🔍 Loading editing record:', editingRecord);
       console.log('📦 Service breakdown from record:', editingRecord.serviceBreakdown);
+      console.log('📦 Service breakdown type:', typeof editingRecord.serviceBreakdown);
+      console.log('📦 Service breakdown length:', editingRecord.serviceBreakdown?.length);
       console.log('👥 Crew fields in editing record:', {
         isCrewJob: editingRecord.isCrewJob,
         crewId: editingRecord.crewId,
         trackingMode: editingRecord.trackingMode
       });
+      
+      // Set the mode first based on the record type
+      setIsCrewJob(editingRecord.isCrewJob || false);
+      console.log('🎯 Set isCrewJob to:', editingRecord.isCrewJob || false);
       
       setDate(editingRecord.date);
       setTips(editingRecord.tipAmount.toString());
@@ -255,34 +297,141 @@ export function AddDailyRecordWithServices({
       if (editingRecord.isCrewJob && editingRecord.crewId) {
         console.log('👥 Loading crew record data:', editingRecord.crewId);
         console.log('📋 Available crews:', crews);
-        setIsCrewJob(true);
         setSelectedCrewId(editingRecord.crewId);
         
-        // Find the crew and load its members from crewMembers
-        const crew = crews.find(c => c.id === editingRecord.crewId);
-        console.log('🔍 Found crew:', crew);
-        const members = crewMembers[editingRecord.crewId] || [];
-        console.log('👥 Crew members from map:', members);
-        if (members.length > 0) {
-          const crewEmployees: SelectedCrewEmployee[] = members.map(member => ({
-            employeeId: member.employee_id,
-            employeeName: member.employee_name || 'Unknown Employee',
-            baseRate: allEmployees.find(e => e.id === member.employee_id)?.current_base_rate || 0,
-            isHelper: member.role_name === 'Helper',
-            bonusPercentage: member.bonus_percentage || (100 / members.length)
-          }));
-          setSelectedCrewEmployees(crewEmployees);
-          console.log('✅ Loaded crew employees:', crewEmployees);
-        } else {
-          console.error('❌ No crew members found for crew:', editingRecord.crewId);
-        }
+        // For editing, we need to load the actual employees who worked on this date
+        // Query all employee records for this date and crew to get the actual participants
+        console.log('🔍 Querying employee records for date:', editingRecord.date, 'and crew:', editingRecord.crewId);
+        
+        // Use an async function inside useEffect
+        const loadCrewEmployees = async () => {
+          // Import the services to query records
+          const employeeLERServiceModule = await import('../../services/employeeLERService');
+          const crewServiceModule = await import('../../services/crewService');
+          const employeeLERService = employeeLERServiceModule as any;
+          const crewService = crewServiceModule as any;
+          
+          try {
+            // First, check if we have a valid record ID
+            if (!editingRecord.id) {
+              console.error('❌ No record ID found in editingRecord:', editingRecord);
+              return;
+            }
+            
+            // First, try to get crew composition from daily_record_crew_members
+            console.log('🔍 Querying crew composition from daily_record_crew_members for record:', editingRecord.id);
+            const crewMembers = await crewService.getDailyRecordCrewMembers(editingRecord.id);
+            console.log('📊 Raw crew members response:', crewMembers);
+            
+            if (crewMembers.length > 0) {
+              console.log('✅ Found crew composition in daily_record_crew_members:', crewMembers);
+              console.log('📋 All employees available:', allEmployees);
+              
+              // Build the employee list from the crew members
+              const crewEmployees: SelectedCrewEmployee[] = crewMembers.map((member: any) => {
+                console.log('🔍 Processing crew member:', member);
+                const employee = allEmployees.find(e => e.id === member.employee_id);
+                console.log('👤 Found employee:', employee);
+                
+                // Check for helper status from is_helper field or role_name
+                const isHelper = member.is_helper === true || member.role_name === 'Helper';
+                
+                // Load helper appointments if available
+                let helperAppointments: HelperAppointment[] | undefined;
+                let helperHours: number | undefined;
+                if (isHelper && member.helper_appointments) {
+                  helperAppointments = member.helper_appointments;
+                  helperHours = helperAppointments.reduce((sum: number, ha: HelperAppointment) => sum + ha.hours, 0);
+                  console.log('📋 Loaded helper appointments:', helperAppointments, 'total hours:', helperHours);
+                }
+                
+                return {
+                  employeeId: member.employee_id,
+                  employeeName: member.employee_name || employee?.name || 'Unknown Employee',
+                  baseRate: employee?.base_rate || 0,
+                  isHelper: isHelper,
+                  bonusPercentage: member.bonus_percentage || 0,
+                  helperHours: helperHours,
+                  helperAppointments: helperAppointments
+                };
+              });
+              
+              console.log('✅ Mapped crew employees:', crewEmployees);
+              setSelectedCrewEmployees(crewEmployees);
+              console.log('✅ Loaded crew employees from daily_record_crew_members:', crewEmployees);
+            } else {
+              // Fallback: query all employee records for this date and crew
+              console.log('⚠️ No crew composition found in daily_record_crew_members, falling back to employee records');
+              const recordsForDate = await employeeLERService.getDailyRecordsForDate(editingRecord.date);
+              const crewRecordsForDate = recordsForDate.filter((r: any) => r.is_crew_job && r.crew_id === editingRecord.crewId);
+              
+              console.log('📊 Found crew records for date:', crewRecordsForDate);
+              
+              if (crewRecordsForDate.length > 0) {
+                // Build the employee list from the actual records
+                const crewEmployees: SelectedCrewEmployee[] = crewRecordsForDate.map((record: any) => {
+                  const employee = allEmployees.find(e => e.id === record.employee_id);
+                  return {
+                    employeeId: record.employee_id,
+                    employeeName: employee?.name || 'Unknown Employee',
+                    baseRate: record.base_rate || employee?.base_rate || 0,
+                    isHelper: false, // We'll need to determine this from crew roles
+                    bonusPercentage: 0 // Will be calculated based on crew size
+                  };
+                });
+                
+                setSelectedCrewEmployees(crewEmployees);
+                console.log('✅ Loaded actual crew employees from records:', crewEmployees);
+              } else {
+                // Final fallback to crew roster
+                console.log('⚠️ No crew records found, falling back to crew roster');
+                const members = crewMembers[editingRecord.crewId || ''] || [];
+                if (members.length > 0) {
+                  const crewEmployees: SelectedCrewEmployee[] = members.map((member: any) => ({
+                    employeeId: member.employee_id,
+                    employeeName: member.employee_name || 'Unknown Employee',
+                    baseRate: allEmployees.find(e => e.id === member.employee_id)?.base_rate || 0,
+                    isHelper: member.role_name === 'Helper',
+                    bonusPercentage: member.bonus_percentage || (100 / members.length)
+                  }));
+                  setSelectedCrewEmployees(crewEmployees);
+                  console.log('✅ Loaded crew employees from roster:', crewEmployees);
+                }
+              }
+            }
+          } catch (error) {
+            console.error('❌ Error querying crew records:', error);
+            // Fallback to crew roster
+            const members = crewMembers[editingRecord.crewId || ''] || [];
+            if (members.length > 0) {
+              const crewEmployees: SelectedCrewEmployee[] = members.map((member: any) => ({
+                employeeId: member.employee_id,
+                employeeName: member.employee_name || 'Unknown Employee',
+                baseRate: allEmployees.find(e => e.id === member.employee_id)?.base_rate || 0,
+                isHelper: member.role_name === 'Helper',
+                bonusPercentage: member.bonus_percentage || (100 / members.length)
+              }));
+              setSelectedCrewEmployees(crewEmployees);
+            }
+          }
+        };
+        
+        loadCrewEmployees();
       } else {
         console.log('📝 Not a crew record or missing crew data');
+        setSelectedCrewId('');
+        setSelectedCrewEmployees([]);
       }
       
       // Load service breakdown if it exists
       if (editingRecord.serviceBreakdown && editingRecord.serviceBreakdown.length > 0) {
         console.log('✅ Using existing service breakdown:', editingRecord.serviceBreakdown);
+        console.log('📊 Service breakdown details:', editingRecord.serviceBreakdown.map(s => ({
+          service: s.serviceName,
+          jobs: s.jobs,
+          hours: s.hours,
+          revenue: s.revenue
+        })));
         setServiceBreakdown(editingRecord.serviceBreakdown);
       } else {
         console.log('⚠️ No service breakdown found, using fallback rollup logic');
@@ -311,20 +460,21 @@ export function AddDailyRecordWithServices({
         setServiceBreakdown(breakdown.length > 0 ? breakdown : [{
           serviceId: '',
           serviceName: '',
-          jobs: 0,
+          jobs: 1, // Each row = 1 appointment
           hours: 0,
           revenue: 0
         }]);
       }
     }
-  }, [editingRecord, open, services, crews]);
+  }, [editingRecord, open, services, crews, crewMembers, allEmployees, crewRoles]);
 
-  // Add new service row
-  const addServiceRow = () => {
+  const handleAddServiceRow = () => {
+    // Initialize with jobs: 1 since each row = 1 appointment
+    // jobs will be set to 1 again when serviceId is selected for safety
     setServiceBreakdown([...serviceBreakdown, {
       serviceId: '',
       serviceName: '',
-      jobs: 0,
+      jobs: 1,
       hours: 0,
       revenue: 0
     }]);
@@ -345,12 +495,25 @@ export function AddDailyRecordWithServices({
       const service = services.find(s => s.id === value);
       updated[index].serviceId = value as string;
       updated[index].serviceName = service?.serviceName || '';
+      // Each row = 1 job/appointment, auto-set jobs to 1 when service is selected
+      updated[index].jobs = 1;
+      // Auto-calculate revenue based on service rate and hours
+      if (service && updated[index].hours > 0) {
+        const serviceRate = parseFloat(service.defaultPrice || '0');
+        updated[index].revenue = serviceRate * updated[index].hours;
+      }
     } else if (field === 'serviceName') {
       updated[index].serviceName = value as string;
     } else if (field === 'jobs') {
       updated[index].jobs = value as number;
     } else if (field === 'hours') {
       updated[index].hours = value as number;
+      // Auto-calculate revenue when hours change if service is selected
+      const service = services.find(s => s.id === updated[index].serviceId);
+      if (service && value as number > 0) {
+        const serviceRate = parseFloat(service.defaultPrice || '0');
+        updated[index].revenue = serviceRate * (value as number);
+      }
     } else if (field === 'revenue') {
       updated[index].revenue = value as number;
     }
@@ -362,12 +525,12 @@ export function AddDailyRecordWithServices({
   const calculateTotals = () => {
     // Each appointment row = 1 job (count rows with valid service selected)
     const totalJobs = serviceBreakdown.filter(item => item.serviceId).length;
-    const totalJobTime = serviceBreakdown.reduce((sum, item) => sum + (parseFloat(item.hours?.toString() || '0') || 0), 0);
-    const totalRevenue = serviceBreakdown.reduce((sum, item) => sum + (parseFloat(item.revenue?.toString() || '0') || 0), 0);
+    const crewRevenue = serviceBreakdown.reduce((sum, item) => sum + (parseFloat(item.revenue?.toString() || '0') || 0), 0);
+    const crewJobTime = serviceBreakdown.reduce((sum, item) => sum + (parseFloat(item.hours?.toString() || '0') || 0), 0);
     const dailyHours = parseFloat(totalDailyHours) || 0;
-    const nonJobTime = dailyHours - totalJobTime;
+    const nonJobTime = dailyHours - crewJobTime;
     
-    return { totalJobs, totalJobTime, totalRevenue, dailyHours, nonJobTime };
+    return { totalJobs, crewJobTime, crewRevenue, dailyHours, nonJobTime };
   };
 
   // Validate service breakdown
@@ -405,7 +568,7 @@ export function AddDailyRecordWithServices({
   };
 
   const calculatePreview = () => {
-    const { totalJobs, totalJobTime, totalRevenue, dailyHours, nonJobTime } = calculateTotals();
+    const { totalJobs, crewJobTime: totalJobTime, crewRevenue: totalRevenue, dailyHours, nonJobTime } = calculateTotals();
     
     // Calculate labor costs based on TOTAL DAILY HOURS (clock in/out), not job time
     // For crew mode: calculate total labor for all crew members
@@ -620,7 +783,7 @@ export function AddDailyRecordWithServices({
       }
     }
 
-    const { totalJobs, totalJobTime, dailyHours, totalRevenue } = calculateTotals();
+    const { totalJobs, crewJobTime: totalJobTime, dailyHours, crewRevenue: totalRevenue } = calculateTotals();
     
     // Build jobTypes object for backward compatibility (sum up duplicate services)
     const jobTypes: { [serviceName: string]: number } = {};
@@ -634,8 +797,10 @@ export function AddDailyRecordWithServices({
       }
     });
 
-    const dateObj = new Date(date + 'T00:00:00');
+    // Get day of week without timezone conversion
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const [year, month, day] = date.split('-').map(Number);
+    const dateObj = new Date(year, month - 1, day); // month is 0-indexed
     const workDay = dayNames[dateObj.getDay()];
 
     const record: DailyRecord = {
@@ -670,11 +835,18 @@ export function AddDailyRecordWithServices({
       // Crew tracking fields
       crewId: isCrewJob ? selectedCrewId : undefined,
       isCrewJob: isCrewJob,
-      trackingMode: isCrewJob ? 'crew' : 'employee'
+      trackingMode: isCrewJob ? 'crew' : 'employee',
+      recordType: isCrewJob ? 'crew' : 'solo'
     };
 
     // Filter out empty service rows
     const validServiceBreakdown = serviceBreakdown.filter(item => item.serviceId && item.jobs > 0);
+    
+    // Debug: Log what we're about to save
+    console.log('💾 About to save serviceBreakdown:', validServiceBreakdown);
+    console.log('📊 Original serviceBreakdown before filtering:', serviceBreakdown);
+    console.log('🔍 Is crew job?', isCrewJob);
+    console.log('👥 Selected crew employees count:', selectedCrewEmployees.length);
 
     if (editingRecord && onUpdate) {
       // Editing mode - single record update
@@ -774,24 +946,13 @@ export function AddDailyRecordWithServices({
         });
         
         // Helpers only get bonus from jobs they worked on
-        if (job.hasHelper && job.helperId) {
-          personBonusTotals[job.helperId] = (personBonusTotals[job.helperId] || 0) + (job.helperBonus || 0);
-        }
-      });
-      
-      // Calculate revenue per person (for helpers, only their jobs; for crew, split evenly)
-      const crewRevenuePerPerson = crewMembers.length > 0 ? totalRevenue / crewMembers.length : 0;
-      crewMembers.forEach(m => {
-        personRevenueTotals[m.employeeId] = crewRevenuePerPerson;
-      });
-      
-      // For helpers, calculate their revenue from their specific jobs
-      helpers.forEach(h => {
-        const helperRevenue = (h.helperAppointments || []).reduce((sum, ha) => {
-          const appt = serviceBreakdown[ha.appointmentIndex];
-          return sum + (appt?.revenue || 0);
-        }, 0);
-        personRevenueTotals[h.employeeId] = helperRevenue;
+        helpers.forEach(h => {
+          const helperBonus = (h.helperAppointments || []).reduce((sum, ha) => {
+            const appt = serviceBreakdown[ha.appointmentIndex];
+            return sum + (appt?.revenue || 0) * 0.1; // Estimate 10% bonus from revenue
+          }, 0);
+          personBonusTotals[h.employeeId] = helperBonus;
+        });
       });
       
       // Build employee data with pre-calculated bonuses
@@ -850,6 +1011,30 @@ export function AddDailyRecordWithServices({
           </DialogTitle>
         </DialogHeader>
 
+        {/* Read-only notice for crew records on individual employee page */}
+        {crewRecordsReadOnly && editingRecord?.isCrewJob && (
+          <div className="bg-accent/10 border border-accent/30 rounded-lg p-4 mb-4">
+            <div className="flex items-start gap-3">
+              <Users className="h-5 w-5 text-accent mt-0.5 flex-shrink-0" />
+              <div>
+                <h4 className="font-semibold text-accent mb-1">Crew Day - View Only</h4>
+                <p className="text-sm text-muted-foreground mb-2">
+                  This is a crew day record. Changes to shared crew data affect all crew members and must be made from the <strong>Crew page</strong>.
+                </p>
+                <ul className="text-xs text-muted-foreground space-y-1 mb-3">
+                  <li>• <strong>Daily Hours</strong> - affects all crew members</li>
+                  <li>• <strong>Revenue</strong> - affects all crew members</li>
+                  <li>• <strong>Job Time</strong> - affects all crew members</li>
+                  <li>• <strong>COGS/Expenses</strong> - affects all crew members</li>
+                </ul>
+                <p className="text-xs text-accent">
+                  Go to <strong>Employee LER → Crew View</strong> to edit this crew day.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-6">
           {/* Date */}
           <div>
@@ -859,12 +1044,13 @@ export function AddDailyRecordWithServices({
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
+              disabled={isFormReadOnly}
               className="bg-background text-foreground border-border [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:invert"
             />
           </div>
 
-          {/* Job Type Toggle - Solo vs Crew (hidden when opened in crew mode) */}
-          {crews.length > 0 && !defaultCrewMode && (
+          {/* Job Type Toggle - Solo vs Crew (hidden when editing or opened in crew mode) */}
+          {crews.length > 0 && !defaultCrewMode && !editingRecord && (
             <div className="space-y-3">
               <h4 className="text-xl text-accent font-semibold">Role Assignment</h4>
               <div className="bg-muted/20 rounded-lg p-4 border border-border space-y-4">
@@ -960,8 +1146,9 @@ export function AddDailyRecordWithServices({
                       {/* Crew member checkboxes */}
                       <div className="space-y-2">
                         {selectedCrewEmployees.map(emp => {
-                          const originalMember = crewMembers[selectedCrewId]?.find(m => m.employee_id === emp.employeeId);
-                          const role = originalMember ? crewRoles.find(r => r.id === originalMember.role_id) : null;
+                          // For editing, use the role from the crew member data, not the static crew map
+                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                          const role = emp.bonusPercentage > 0 ? { bonus_percentage: emp.bonusPercentage } : null;
                           
                           return (
                             <div key={emp.employeeId} className="space-y-1">
@@ -1023,9 +1210,9 @@ export function AddDailyRecordWithServices({
                                     {emp.bonusPercentage}%
                                   </span>
                                 )}
-                                {role && !emp.isHelper && (
+                                {!emp.isHelper && emp.bonusPercentage > 0 && (
                                   <span className="text-muted-foreground text-sm">
-                                    {role.role_name}
+                                    {emp.bonusPercentage}% Bonus
                                   </span>
                                 )}
                               </div>
@@ -1108,24 +1295,25 @@ export function AddDailyRecordWithServices({
           {/* Service Breakdown Section */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-xl text-accent font-semibold">Appointment Breakdown</h4>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addServiceRow}
-                className="bg-accent/20 text-accent border-accent/50 hover:bg-accent/30"
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                Add Appointment
-              </Button>
+              <Label className="text-sm font-medium">Appointments</Label>
+              {!isFormReadOnly && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAddServiceRow()}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Appointment
+                </Button>
+              )}
             </div>
 
             {serviceBreakdown.map((item, index) => (
               <div key={index} className="bg-muted/30 rounded-lg p-4 border border-border space-y-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-foreground">Appointment {index + 1}</span>
-                  {serviceBreakdown.length > 1 && (
+                  {serviceBreakdown.length > 1 && !isFormReadOnly && (
                     <Button
                       type="button"
                       variant="ghost"
@@ -1146,7 +1334,7 @@ export function AddDailyRecordWithServices({
                       value={item.serviceId}
                       onValueChange={(value) => updateServiceRow(index, 'serviceId', value)}
                     >
-                      <SelectTrigger className="w-full bg-muted/30">
+                      <SelectTrigger className="w-full bg-muted/30" disabled={isFormReadOnly}>
                         <SelectValue placeholder="Select service..." />
                       </SelectTrigger>
                       <SelectContent>
@@ -1168,6 +1356,7 @@ export function AddDailyRecordWithServices({
                       min="0"
                       value={item.hours || ''}
                       onChange={(e) => updateServiceRow(index, 'hours', parseFloat(e.target.value) || 0)}
+                      disabled={isFormReadOnly}
                       className="bg-background text-foreground border-border"
                       placeholder="Time on job"
                     />
@@ -1182,6 +1371,7 @@ export function AddDailyRecordWithServices({
                       min="0"
                       value={item.revenue || ''}
                       onChange={(e) => updateServiceRow(index, 'revenue', parseFloat(e.target.value) || 0)}
+                      disabled={isFormReadOnly}
                       className="bg-background text-foreground border-border"
                     />
                   </div>
@@ -1202,6 +1392,7 @@ export function AddDailyRecordWithServices({
               min="0"
               value={totalDailyHours}
               onChange={(e) => setTotalDailyHours(e.target.value)}
+              disabled={isFormReadOnly}
               className="bg-background text-foreground border-border"
               placeholder="e.g., 8.0"
             />
@@ -1341,11 +1532,14 @@ export function AddDailyRecordWithServices({
                     const helperHrs = helper.helperHours || 0;
                     const crewMemberCount = selectedCrewEmployees.filter(e => !e.isHelper).length;
                     const crewDailyHours = parseFloat(totalDailyHours) || 0;
+                    // totalCrewHours calculated but not displayed
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
                     const totalCrewHours = (crewDailyHours * crewMemberCount) + helperHrs;
                     
                     // Helper's revenue from selected jobs
                     const helperRevenue = helper.helperAppointments.reduce((sum, ha) => {
                       const appt = serviceBreakdown[ha.appointmentIndex];
+                      // appt variable used in calculation
                       return sum + (appt?.revenue || 0);
                     }, 0);
                     
@@ -1353,6 +1547,8 @@ export function AddDailyRecordWithServices({
                     const totalRevenue = serviceBreakdown.reduce((sum, s) => sum + (s.revenue || 0), 0);
                     
                     // Crew revenue (jobs helper didn't work on)
+                    // crewOnlyRevenue calculated for reference
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
                     const crewOnlyRevenue = totalRevenue - helperRevenue;
                     
                     // Helper's labor cost
@@ -1371,19 +1567,22 @@ export function AddDailyRecordWithServices({
                     
                     // Helper's profit
                     const helperProfit = helperRevenue - helperLabor - helperCOGS - helperOverhead;
+                    // helperProfitPct calculated for reference
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
                     const helperProfitPct = helperRevenue > 0 ? (helperProfit / helperRevenue) * 100 : 0;
                     
                     // Calculate bonus using same logic as job breakdown
                     const totalDailyBonus = preview.bonusQualifiedForDollars + preview.appointmentBasedBonus;
                     const helperBonus = serviceBreakdown
-                      .filter((appt, index) => {
+                      .filter((_appt, index) => {
                         return helper.helperAppointments?.some(ha => ha.appointmentIndex === index);
                       })
-                      .reduce((sum: number, appt, index) => {
+                      .reduce((sum: number, appt: any, index: number) => {
                         const revenueShare = preview.totalRevenue > 0 ? (appt.revenue || 0) / preview.totalRevenue : 0;
                         const jobBonus = revenueShare * totalDailyBonus;
                         
                         const helperAppt = helper.helperAppointments?.find(ha => ha.appointmentIndex === index);
+                        // helperAppt used in calculation
                         const helperHrs = helperAppt?.hours || 0;
                         const crewDailyHours = parseFloat(totalDailyHours) || 0;
                         const totalJobHours = (crewDailyHours * crewMemberCount) + helperHrs;
@@ -1504,7 +1703,8 @@ export function AddDailyRecordWithServices({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-border rounded-md bg-muted/30 text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+              disabled={isFormReadOnly}
+              className="w-full px-3 py-2 border border-border rounded-md bg-muted/30 text-foreground focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="Add any notes about this day..."
             />
           </div>
@@ -1617,10 +1817,13 @@ export function AddDailyRecordWithServices({
             return (
               <>
                 {/* Bonus Breakdown (Job by Job) */}
-                <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
-                  <h4 className="text-xl font-semibold text-accent mb-4">
+                <div className="bg-background/10 rounded-lg p-4 border border-accent/30">
+                  <h4 className="text-xl font-semibold text-accent mb-2">
                     Bonus Breakdown (Job by Job)
                   </h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Bonus qualification is based on daily total GP ({preview.grossProfitBeforeBonusPercent.toFixed(1)}%), distributed by revenue share per job.
+                  </p>
                   <div className="space-y-4">
                     {jobBreakdown.map((job, index) => (
                       <div 
@@ -1638,7 +1841,7 @@ export function AddDailyRecordWithServices({
                           <div className="flex items-center gap-4">
                             <div className="text-right">
                               <p className="text-muted-foreground">Gross Profit</p>
-                              <p className={`text-xl font-bold ${(job.grossProfitPct || 0) >= 30 ? 'text-green-400' : (job.grossProfitPct || 0) >= 20 ? 'text-yellow-400' : 'text-red-400'}`}>
+                              <p className={`text-xl font-bold ${(job.grossProfitPct || 0) >= 30 ? 'text-green-400' : (job.grossProfitPct || 0) >= 20 ? 'text-green-400' : 'text-red-400'}`}>
                                 {(job.grossProfitPct || 0).toFixed(1)}%
                               </p>
                             </div>
@@ -1657,7 +1860,7 @@ export function AddDailyRecordWithServices({
                         
                         <div className="flex flex-wrap gap-4">
                           {job.crewAllocations.map((alloc, i) => (
-                            <div key={i} className="px-4 py-2 bg-background rounded-lg border border-border">
+                            <div key={i} className="px-4 py-2 bg-background/20 rounded-lg border border-border">
                               <span className="text-muted-foreground">{alloc.name}:</span>
                               <span className="text-xl font-bold text-foreground ml-2">${alloc.bonus.toFixed(2)}</span>
                             </div>
@@ -1675,7 +1878,7 @@ export function AddDailyRecordWithServices({
                 </div>
 
                 {/* Bonus Summary (Per Person) */}
-                <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
+                <div className="bg-background/10 rounded-lg p-4 border border-accent/30">
                   <h4 className="text-xl font-semibold text-accent mb-4">Bonus Summary (Per Person)</h4>
                   <div className="space-y-3">
                     {personTotals.map((person, index) => (
@@ -1807,15 +2010,17 @@ export function AddDailyRecordWithServices({
               onClick={onClose}
               className="border-border text-foreground hover:bg-muted/50"
             >
-              Cancel
+              {isFormReadOnly ? 'Close' : 'Cancel'}
             </Button>
-            <Button
-              type="button"
-              onClick={handleSubmit}
-              className="bg-accent text-accent-foreground hover:bg-accent/90"
-            >
-              {editingRecord ? 'Update Record' : 'Add Record'}
-            </Button>
+            {!isFormReadOnly && (
+              <Button
+                type="button"
+                onClick={handleSubmit}
+                className="bg-accent text-accent-foreground hover:bg-accent/90"
+              >
+                {editingRecord ? 'Update Record' : 'Add Record'}
+              </Button>
+            )}
           </div>
         </div>
       </DialogContent>

@@ -48,6 +48,8 @@ export interface DailyRecordCrewMember {
   bonus_percentage?: number;
   attributed_revenue?: number;
   attributed_bonus?: number;
+  is_helper?: boolean;
+  helper_appointments?: Array<{ appointmentIndex: number; hours: number }>;
   created_at?: string;
   // Joined fields
   employee_name?: string;
@@ -275,7 +277,7 @@ export async function getCrewMembers(crewId: string): Promise<CrewMember[]> {
     .from('crew_members')
     .select(`
       *,
-      employee_info:employee_id (name),
+      employees:employee_id (name),
       crew_roles:role_id (role_name, bonus_percentage)
     `)
     .eq('crew_id', crewId);
@@ -288,10 +290,10 @@ export async function getCrewMembers(crewId: string): Promise<CrewMember[]> {
   console.log('📊 Raw crew members data:', data);
   console.log('📊 Number of members found:', data?.length || 0);
 
-  // Flatten joined data
+  // Flatten joined data - try both possible join names
   const flattened = (data || []).map(member => ({
     ...member,
-    employee_name: (member.employee_info as any)?.name,
+    employee_name: (member.employees as any)?.name || (member as any).employee_info?.name || 'Unknown',
     role_name: (member.crew_roles as any)?.role_name,
     bonus_percentage: (member.crew_roles as any)?.bonus_percentage
   }));
@@ -409,7 +411,9 @@ export async function addDailyRecordCrewMember(member: Omit<DailyRecordCrewMembe
       hours_worked: member.hours_worked,
       bonus_percentage: member.bonus_percentage,
       attributed_revenue: member.attributed_revenue,
-      attributed_bonus: member.attributed_bonus
+      attributed_bonus: member.attributed_bonus,
+      is_helper: member.is_helper || false,
+      helper_appointments: member.helper_appointments || null
     }])
     .select()
     .single();
@@ -1039,6 +1043,156 @@ export async function getCrewVsSoloComparison(
       totalHours: soloHours
     }
   };
+}
+
+// Get all work days for a specific crew with aggregated data
+export interface CrewWorkDay {
+  date: string;
+  dayOfWeek: string;
+  totalRevenue: number;
+  totalJobs: number;
+  totalHours: number;
+  crewMembers: Array<{
+    employeeId: string;
+    employeeName: string;
+    recordId: string;
+    isHelper: boolean;
+    hours: number;
+    revenue: number;
+  }>;
+  serviceBreakdown: Array<{
+    serviceName: string;
+    jobs: number;
+    hours: number;
+    revenue: number;
+  }>;
+}
+
+export async function getCrewWorkDays(
+  userId: string,
+  crewId: string,
+  year?: number,
+  month?: number
+): Promise<CrewWorkDay[]> {
+  if (!userId || !crewId) return [];
+
+  // Build date range filter
+  let startDate: string | undefined;
+  let endDate: string | undefined;
+  
+  if (year) {
+    if (month) {
+      startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      endDate = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+    } else {
+      startDate = `${year}-01-01`;
+      endDate = `${year}-12-31`;
+    }
+  }
+
+  // Get all daily records for this crew with employee name joined
+  let query = supabase
+    .from('employee_daily_records')
+    .select(`
+      id,
+      employee_id,
+      date,
+      work_day,
+      total_job_revenue,
+      number_of_jobs,
+      total_hours_worked,
+      service_breakdown,
+      employee:employee_id (name)
+    `)
+    .eq('crew_id', crewId)
+    .eq('is_crew_job', true)
+    .order('date', { ascending: false });
+
+  if (startDate) query = query.gte('date', startDate);
+  if (endDate) query = query.lte('date', endDate);
+
+  const { data: records, error } = await query;
+
+  if (error) {
+    console.error('Error fetching crew work days:', error);
+    return [];
+  }
+
+  if (!records || records.length === 0) return [];
+
+  // Build employee map from joined data
+  const employeeMap = new Map<string, string>();
+  records.forEach(r => {
+    const empName = (r.employee as any)?.name;
+    if (empName) {
+      employeeMap.set(r.employee_id, empName);
+    }
+  });
+
+  // Get crew member helper status from daily_record_crew_members
+  const recordIds = records.map(r => r.id);
+  const { data: crewMemberData } = await supabase
+    .from('daily_record_crew_members')
+    .select('daily_record_id, employee_id, is_helper, hours_worked, attributed_revenue')
+    .in('daily_record_id', recordIds);
+
+  const crewMemberMap = new Map<string, { isHelper: boolean; hours: number; revenue: number }>();
+  crewMemberData?.forEach(cm => {
+    crewMemberMap.set(`${cm.daily_record_id}_${cm.employee_id}`, {
+      isHelper: cm.is_helper || false,
+      hours: cm.hours_worked || 0,
+      revenue: cm.attributed_revenue || 0
+    });
+  });
+
+  // Group records by date
+  const dayMap = new Map<string, CrewWorkDay>();
+
+  for (const record of records) {
+    const existing = dayMap.get(record.date);
+    const memberKey = `${record.id}_${record.employee_id}`;
+    const memberData = crewMemberMap.get(memberKey);
+    
+    const member = {
+      employeeId: record.employee_id,
+      employeeName: employeeMap.get(record.employee_id) || 'Unknown',
+      recordId: record.id,
+      isHelper: memberData?.isHelper || false,
+      hours: memberData?.hours || record.total_hours_worked || 0,
+      revenue: memberData?.revenue || record.total_job_revenue || 0
+    };
+
+    if (existing) {
+      // Add member to existing day
+      if (!existing.crewMembers.find(m => m.employeeId === member.employeeId)) {
+        existing.crewMembers.push(member);
+      }
+      // Don't double-count revenue/jobs - they're the same for all crew members
+    } else {
+      // Parse service breakdown
+      const serviceBreakdown = record.service_breakdown?.services || [];
+      
+      dayMap.set(record.date, {
+        date: record.date,
+        dayOfWeek: record.work_day || new Date(record.date).toLocaleDateString('en-US', { weekday: 'long' }),
+        totalRevenue: record.total_job_revenue || 0,
+        totalJobs: record.number_of_jobs || 0,
+        totalHours: record.total_hours_worked || 0,
+        crewMembers: [member],
+        serviceBreakdown: serviceBreakdown.map((s: any) => ({
+          serviceName: s.serviceName || s.service_name || '',
+          jobs: s.jobs || 0,
+          hours: s.hours || 0,
+          revenue: s.revenue || 0
+        }))
+      });
+    }
+  }
+
+  return Array.from(dayMap.values()).sort((a, b) => 
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
 }
 
 // Get all crews with their performance summary

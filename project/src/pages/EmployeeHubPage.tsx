@@ -222,50 +222,43 @@ const EmployeeHubPage: React.FC = () => {
 
   // Calculate crew capacity metrics
   const crewCapacityMetrics = useMemo(() => {
-    const { numberOfCrews, employeesPerCrew, monthlyCrewCapacity } = employeeSettings;
+    const { numberOfCrews, employeesPerCrew } = employeeSettings;
     const currentEmployeeCount = employees.length;
     
     const currentMonth = new Date().getMonth();
     const monthlyFIRTarget = revenueCurrentYear.monthlyFIRTargets?.[currentMonth] || 0;
     const annualFIRTarget = revenueCurrentYear.targetRevenue || 0;
     
-    let crewsNeeded = 0;
     let employeesNeeded = 0;
     let capacityCoverage = 0;
-    let crewGap = 0;
     let employeeGap = 0;
     
-    if (monthlyCrewCapacity > 0 && monthlyFIRTarget > 0) {
-      crewsNeeded = Math.ceil(monthlyFIRTarget / monthlyCrewCapacity);
-      employeesNeeded = crewsNeeded * (employeesPerCrew || 1);
-      capacityCoverage = (numberOfCrews * monthlyCrewCapacity) / monthlyFIRTarget;
-      crewGap = crewsNeeded - numberOfCrews;
-      employeeGap = employeesNeeded - currentEmployeeCount;
+    if (employeesPerCrew > 0 && monthlyFIRTarget > 0) {
+      employeesNeeded = Math.ceil(monthlyFIRTarget / employeesPerCrew);
+      capacityCoverage = (numberOfCrews * employeesPerCrew) / employeesNeeded;
+      employeeGap = employeesNeeded - numberOfCrews;
     }
     
-    let annualCrewsNeeded = 0;
     let annualEmployeesNeeded = 0;
-    if (monthlyCrewCapacity > 0 && annualFIRTarget > 0) {
+    if (employeesPerCrew > 0 && annualFIRTarget > 0) {
       const avgMonthlyTarget = annualFIRTarget / 12;
-      annualCrewsNeeded = Math.ceil(avgMonthlyTarget / monthlyCrewCapacity);
-      annualEmployeesNeeded = annualCrewsNeeded * (employeesPerCrew || 1);
+      annualEmployeesNeeded = Math.ceil(avgMonthlyTarget / employeesPerCrew);
     }
     
     return {
       numberOfCrews,
       employeesPerCrew,
-      monthlyCrewCapacity,
       currentEmployeeCount,
       monthlyFIRTarget,
       annualFIRTarget,
-      crewsNeeded,
+      crewsNeeded: employeesNeeded,
       employeesNeeded,
       capacityCoverage,
-      crewGap,
+      crewGap: employeeGap,
       employeeGap,
-      annualCrewsNeeded,
+      annualCrewsNeeded: annualEmployeesNeeded,
       annualEmployeesNeeded,
-      hasCrewSettings: numberOfCrews > 0 && monthlyCrewCapacity > 0
+      hasCrewSettings: numberOfCrews > 0 && employeesPerCrew > 0
     };
   }, [employeeSettings, employees.length, revenueCurrentYear]);
 
@@ -281,13 +274,31 @@ const EmployeeHubPage: React.FC = () => {
   // Filter pay periods based on selected year and month
   const filteredPayPeriods = useMemo(() => {
     return payPeriods.filter(period => {
-      // Filter by year
-      if (period.year !== periodFilterYear) return false;
+      // Filter by year - check if period overlaps with selected year
+      const periodStart = new Date(period.start_date);
+      const periodEnd = new Date(period.end_date);
+      
+      // Check if period is in the selected year (any part of it)
+      if (periodStart.getFullYear() !== periodFilterYear && 
+          periodEnd.getFullYear() !== periodFilterYear &&
+          !(periodStart.getFullYear() < periodFilterYear && periodEnd.getFullYear() > periodFilterYear)) {
+        return false;
+      }
       
       // Filter by month if not 'all'
       if (periodFilterMonth !== 'all') {
-        const startMonth = new Date(period.start_date).getMonth();
-        if (startMonth !== periodFilterMonth) return false;
+        // Check if the pay period overlaps with the selected month
+        // A period should show if ANY part of it falls within the selected month
+        
+        // Create date objects for the first and last day of the selected month
+        const monthStart = new Date(periodFilterYear, periodFilterMonth, 1);
+        const monthEnd = new Date(periodFilterYear, periodFilterMonth + 1, 0); // Last day of month
+        
+        // Check if period overlaps with the month
+        // Period overlaps if: period starts before or during month AND ends after or during month
+        const overlaps = periodStart <= monthEnd && periodEnd >= monthStart;
+        
+        return overlaps;
       }
       
       return true;
@@ -296,76 +307,55 @@ const EmployeeHubPage: React.FC = () => {
 
   // Calculate monthly crew needs for chart
   const monthlyCrewChartData = useMemo(() => {
-    const { monthlyCrewCapacity, numberOfCrews, employeesPerCrew } = employeeSettings;
+    const { employeesPerCrew, numberOfCrews } = employeeSettings;
     const monthlyFIRTargets = revenueCurrentYear.monthlyFIRTargets || [];
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     
-    if (!monthlyCrewCapacity || monthlyCrewCapacity <= 0) {
+    if (!employeesPerCrew || employeesPerCrew <= 0) {
       return null;
     }
     
-    const crewsNeededPerMonth = monthlyFIRTargets.map(target => 
-      target > 0 ? Math.ceil(target / monthlyCrewCapacity) : 0
+    // Calculate employees needed each month based on revenue targets
+    const employeesNeededPerMonth = monthlyFIRTargets.map(target => 
+      target > 0 ? Math.ceil(target / employeesPerCrew) : 0
     );
     
-    const employeesNeededPerMonth = crewsNeededPerMonth.map(crews => 
-      crews * (employeesPerCrew || 1)
-    );
+    const currentEmployees = numberOfCrews || 0;
     
-    const currentCrews = numberOfCrews || 0;
-    const currentEmployees = currentCrews * (employeesPerCrew || 1);
-    
-    // Calculate crew variance per month (positive = need to hire, negative = over capacity)
-    const crewVariancePerMonth = crewsNeededPerMonth.map(needed => needed - currentCrews);
+    // Calculate employee variance per month (positive = need to hire, negative = over capacity)
     const employeeVariancePerMonth = employeesNeededPerMonth.map(needed => needed - currentEmployees);
     
-    // Split bars: base (covered by current crews) and overflow (need more) or excess (have too many)
-    const coveredCrews = crewsNeededPerMonth.map(needed => Math.min(needed, currentCrews));
-    const additionalCrewsNeeded = crewsNeededPerMonth.map(needed => Math.max(0, needed - currentCrews));
-    const excessCapacity = crewsNeededPerMonth.map(needed => Math.max(0, currentCrews - needed));
-    
-    const currentCrewsLine = months.map(() => currentCrews);
+    // Split bars: base (covered by current employees) and overflow (need more) or excess (have too many)
+    const coveredEmployees = employeesNeededPerMonth.map(needed => Math.min(needed, currentEmployees));
+    const additionalEmployeesNeeded = employeesNeededPerMonth.map(needed => Math.max(0, needed - currentEmployees));
+    const excessCapacity = employeesNeededPerMonth.map(needed => Math.max(0, currentEmployees - needed));
     
     return {
       labels: months,
       datasets: [
         {
-          label: 'Covered by Current Crews',
-          data: coveredCrews,
+          label: 'Current Capacity',
+          data: coveredEmployees,
           backgroundColor: 'rgba(213, 178, 116, 0.7)',
           borderColor: 'rgba(213, 178, 116, 1)',
           borderWidth: 1,
           borderRadius: 0,
-          stack: 'crews',
+          stack: 'employees',
         },
         {
-          label: 'Additional Crews Needed',
-          data: additionalCrewsNeeded,
+          label: 'Additional Capacity Needed',
+          data: additionalEmployeesNeeded,
           backgroundColor: 'rgba(239, 68, 68, 0.7)',
           borderColor: 'rgba(239, 68, 68, 1)',
           borderWidth: 1,
           borderRadius: 4,
-          stack: 'crews',
-        },
-        {
-          label: 'Current Capacity',
-          data: currentCrewsLine,
-          type: 'line' as const,
-          borderColor: 'rgba(34, 197, 94, 1)',
-          backgroundColor: 'transparent',
-          borderWidth: 2,
-          borderDash: [5, 5],
-          pointRadius: 0,
-          fill: false,
+          stack: 'employees',
         }
       ],
       monthlyFIRTargets,
       employeesNeededPerMonth,
-      crewsNeededPerMonth,
-      crewVariancePerMonth,
       employeeVariancePerMonth,
       excessCapacity,
-      currentCrews,
       currentEmployees,
       employeesPerCrew: employeesPerCrew || 1
     };
@@ -385,9 +375,9 @@ const EmployeeHubPage: React.FC = () => {
         ...currentSettings,
         paySchedule: employeeSettings.paySchedule,
         payDayOfWeek: employeeSettings.payDayOfWeek,
-        numberOfCrews: employeeSettings.numberOfCrews || undefined,
-        employeesPerCrew: employeeSettings.employeesPerCrew || undefined,
-        monthlyCrewCapacity: employeeSettings.monthlyCrewCapacity || undefined,
+        numberOfCrews: employeeSettings.numberOfCrews > 0 ? employeeSettings.numberOfCrews : undefined,
+        employeesPerCrew: employeeSettings.employeesPerCrew > 0 ? employeeSettings.employeesPerCrew : undefined,
+        monthlyCrewCapacity: employeeSettings.monthlyCrewCapacity > 0 ? employeeSettings.monthlyCrewCapacity : undefined,
         enableAppointmentBonus: employeeSettings.enableAppointmentBonus,
         appointmentBonus3Jobs: employeeSettings.appointmentBonus3Jobs,
         appointmentBonus4Jobs: employeeSettings.appointmentBonus4Jobs,
@@ -536,10 +526,10 @@ const EmployeeHubPage: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-accent" />
-                  Monthly Crew Requirements
+                  Monthly Capacity Requirements
                 </CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Crews needed each month to meet your FIR targets. This capacity chart is for planning to achieve your Lighthouse Goal only and does not reflect your actual employee generated revenue.
+                  Monthly capacity needed to meet your FIR targets. This capacity chart is for planning to achieve your Lighthouse Goal only and does not reflect your actual employee generated revenue.
                 </p>
               </CardHeader>
               <CardContent>
@@ -569,18 +559,17 @@ const EmployeeHubPage: React.FC = () => {
                               const monthIndex = context[0]?.dataIndex;
                               if (monthIndex === undefined) return [];
                               const firTarget = monthlyCrewChartData.monthlyFIRTargets[monthIndex] || 0;
-                              const crewsNeeded = monthlyCrewChartData.crewsNeededPerMonth[monthIndex] || 0;
                               const employeesNeeded = monthlyCrewChartData.employeesNeededPerMonth[monthIndex] || 0;
-                              const variance = monthlyCrewChartData.crewVariancePerMonth[monthIndex] || 0;
+                              const variance = monthlyCrewChartData.employeeVariancePerMonth[monthIndex] || 0;
                               return [
                                 '',
                                 `FIR Target: $${Math.round(firTarget).toLocaleString()}`,
-                                `Crews Needed: ${crewsNeeded}`,
                                 `Employees Needed: ${employeesNeeded}`,
+                                `Current Employees: ${monthlyCrewChartData.currentEmployees || 0}`,
                                 variance > 0 
-                                  ? `Need ${variance} more crew${variance > 1 ? 's' : ''}`
+                                  ? `Need ${variance} more employee${variance > 1 ? 's' : ''}`
                                   : variance < 0 
-                                    ? `${Math.abs(variance)} crew${Math.abs(variance) > 1 ? 's' : ''} over capacity`
+                                    ? `${Math.abs(variance)} employee${Math.abs(variance) > 1 ? 's' : ''} over capacity`
                                     : 'Right-sized'
                               ];
                             }
@@ -620,15 +609,11 @@ const EmployeeHubPage: React.FC = () => {
                 <div className="mt-4 flex items-center justify-center gap-6 text-sm">
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 rounded bg-[rgba(213,178,116,0.7)]"></div>
-                    <span className="text-muted-foreground">Covered by Current Crews</span>
+                    <span className="text-muted-foreground">Current Capacity</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 rounded bg-[rgba(239,68,68,0.7)]"></div>
-                    <span className="text-muted-foreground">Additional Crews Needed</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-0.5 border-t-2 border-dashed border-green-500"></div>
-                    <span className="text-muted-foreground">Current Capacity ({employeeSettings.numberOfCrews || 0} crews)</span>
+                    <span className="text-muted-foreground">Additional Capacity Needed</span>
                   </div>
                 </div>
 
@@ -647,24 +632,16 @@ const EmployeeHubPage: React.FC = () => {
                     </thead>
                     <tbody>
                       <tr className="border-b border-border/50">
-                        <td className="py-2 px-2 text-muted-foreground">Crews Needed</td>
-                        {monthlyCrewChartData.crewsNeededPerMonth.map((crews: number, i: number) => (
-                          <td key={i} className="text-center py-2 px-2 font-medium">
-                            {crews}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr className="border-b border-border/50">
                         <td className="py-2 px-2 text-muted-foreground">Employees Needed</td>
-                        {monthlyCrewChartData.employeesNeededPerMonth.map((emps: number, i: number) => (
+                        {monthlyCrewChartData.employeesNeededPerMonth.map((employees: number, i: number) => (
                           <td key={i} className="text-center py-2 px-2 font-medium">
-                            {emps}
+                            {employees}
                           </td>
                         ))}
                       </tr>
                       <tr>
-                        <td className="py-2 px-2 text-muted-foreground">Crew Variance</td>
-                        {monthlyCrewChartData.crewVariancePerMonth.map((variance: number, i: number) => (
+                        <td className="py-2 px-2 text-muted-foreground">Employee Variance</td>
+                        {monthlyCrewChartData.employeeVariancePerMonth.map((variance: number, i: number) => (
                           <td key={i} className={`text-center py-2 px-2 font-medium ${
                             variance > 0 
                               ? 'text-red-400' 
@@ -707,14 +684,14 @@ const EmployeeHubPage: React.FC = () => {
                     <TrendingUp className="h-6 w-6 text-green-400" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Active Crews</p>
+                    <p className="text-sm text-muted-foreground">Planned Crews</p>
                     <p className="text-2xl font-bold">{employeeSettings.numberOfCrews || 0}</p>
                     {/* Validation warning */}
                     {employeeSettings.numberOfCrews > 0 && employeeSettings.employeesPerCrew > 0 && (
-                      employees.length !== (employeeSettings.numberOfCrews * employeeSettings.employeesPerCrew) ? (
+                      employees.length !== employeeSettings.numberOfCrews ? (
                         <p className="text-xs text-amber-400 flex items-center gap-1">
                           <AlertCircle className="h-3 w-3" />
-                          Expected {employeeSettings.numberOfCrews * employeeSettings.employeesPerCrew} employees
+                          Planning: {employeeSettings.numberOfCrews} employees
                         </p>
                       ) : (
                         <p className="text-xs text-green-400 flex items-center gap-1">
@@ -735,12 +712,12 @@ const EmployeeHubPage: React.FC = () => {
                     <DollarSign className="h-6 w-6 text-accent" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Monthly Capacity</p>
+                    <p className="text-sm text-muted-foreground">Planned Monthly Capacity</p>
                     <p className="text-2xl font-bold">
-                      ${((employeeSettings.numberOfCrews || 0) * (employeeSettings.monthlyCrewCapacity || 0)).toLocaleString()}
+                      ${((employeeSettings.numberOfCrews || 0) * (employeeSettings.employeesPerCrew || 0)).toLocaleString()}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {employeeSettings.numberOfCrews || 0} crews × ${(employeeSettings.monthlyCrewCapacity || 0).toLocaleString()}
+                      {employeeSettings.numberOfCrews || 0} employees × ${(employeeSettings.employeesPerCrew || 0).toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -769,7 +746,7 @@ const EmployeeHubPage: React.FC = () => {
                         }`} />
                       </div>
                       <div>
-                        <p className="text-sm text-muted-foreground">Staffing Guidance</p>
+                        <p className="text-sm text-muted-foreground">Capacity Analysis</p>
                         {crewCapacityMetrics.crewsNeeded === employeeSettings.numberOfCrews ? (
                           <>
                             <p className="text-lg font-bold text-green-400">Right-sized</p>
@@ -1185,19 +1162,12 @@ const EmployeeHubPage: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-accent" />
-                  Crew Capacity Settings
+                  Capacity Planning
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-3">
-                  <p className="text-xs text-blue-400 font-medium mb-1">Capacity Planning</p>
-                  <p className="text-xs text-muted-foreground">
-                    These settings help calculate how many crews/employees you need to hit your revenue targets.
-                  </p>
-                </div>
-                
                 <div>
-                  <Label htmlFor="numberOfCrews">Number of Crews</Label>
+                  <Label htmlFor="numberOfCrews">Revenue-Producing Employees</Label>
                   <Input
                     id="numberOfCrews"
                     type="number"
@@ -1207,46 +1177,60 @@ const EmployeeHubPage: React.FC = () => {
                       ...prev,
                       numberOfCrews: parseInt(e.target.value) || 0
                     }))}
-                    placeholder="e.g., 2"
+                    placeholder="e.g., 4"
                     className="mt-1"
                   />
                 </div>
                 
                 <div>
-                  <Label htmlFor="employeesPerCrew">Employees Per Crew</Label>
-                  <Input
-                    id="employeesPerCrew"
-                    type="number"
-                    min="1"
-                    value={employeeSettings.employeesPerCrew || ''}
-                    onChange={(e) => setEmployeeSettings(prev => ({
-                      ...prev,
-                      employeesPerCrew: parseInt(e.target.value) || 0
-                    }))}
-                    placeholder="e.g., 2"
-                    className="mt-1"
-                  />
-                </div>
-                
-                <div>
-                  <Label htmlFor="monthlyCrewCapacity">Monthly Revenue Capacity Per Crew</Label>
+                  <Label htmlFor="employeesPerCrew">Average Monthly Revenue Per Employee</Label>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-muted-foreground">$</span>
                     <Input
-                      id="monthlyCrewCapacity"
+                      id="employeesPerCrew"
                       type="number"
                       min="0"
                       step="1000"
-                      value={employeeSettings.monthlyCrewCapacity || ''}
+                      value={employeeSettings.employeesPerCrew || ''}
                       onChange={(e) => setEmployeeSettings(prev => ({
                         ...prev,
-                        monthlyCrewCapacity: parseFloat(e.target.value) || 0
+                        employeesPerCrew: parseFloat(e.target.value) || 0
                       }))}
-                      placeholder="e.g., 25000"
+                      placeholder="e.g., 10000"
+                      className="mt-1"
                     />
                   </div>
                 </div>
-              </CardContent>
+                
+                <div className="bg-accent/10 border border-accent/30 rounded-lg p-3 mt-4">
+                  <p className="text-md text-accent font-medium mb-1">How to Use Revenue Capacity Planning Calculator</p>
+                  <p className="text-sm text-muted-foreground">
+                    Plan your revenue-producing headcount to achieve your targets and know when to hire or fire.
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    <strong>Counting employees:</strong> Include all revenue-producing employees. For crews, count each member. 
+                    Example: A 2-person crew + 1 solo employee = 3 total employees.
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    <strong>Revenue per employee:</strong> If a crew generates $20,000/month with 2 members, 
+                    each employee produces $10,000/month ($20,000 ÷ 2).
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    This is for planning purposes only and doesn't reflect your actual crew assignments.
+                  </p>
+                </div>
+                
+                <div className="flex justify-end pt-2">
+                  <Button 
+                    onClick={handleSaveSettings}
+                    disabled={saving}
+                    className="bg-accent hover:bg-accent/90"
+                  >
+                    {saving ? 'Saving...' : 'Save Settings'}
+                  </Button>
+                </div>
+                
+                              </CardContent>
             </Card>
 
             {/* Appointment Bonus Settings */}
@@ -1338,6 +1322,12 @@ const EmployeeHubPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+                <div className="bg-accent/10 border border-accent/30 rounded-lg p-3 mt-4">
+                  <p className="text-md text-accent font-medium mb-1">About Appointment-Based Bonus Settings</p>
+                  <p className="text-sm text-muted-foreground">
+                    Appointment-Based Bonus Settings is an additional incentive on top of any LER bonus earned. This is a supplemental bonus based on additional jobs not normally worked. Can be applied even if LER bonus is not achieved.
+                  </p>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -1916,19 +1906,21 @@ const EmployeeHubPage: React.FC = () => {
                                     ))}
                                   </SelectContent>
                                 </Select>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 text-red-500 hover:text-red-600"
+                                <button
+                                  type="button"
+                                  className="p-1.5 rounded hover:bg-red-500/10 text-red-400 hover:text-red-500 transition-colors"
+                                  title="Remove from crew"
                                   onClick={async () => {
-                                    const success = await crewService.removeCrewMember(member.id!);
-                                    if (success) {
-                                      setCrewMembers(prev => prev.filter(m => m.id !== member.id));
+                                    if (window.confirm(`Remove ${member.employee_name} from this crew?`)) {
+                                      const success = await crewService.removeCrewMember(member.id!);
+                                      if (success) {
+                                        setCrewMembers(prev => prev.filter(m => m.id !== member.id));
+                                      }
                                     }
                                   }}
                                 >
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
                               </div>
                             </div>
                           ))

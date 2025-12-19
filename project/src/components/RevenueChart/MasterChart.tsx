@@ -467,6 +467,15 @@ export function MasterChart() {
   const firData = getFIRData;
   const gapData = calculateGapData;
   
+  // Debug: Log chart data to identify scaling issues
+  console.log('📊 Chart Data Debug:', {
+    actualData,
+    firData,
+    maxActual: Math.max(...actualData),
+    maxFIR: firData.length > 0 ? Math.max(...firData) : 0,
+    months: filteredData.labels
+  });
+  
   // Get previous year and next year data for comparison lines
   const previousYearData = getYearData(selectedYear - 1);
   const nextYearData = getYearData(selectedYear + 1);
@@ -716,6 +725,7 @@ export function MasterChart() {
         },
       },
       y: {
+        beginAtZero: true,
         grid: {
           color: gridColor,
         },

@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Checkbox } from '../components/ui/checkbox';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -21,17 +22,20 @@ import {
   ChevronDown,
   ChevronUp,
   Upload,
-  X
+  X,
+  Trash2
 } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AddDailyRecordWithServices, EmployeeForCrewEntry } from '../components/employee/AddDailyRecordWithServices';
 import { CompanySettingsDialog } from '../components/employee/CompanySettingsDialog';
 import { CSVUploadDialog } from '../components/employee/CSVUploadDialog';
+import { CrewEditConfirmationModal } from '../components/employee/CrewEditConfirmationModal';
+import { MasterCrewEditModal } from '../components/employee/MasterCrewEditModal';
 import { COMPANY_SETTINGS } from '../components/employee/AddDailyRecordWithServices';
 import * as employeeLERService from '../services/employeeLERService';
 import * as serviceLaborService from '../services/serviceLaborService';
 import * as crewService from '../services/crewService';
-import type { Crew, CrewRole, CrewMember, CrewPerformanceMetrics, CrewVsSoloComparison } from '../services/crewService';
+import type { Crew, CrewRole, CrewMember, CrewPerformanceMetrics, CrewVsSoloComparison, CrewWorkDay } from '../services/crewService';
 import type { ServiceBreakdownItem } from '../services/serviceLaborService';
 import { useAuthContext } from '../contexts/auth-context';
 import { useRevenue } from '../contexts/revenue-context';
@@ -121,12 +125,12 @@ const EmployeeLERPage: React.FC = () => {
   const { dbUserId } = useAuthContext();
   
   // Revenue context for FIR targets
-  const { currentYear: revenueCurrentYear } = useRevenue();
+  const { currentYear: _revenueCurrentYear // calculated for potential future use
+  } = useRevenue();
   
   // Multi-employee state (uses DB type with snake_case)
   const [allEmployees, setAllEmployees] = useState<EmployeeInfoDB[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
-  
   // Employee and period state
   const [employeeInfo, setEmployeeInfo] = useState<EmployeeInfo>({
     name: 'Jared',
@@ -156,6 +160,18 @@ const EmployeeLERPage: React.FC = () => {
   const [needsCalculation, setNeedsCalculation] = useState(false);
   const [filterYear, setFilterYear] = useState<number | 'all'>('all');
   const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc'); // Date sort order for daily records
+  
+  // Bulk delete state
+  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  
+  // Crew edit confirmation state
+  const [showCrewEditConfirm, setShowCrewEditConfirm] = useState(false);
+  const [pendingCrewEdit, setPendingCrewEdit] = useState<{
+    record: DailyRecord;
+    serviceBreakdown: ServiceBreakdownItem[];
+    linkedRecords: any[];
+  } | null>(null);
   
   // Crew tracking state
   const [crews, setCrews] = useState<Crew[]>([]);
@@ -171,10 +187,14 @@ const EmployeeLERPage: React.FC = () => {
   // Crew Performance View state
   const [viewMode, setViewMode] = useState<'individual' | 'crew'>('individual');
   const [selectedCrewId, setSelectedCrewId] = useState<string>('');
+  const [comparisonCrewId, setComparisonCrewId] = useState<string>('');
   const [crewPerformance, setCrewPerformance] = useState<CrewPerformanceMetrics | null>(null);
-  const [crewVsSolo, setCrewVsSolo] = useState<CrewVsSoloComparison | null>(null);
+  const [_crewVsSolo, setCrewVsSolo] = useState<CrewVsSoloComparison | null>(null);
   const [crewFilterYear, setCrewFilterYear] = useState<number>(new Date().getFullYear());
   const [crewFilterMonth, setCrewFilterMonth] = useState<number | 'ytd'>('ytd');
+  const [crewWorkDays, setCrewWorkDays] = useState<CrewWorkDay[]>([]);
+  const [editingCrewWorkDay, setEditingCrewWorkDay] = useState<CrewWorkDay | null>(null);
+  const [showMasterCrewEdit, setShowMasterCrewEdit] = useState(false);
 
   // Helper function to convert DailyRecord to Supabase format
   function convertToSupabaseFormat(record: DailyRecord): employeeLERService.DailyRecord {
@@ -298,7 +318,8 @@ const EmployeeLERPage: React.FC = () => {
     if (!dbUserId || !crewId) return;
     
     try {
-      const month = crewFilterMonth === 'ytd' ? undefined : crewFilterMonth;
+      // crewFilterMonth is 0-indexed (January = 0), but service expects 1-indexed
+      const month = crewFilterMonth === 'ytd' ? undefined : (crewFilterMonth as number) + 1;
       const metrics = await crewService.getCrewPerformanceMetrics(dbUserId, crewId, crewFilterYear, month);
       setCrewPerformance(metrics);
     } catch (error) {
@@ -311,7 +332,8 @@ const EmployeeLERPage: React.FC = () => {
     if (!dbUserId) return;
     
     try {
-      const month = crewFilterMonth === 'ytd' ? undefined : crewFilterMonth;
+      // crewFilterMonth is 0-indexed (January = 0), but service expects 1-indexed
+      const month = crewFilterMonth === 'ytd' ? undefined : (crewFilterMonth as number) + 1;
       const comparison = await crewService.getCrewVsSoloComparison(dbUserId, crewFilterYear, month);
       setCrewVsSolo(comparison);
     } catch (error) {
@@ -319,12 +341,28 @@ const EmployeeLERPage: React.FC = () => {
     }
   }
 
+  // Load crew work days for the selected crew
+  async function loadCrewWorkDays(crewId: string) {
+    if (!dbUserId || !crewId) return;
+    
+    try {
+      // crewFilterMonth is 0-indexed (January = 0), but getCrewWorkDays expects 1-indexed
+      const month = crewFilterMonth === 'ytd' ? undefined : (crewFilterMonth as number) + 1;
+      const days = await crewService.getCrewWorkDays(dbUserId, crewId, crewFilterYear, month);
+      setCrewWorkDays(days);
+    } catch (error) {
+      console.error('Error loading crew work days:', error);
+      setCrewWorkDays([]);
+    }
+  }
+
   // Load crew data when switching to crew view or changing filters
   useEffect(() => {
-    if (viewMode === 'crew' && dbUserId) {
+    if ((viewMode as any) === 'crew' && dbUserId) {
       loadCrewVsSoloComparison();
       if (selectedCrewId) {
         loadCrewPerformance(selectedCrewId);
+        loadCrewWorkDays(selectedCrewId);
       }
     }
   }, [viewMode, selectedCrewId, crewFilterYear, crewFilterMonth, dbUserId]);
@@ -449,10 +487,10 @@ const EmployeeLERPage: React.FC = () => {
       return;
     }
     
-    console.log('🔄 Switching to employee:', employeeId);
+    console.log('🔄 Loading employee data for:', employeeId);
     setLoading(true);
     
-    // Clear previous employee's data immediately to prevent stale data
+    console.log('🧹 Clearing previous pay periods data...');
     setPayPeriodsData([]);
     // Don't reset selectedPeriodIndex - let it persist across reloads
     
@@ -623,6 +661,8 @@ const EmployeeLERPage: React.FC = () => {
   const handleCSVImport = async (csvRows: Array<{
     date: string;
     employeeName: string;
+    crewName?: string;
+    role?: 'crew' | 'helper';
     serviceName: string;
     jobs: number;
     hours: number;
@@ -630,23 +670,109 @@ const EmployeeLERPage: React.FC = () => {
     totalDailyHours?: number;
     tips?: number;
     notes?: string;
-  }>) => {
+  }>, skipExistingCheck?: boolean): Promise<{ success: boolean; skipped?: boolean }> => {
     if (!dbUserId) {
       alert('Error: User not authenticated');
-      return;
+      return { success: false };
     }
 
     try {
-      // Group rows by employee and date
+      // Group solo rows by employee and date (rows without crew name)
       const groupedByEmployeeAndDate: { [key: string]: typeof csvRows } = {};
       
-      csvRows.forEach(row => {
+      csvRows.filter(row => !row.crewName).forEach(row => {
         const key = `${row.employeeName}|${row.date}`;
         if (!groupedByEmployeeAndDate[key]) {
           groupedByEmployeeAndDate[key] = [];
         }
         groupedByEmployeeAndDate[key].push(row);
       });
+      
+      // Group crew rows by crew name and date (rows with crew name)
+      const groupedByCrewAndDate: { [key: string]: typeof csvRows } = {};
+      
+      csvRows.filter(row => row.crewName).forEach(row => {
+        const key = `${row.crewName!}|${row.date}`;
+        if (!groupedByCrewAndDate[key]) {
+          groupedByCrewAndDate[key] = [];
+        }
+        groupedByCrewAndDate[key].push(row);
+      });
+
+      // === PRE-IMPORT CHECK FOR EXISTING RECORDS ===
+      if (!skipExistingCheck) {
+        // Build list of employee+date pairs to check
+        const employeeDatePairs: Array<{ employeeId: string; employeeName: string; date: string; isCrewJob: boolean }> = [];
+        
+        // Add solo job pairs
+        for (const [key] of Object.entries(groupedByEmployeeAndDate)) {
+          const [employeeName, date] = key.split('|');
+          const employee = allEmployees.find(e => e.name.toLowerCase() === employeeName.toLowerCase());
+          if (employee?.id) {
+            employeeDatePairs.push({ employeeId: employee.id, employeeName, date, isCrewJob: false });
+          }
+        }
+        
+        // Add crew job pairs (need to expand crew members)
+        for (const [key, rows] of Object.entries(groupedByCrewAndDate)) {
+          const [, date] = key.split('|'); // crewName not needed here, just date
+          const crewEmployeeNames = [...new Set(rows.map(r => r.employeeName))];
+          for (const empName of crewEmployeeNames) {
+            const employee = allEmployees.find(e => e.name.toLowerCase() === empName.toLowerCase());
+            if (employee?.id) {
+              employeeDatePairs.push({ employeeId: employee.id, employeeName: empName, date, isCrewJob: true });
+            }
+          }
+        }
+        
+        // Check for existing records
+        if (employeeDatePairs.length > 0) {
+          const existingRecords = await employeeLERService.checkExistingRecordsForImport(dbUserId, employeeDatePairs);
+          
+          if (existingRecords.length > 0) {
+            // Group by record type for clearer message
+            const soloConflicts = existingRecords.filter(r => r.recordType === 'solo');
+            const crewConflicts = existingRecords.filter(r => r.recordType === 'crew');
+            
+            let warningMessage = `⚠️ Found ${existingRecords.length} existing record(s) that will conflict with this import:\n\n`;
+            
+            if (soloConflicts.length > 0) {
+              warningMessage += `SOLO RECORDS (${soloConflicts.length}):\n`;
+              // Show first 5 conflicts
+              soloConflicts.slice(0, 5).forEach(r => {
+                warningMessage += `  • ${r.employeeName} on ${r.date}\n`;
+              });
+              if (soloConflicts.length > 5) {
+                warningMessage += `  ... and ${soloConflicts.length - 5} more\n`;
+              }
+              warningMessage += '\n';
+            }
+            
+            if (crewConflicts.length > 0) {
+              warningMessage += `CREW RECORDS (${crewConflicts.length}):\n`;
+              crewConflicts.slice(0, 5).forEach(r => {
+                warningMessage += `  • ${r.employeeName} on ${r.date}\n`;
+              });
+              if (crewConflicts.length > 5) {
+                warningMessage += `  ... and ${crewConflicts.length - 5} more\n`;
+              }
+              warningMessage += '\n';
+            }
+            
+            warningMessage += `These records already exist. Importing will fail for these dates.\n\n`;
+            warningMessage += `Options:\n`;
+            warningMessage += `1. Delete existing records first, then re-import\n`;
+            warningMessage += `2. Remove conflicting dates from your CSV\n`;
+            warningMessage += `3. Cancel and keep existing data\n\n`;
+            warningMessage += `Do you want to continue anyway? (Conflicting records will be skipped)`;
+            
+            const shouldContinue = window.confirm(warningMessage);
+            if (!shouldContinue) {
+              return { success: false, skipped: true };
+            }
+          }
+        }
+      }
 
       let successCount = 0;
       let errorCount = 0;
@@ -699,7 +825,14 @@ const EmployeeLERPage: React.FC = () => {
           // We need to check for duplicates across ALL records, not just this employee's records
           const existingDailyRecords = await employeeLERService.getDailyRecords(payPeriod.id!);
           console.log(`📋 Loaded ${existingDailyRecords.length} existing records for pay period ${payPeriod.period_name}:`, 
-            existingDailyRecords.map(r => ({ date: r.date, employee_id: r.employee_id || 'NULL' })));
+            existingDailyRecords.map(r => ({ date: r.date, employee_id: r.employee_id || 'NULL', serviceBreakdownCount: (r.service_breakdown as any)?.length || 0 })));
+          
+          // Debug: Check if serviceBreakdown is properly loaded
+          existingDailyRecords.forEach((record, idx) => {
+            if (record.is_crew_job && record.service_breakdown) {
+              console.log(`🔍 Crew record ${idx} (${record.date}): serviceBreakdown =`, record.service_breakdown);
+            }
+          });
 
           // Build service breakdown
           const serviceBreakdown: ServiceBreakdownItem[] = rows.map(row => ({
@@ -893,6 +1026,259 @@ const EmployeeLERPage: React.FC = () => {
         }
       }
 
+      // Process crew jobs - create linked records for each crew member
+      for (const [key, rows] of Object.entries(groupedByCrewAndDate)) {
+        const keyParts = key.split('|');
+        const crewName = keyParts[0];
+        const date = keyParts[1] as string; // We know this exists since we built the key with both parts
+        
+        try {
+          // Get unique employees in this crew for this date
+          const crewEmployeeNames = [...new Set(rows.map(r => r.employeeName))];
+          const crewEmployees = crewEmployeeNames
+            .map(name => {
+              const emp = allEmployees.find(e => e.name.toLowerCase() === name.toLowerCase());
+              return emp && emp.id ? { ...emp } : null;
+            })
+            .filter((e): e is typeof allEmployees[0] => !!e && !!e.id);
+          
+          if (crewEmployees.length === 0) {
+            errors.push(`Crew "${crewName}" on ${date}: No valid employees found`);
+            errorCount++;
+            continue;
+          }
+          
+          // Look up or create the crew in the crews table
+          let existingCrews = await crewService.getCrews(dbUserId);
+          let crew: typeof existingCrews[0] | undefined = existingCrews.find(c => c.crew_name.toLowerCase() === crewName.toLowerCase());
+          
+          if (!crew) {
+            // Create the crew if it doesn't exist
+            const newCrew = await crewService.createCrew(dbUserId, {
+              crew_name: crewName,
+              is_active: true
+            });
+            if (!newCrew) {
+              errors.push(`Crew "${crewName}" on ${date}: Failed to create crew record`);
+              errorCount++;
+              continue;
+            }
+            crew = newCrew;
+          }
+          
+          const crewId = crew.id!;
+          
+          // Find pay period for this date
+          const recordDate = parseLocalDate(date);
+          const allPayPeriods = await employeeLERService.getPayPeriods(dbUserId);
+          const payPeriod = allPayPeriods.find(p => {
+            const start = parseLocalDate(p.start_date);
+            const end = parseLocalDate(p.end_date);
+            return recordDate >= start && recordDate <= end;
+          });
+          
+          if (!payPeriod) {
+            errors.push(`Crew "${crewName}" on ${date}: No pay period found`);
+            errorCount++;
+            continue;
+          }
+          
+          // Aggregate service breakdown from all rows for this crew+date
+          // (services should be the same for all crew members on the same job)
+          const uniqueServices = new Map<string, { serviceName: string; jobs: number; hours: number; revenue: number }>();
+          rows.forEach(row => {
+            const existing = uniqueServices.get(row.serviceName);
+            if (!existing) {
+              uniqueServices.set(row.serviceName, {
+                serviceName: row.serviceName,
+                jobs: row.jobs,
+                hours: row.hours,
+                revenue: row.revenue
+              });
+            }
+          });
+          
+          const serviceBreakdown: ServiceBreakdownItem[] = Array.from(uniqueServices.values()).map(s => ({
+            serviceId: services.find(svc => svc.serviceName.toLowerCase() === s.serviceName.toLowerCase())?.id || '',
+            serviceName: s.serviceName,
+            jobs: s.jobs,
+            hours: s.hours,
+            revenue: s.revenue
+          }));
+          
+          // Calculate totals (shared across crew)
+          const totalJobs = serviceBreakdown.reduce((sum, s) => sum + s.jobs, 0);
+          const totalHours = serviceBreakdown.reduce((sum, s) => sum + s.hours, 0);
+          const totalRevenue = serviceBreakdown.reduce((sum, s) => sum + s.revenue, 0);
+          const firstRow = rows[0];
+          const totalDailyHours = firstRow.totalDailyHours || totalHours;
+          const tips = firstRow.tips || 0;
+          const notes = firstRow.notes || '';
+          
+          // Build job types object
+          const jobTypes: { [key: string]: number } = {};
+          serviceBreakdown.forEach(s => {
+            jobTypes[s.serviceName] = (jobTypes[s.serviceName] || 0) + s.jobs;
+          });
+          
+          const dayOfWeek = recordDate.toLocaleDateString('en-US', { weekday: 'long' });
+          
+          // Calculate COGS
+          const totalCOGS = serviceBreakdown.reduce((sum, s) => {
+            const cogsPercent = servicesWithCOGS[s.serviceName] || 0;
+            return sum + (s.revenue * (cogsPercent / 100));
+          }, 0);
+          
+          const crewMemberCount = crewEmployees.length;
+          
+          // Create a record for each crew member (revenue split equally)
+          for (const employee of crewEmployees) {
+            const baseRate = employee.current_base_rate;
+            const employeeHours = totalDailyHours;
+            
+            // Each crew member gets equal share of revenue
+            const attributedRevenue = crewMemberCount > 0 ? Math.round((totalRevenue / crewMemberCount) * 100) / 100 : 0;
+            let regularHours = employeeHours;
+            let overtimeHours = 0;
+            let basePay = 0;
+            let overtimePay = 0;
+            
+            if (employeeHours > companySettings.overtimeHoursDaily) {
+              regularHours = companySettings.overtimeHoursDaily;
+              overtimeHours = employeeHours - companySettings.overtimeHoursDaily;
+              basePay = regularHours * baseRate;
+              overtimePay = overtimeHours * baseRate * companySettings.overtimeMultiplier;
+            } else {
+              basePay = employeeHours * baseRate;
+            }
+            
+            const totalEmployeeBasePay = basePay + overtimePay;
+            
+            // Calculate this employee's labor cost
+            const employeeLaborCost = employeeHours * baseRate;
+            
+            // Each crew member gets equal share of COGS
+            const attributedCOGS = crewMemberCount > 0 ? Math.round((totalCOGS / crewMemberCount) * 100) / 100 : 0;
+            
+            // Calculate gross profit based on THIS employee's attributed revenue and costs
+            const employeeGrossProfit = attributedRevenue - attributedCOGS - employeeLaborCost;
+            const employeeGrossProfitPercent = attributedRevenue > 0 ? (employeeGrossProfit / attributedRevenue) * 100 : 0;
+            const ler = employeeLaborCost > 0 ? employeeGrossProfit / employeeLaborCost : 0;
+            
+            // Calculate bonuses (crew threshold is lower: 15% vs 25%)
+            const crewBonusThresholdMin = 0.15;
+            const qualifyForBonus = ler >= crewBonusThresholdMin && ler <= companySettings.bonusThresholdMax;
+            let bonusQualified = 0;
+            let appointmentBonus = 0;
+            
+            if (qualifyForBonus) {
+              const totalBonus = employeeGrossProfit * 0.10;
+              // Each crew member gets equal share of bonus
+              bonusQualified = crewMemberCount > 0 ? totalBonus / crewMemberCount : 0;
+            }
+            
+            if (companySettings.enableAppointmentBonus && totalJobs >= 3) {
+              let totalAppointmentBonus = 0;
+              if (totalJobs >= 6) totalAppointmentBonus = companySettings.appointmentBonus6PlusJobs;
+              else if (totalJobs === 5) totalAppointmentBonus = companySettings.appointmentBonus5Jobs;
+              else if (totalJobs === 4) totalAppointmentBonus = companySettings.appointmentBonus4Jobs;
+              else if (totalJobs === 3) totalAppointmentBonus = companySettings.appointmentBonus3Jobs;
+              
+              // Each crew member gets equal share of appointment bonus
+              appointmentBonus = crewMemberCount > 0 ? totalAppointmentBonus / crewMemberCount : 0;
+            }
+            
+            const totalBonuses = bonusQualified + appointmentBonus;
+            const tipsPerPerson = tips / crewEmployees.length;
+            const totalEmployeePay = totalEmployeeBasePay + totalBonuses + tipsPerPerson;
+            const employeeNetProfit = employeeGrossProfit - bonusQualified - appointmentBonus;
+            const employeeNetProfitPercent = attributedRevenue > 0 ? (employeeNetProfit / attributedRevenue) * 100 : 0;
+            const hourlyWithBonusAndTips = employeeHours > 0 ? totalEmployeePay / employeeHours : 0;
+            
+            const recordNotes = `${notes} [Crew: ${crewName}]`.trim();
+            
+            const dailyRecord: employeeLERService.DailyRecord = {
+              work_day: dayOfWeek,
+              date: date,
+              called_out: false,
+              number_of_jobs: totalJobs,
+              job_types: jobTypes,
+              total_job_revenue: attributedRevenue,
+              total_hours_worked: employeeHours,
+              total_job_time: totalHours,
+              base_rate: baseRate,
+              employee_base_pay: totalEmployeeBasePay,
+              overtime_hours: overtimeHours,
+              overtime_pay: overtimePay,
+              cogs_no_labor: attributedCOGS,
+              cogs_no_labor_percent: attributedRevenue > 0 ? (attributedCOGS / attributedRevenue) * 100 : 0,
+              overhead_costs_percent: companySettings.overheadPercent,
+              gross_profit_before_bonus: employeeGrossProfit,
+              gross_profit_before_bonus_percent: employeeGrossProfitPercent,
+              ler: ler,
+              qualify_for_bonus: qualifyForBonus,
+              bonus_qualified_for_percent: bonusQualified,
+              appointment_based_bonus: appointmentBonus,
+              tip_amount: tipsPerPerson,
+              total_employee_pay: totalEmployeePay,
+              daily_hourly_with_tips_and_bonus: hourlyWithBonusAndTips,
+              daily_net_profit_after_bonus: employeeNetProfit,
+              daily_net_profit_after_bonus_percent: employeeNetProfitPercent,
+              notes: recordNotes,
+              service_breakdown: { services: serviceBreakdown },
+              is_crew_job: true,
+              crew_id: crewId
+            };
+            
+            console.log(`📝 Creating crew record for ${employee.name} in "${crewName}" on ${date}`);
+            const createdRecord = await employeeLERService.createDailyRecord(payPeriod.id!, dailyRecord, employee.id);
+            
+            if (createdRecord?.id) {
+              // Create service labor records
+              const laborCosts = {
+                basePay: basePay,
+                overtimePay: overtimePay,
+                bonuses: totalBonuses,
+                tips: tipsPerPerson
+              };
+              
+              await serviceLaborService.createServiceLaborRecords(
+                dbUserId,
+                employee.id!,
+                payPeriod.id!,
+                date,
+                serviceBreakdown,
+                laborCosts
+              );
+              
+              // Save crew composition to daily_record_crew_members
+              await crewService.addDailyRecordCrewMember({
+                daily_record_id: createdRecord.id,
+                employee_id: employee.id!,
+                role_id: undefined,
+                hours_worked: employeeHours,
+                bonus_percentage: crewMemberCount > 0 ? 100 / crewMemberCount : 0,
+                attributed_revenue: attributedRevenue,
+                attributed_bonus: totalBonuses,
+                is_helper: false,
+                helper_appointments: undefined
+              });
+              console.log(`💾 Saved crew member record for ${employee.name}`);
+              
+              successCount++;
+              console.log(`✅ Created crew record for ${employee.name}`);
+            } else {
+              errors.push(`Failed to create crew record for ${employee.name} on ${date}`);
+              errorCount++;
+            }
+          }
+        } catch (error: any) {
+          console.error(`Error processing crew "${crewName}" on ${date}:`, error);
+          errors.push(`Error processing crew "${crewName}" on ${date}: ${error?.message || error}`);
+          errorCount++;
+        }
+      }
+
       // Show results
       if (successCount > 0) {
         alert(`Successfully imported ${successCount} record(s)${errorCount > 0 ? `, ${errorCount} failed` : ''}`);
@@ -901,9 +1287,123 @@ const EmployeeLERPage: React.FC = () => {
       } else {
         alert(`Import failed. ${errors.slice(0, 5).join('\n')}`);
       }
+      
+      return { success: successCount > 0 };
     } catch (error) {
       console.error('CSV import error:', error);
       alert('Error importing CSV. Please check the console for details.');
+      return { success: false };
+    }
+  };
+
+  // Handle crew edit confirmation
+  const handleConfirmCrewEdit = async () => {
+    if (!pendingCrewEdit || !dbUserId) return;
+
+    const { record, serviceBreakdown, linkedRecords } = pendingCrewEdit;
+    let updateCount = 0;
+
+    try {
+      // Update all linked records with the same service breakdown and shared data
+      for (const linkedRecord of linkedRecords) {
+        const employee = allEmployees.find(e => e.id === linkedRecord.employee_id);
+        if (!employee) continue;
+        
+        // Build the update record with shared crew data
+        const crewUpdateRecord = {
+          ...record,
+          // Keep the original employee's base rate for their individual calculation
+          baseRate: employee.current_base_rate || 0
+        };
+        
+        const supabaseRecord = convertToSupabaseFormat(crewUpdateRecord);
+        const success = await employeeLERService.updateDailyRecord(linkedRecord.id, supabaseRecord);
+        
+        if (success) {
+          updateCount++;
+          
+          // Update service labor records for this employee
+          const laborCosts = {
+            basePay: record.employeeBasePay,
+            overtimePay: record.overtimePay,
+            bonuses: record.bonusQualifiedForPercent + record.appointmentBasedBonus,
+            tips: record.tipAmount
+          };
+          
+          await serviceLaborService.updateServiceLaborRecords(
+            dbUserId,
+            linkedRecord.employee_id,
+            linkedRecord.pay_period_id,
+            record.date,
+            serviceBreakdown,
+            laborCosts
+          );
+          
+          // Update crew attributions
+          await crewService.deleteCrewAttributions(linkedRecord.id);
+        }
+      }
+      
+      // Create new crew attributions for all members
+      if (record.isCrewJob && record.crewId) {
+        const crewMembers = crewMembersMap[record.crewId] || [];
+        if (crewMembers.length > 0) {
+          const totalBonus = record.bonusQualifiedForPercent + record.appointmentBasedBonus;
+          // Create attributions for the first record (they're linked)
+          await crewService.createCrewAttributions(
+            dbUserId,
+            record.id || '',
+            record.crewId || '',
+            record.totalJobRevenue,
+            totalBonus,
+            record.totalHoursWorked,
+            crewMembers,
+            crewRoles
+          );
+        }
+      }
+      
+      // Refresh data
+      await loadEmployeeData(selectedEmployeeId);
+      
+      alert(`✅ Successfully updated ${updateCount} crew member records`);
+      setShowAddDay(false);
+      setEditingRecord(null);
+      setPendingCrewEdit(null);
+      setShowCrewEditConfirm(false);
+    } catch (error) {
+      console.error('Error updating crew records:', error);
+      alert('Error updating crew records. Please check the console for details.');
+      setShowCrewEditConfirm(false);
+      setPendingCrewEdit(null);
+    }
+  };
+
+  // Handle bulk delete of records
+  const handleBulkDelete = async () => {
+    if (!selectedRecordIds.length) return;
+    
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete ${selectedRecordIds.length} record(s)?\n\nThis action cannot be undone.`
+    );
+    
+    if (!confirmDelete) return;
+    
+    try {
+      const result = await employeeLERService.bulkDeleteDailyRecords(selectedRecordIds);
+      
+      if (result.errors.length > 0) {
+        alert(`Successfully deleted ${result.success} record(s).\n\nErrors:\n${result.errors.join('\n')}`);
+      } else {
+        alert(`Successfully deleted ${result.success} record(s).`);
+      }
+      
+      // Clear selection and reload data
+      setSelectedRecordIds([]);
+      await loadEmployeeData(selectedEmployeeId);
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      alert('Error deleting records. Please check the console for details.');
     }
   };
 
@@ -1137,17 +1637,25 @@ const EmployeeLERPage: React.FC = () => {
       return true;
     });
     
-    // Sort by date descending (newest first)
+    // Sort by date based on sortOrder
     return filtered.sort((a, b) => {
       const dateA = parseLocalDate(a.date);
       const dateB = parseLocalDate(b.date);
-      return dateB.getTime() - dateA.getTime();
+      return sortOrder === 'desc' 
+        ? dateB.getTime() - dateA.getTime()
+        : dateA.getTime() - dateB.getTime();
     });
-  }, [payPeriodsData, selectedPeriod, filterYear, filterMonth]);
+  }, [payPeriodsData, selectedPeriod, filterYear, filterMonth, sortOrder]);
+
+  // Show each record as its own row (no aggregation)
+  // This allows users to see and edit solo and crew records separately
+  const aggregatedRecords = useMemo(() => {
+    return filteredDailyRecords;
+  }, [filteredDailyRecords]);
 
   // Calculate totals for filtered records (when month/year filter is active)
   const filteredTotals = useMemo(() => {
-    if (filteredDailyRecords.length === 0) {
+    if (aggregatedRecords.length === 0) {
       return {
         totalJobs: 0,
         totalRevenue: 0,
@@ -1261,62 +1769,40 @@ const EmployeeLERPage: React.FC = () => {
   }, [payPeriods]);
 
   // Calculate crew capacity metrics for Lighthouse guidance
-  const _crewCapacityMetrics = useMemo(() => {
-    // Get crew settings from company settings
-    const numberOfCrews = companySettings.numberOfCrews || 0;
-    const employeesPerCrew = companySettings.employeesPerCrew || 0;
-    const monthlyCrewCapacity = companySettings.monthlyCrewCapacity || 0;
-    
-    // Current employee count
-    const currentEmployeeCount = allEmployees.length;
-    
-    // Get current month's FIR target (monthly budgeted revenue)
-    const currentMonth = new Date().getMonth(); // 0-indexed
-    const monthlyFIRTarget = revenueCurrentYear.monthlyFIRTargets?.[currentMonth] || 0;
-    const annualFIRTarget = revenueCurrentYear.targetRevenue || 0;
-    
-    // Calculate crews needed based on capacity
-    let crewsNeeded = 0;
-    let employeesNeeded = 0;
-    let capacityCoverage = 0;
-    let crewGap = 0;
-    let employeeGap = 0;
-    
-    if (monthlyCrewCapacity > 0 && monthlyFIRTarget > 0) {
-      crewsNeeded = Math.ceil(monthlyFIRTarget / monthlyCrewCapacity);
-      employeesNeeded = crewsNeeded * (employeesPerCrew || 1);
-      capacityCoverage = (numberOfCrews * monthlyCrewCapacity) / monthlyFIRTarget;
-      crewGap = crewsNeeded - numberOfCrews;
-      employeeGap = employeesNeeded - currentEmployeeCount;
-    }
-    
-    // Annual calculations for YTD view
-    let annualCrewsNeeded = 0;
-    let annualEmployeesNeeded = 0;
-    if (monthlyCrewCapacity > 0 && annualFIRTarget > 0) {
-      // Average monthly target
-      const avgMonthlyTarget = annualFIRTarget / 12;
-      annualCrewsNeeded = Math.ceil(avgMonthlyTarget / monthlyCrewCapacity);
-      annualEmployeesNeeded = annualCrewsNeeded * (employeesPerCrew || 1);
-    }
-    
+  // TODO: Implement crew capacity metrics when needed
+  // Placeholder for future crew capacity calculations
+
+  // Helper function to calculate crew metrics for any given crew
+  const calculateCrewMetrics = (crewId: string, year: number, month: number | 'ytd') => {
+    // Filter records by crew_id and date
+    const crewRecords = filteredDailyRecords.filter(record => {
+      if (!record.crewId || record.crewId !== crewId) return false;
+      
+      const recordDate = parseLocalDate(record.date);
+      if (recordDate.getFullYear() !== year) return false;
+      
+      if (month === 'ytd') {
+        return true; // All records for the year
+      } else {
+        return recordDate.getMonth() === month;
+      }
+    });
+
+    // Calculate metrics
+    const totalJobs = crewRecords.reduce((sum, r) => sum + r.numberOfJobs, 0);
+    const totalRevenue = crewRecords.reduce((sum, r) => sum + r.totalJobRevenue, 0);
+    const avgRevenuePerJob = totalJobs > 0 ? totalRevenue / totalJobs : 0;
+    const avgLER = crewRecords.length > 0 
+      ? crewRecords.reduce((sum, r) => sum + r.ler, 0) / crewRecords.length 
+      : 0;
+
     return {
-      numberOfCrews,
-      employeesPerCrew,
-      monthlyCrewCapacity,
-      currentEmployeeCount,
-      monthlyFIRTarget,
-      annualFIRTarget,
-      crewsNeeded,
-      employeesNeeded,
-      capacityCoverage,
-      crewGap,
-      employeeGap,
-      annualCrewsNeeded,
-      annualEmployeesNeeded,
-      hasCrewSettings: numberOfCrews > 0 && monthlyCrewCapacity > 0
+      totalJobs,
+      totalRevenue,
+      avgRevenuePerJob,
+      avgLER
     };
-  }, [companySettings, allEmployees.length, revenueCurrentYear]);
+  };
 
   // Calculate employee insights based on view mode
   const employeeInsights = useMemo(() => {
@@ -1604,7 +2090,7 @@ const EmployeeLERPage: React.FC = () => {
       </div>
 
       {/* Main Filter Container - Individual View */}
-      {viewMode === 'individual' && (
+      {(viewMode as any) === 'individual' && (
         <Card className="border-border">
           <CardContent className="pt-6 space-y-4">
             {/* View Toggle - Only show if crews exist */}
@@ -1616,7 +2102,7 @@ const EmployeeLERPage: React.FC = () => {
                     <button
                       onClick={() => setViewMode('individual')}
                       className={`flex-1 flex items-center justify-center gap-3 py-4 px-6 rounded-lg border-2 transition-all ${
-                        viewMode === 'individual' 
+                        (viewMode as any) === 'individual' 
                           ? 'bg-accent text-accent-foreground border-accent' 
                           : 'bg-muted/30 text-muted-foreground border-border hover:border-accent/50 hover:bg-muted/50'
                       }`}
@@ -1627,7 +2113,7 @@ const EmployeeLERPage: React.FC = () => {
                     <button
                       onClick={() => setViewMode('crew')}
                       className={`flex-1 flex items-center justify-center gap-3 py-4 px-6 rounded-lg border-2 transition-all ${
-                        viewMode === 'crew' 
+                        (viewMode as any) === 'crew' 
                           ? 'bg-accent text-accent-foreground border-accent' 
                           : 'bg-muted/30 text-muted-foreground border-border hover:border-accent/50 hover:bg-muted/50'
                       }`}
@@ -1648,13 +2134,13 @@ const EmployeeLERPage: React.FC = () => {
                     <Label htmlFor="employee-select" className="text-sm font-medium whitespace-nowrap">
                       Select Employee:
                     </Label>
-                    <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
+                    <Select value={selectedEmployeeId || ''} onValueChange={setSelectedEmployeeId}>
                       <SelectTrigger className="w-[250px]">
                         <SelectValue placeholder="Select Employee" />
                       </SelectTrigger>
                       <SelectContent>
                         {allEmployees.map((emp) => (
-                          <SelectItem key={emp.id} value={emp.id}>
+                          <SelectItem key={emp.id || ''} value={emp.id || ''}>
                             {emp.name} - {emp.position}
                           </SelectItem>
                         ))}
@@ -1774,7 +2260,7 @@ const EmployeeLERPage: React.FC = () => {
       )}
 
       {/* Main Filter Container - Crew View */}
-      {viewMode === 'crew' && (
+      {(viewMode as any) === 'crew' && (
         <Card className="border-border">
           <CardContent className="pt-6 space-y-4">
             {/* View Toggle */}
@@ -1786,7 +2272,7 @@ const EmployeeLERPage: React.FC = () => {
                     <button
                       onClick={() => setViewMode('individual')}
                       className={`flex-1 flex items-center justify-center gap-3 py-4 px-6 rounded-lg border-2 transition-all ${
-                        viewMode === 'individual' 
+                        (viewMode as any) === 'individual' 
                           ? 'bg-accent text-accent-foreground border-accent' 
                           : 'bg-muted/30 text-muted-foreground border-border hover:border-accent/50 hover:bg-muted/50'
                       }`}
@@ -1797,7 +2283,7 @@ const EmployeeLERPage: React.FC = () => {
                     <button
                       onClick={() => setViewMode('crew')}
                       className={`flex-1 flex items-center justify-center gap-3 py-4 px-6 rounded-lg border-2 transition-all ${
-                        viewMode === 'crew' 
+                        (viewMode as any) === 'crew' 
                           ? 'bg-accent text-accent-foreground border-accent' 
                           : 'bg-muted/30 text-muted-foreground border-border hover:border-accent/50 hover:bg-muted/50'
                       }`}
@@ -1826,7 +2312,7 @@ const EmployeeLERPage: React.FC = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {crews.filter(c => c.is_active).map(crew => (
-                          <SelectItem key={crew.id} value={crew.id!}>
+                          <SelectItem key={crew.id} value={crew.id || ''}>
                             {crew.crew_name}
                           </SelectItem>
                         ))}
@@ -1891,18 +2377,18 @@ const EmployeeLERPage: React.FC = () => {
                 </div>
                 </div>
 
-                {/* Add Crew Day Button */}
+                {/* CSV Upload Button for Crew */}
                 <Button 
-                  onClick={() => {
-                    refreshServices();
-                    setOpenInCrewMode(true);
-                    setShowAddDay(true);
-                  }} 
-                  className="bg-accent hover:bg-accent/90 text-background"
+                  onClick={async () => {
+                    await refreshServices();
+                    setShowCSVUpload(true);
+                  }}
+                  variant="ghost"
+                  className="bg-background/20 border border-border hover:bg-background/20 hover:border-accent text-foreground"
                   size="sm"
                 >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Crew Day
+                  <Upload className="h-4 w-4 mr-2" />
+                  Import CSV
                 </Button>
               </div>
             </div>
@@ -1911,73 +2397,8 @@ const EmployeeLERPage: React.FC = () => {
       )}
 
       {/* ==================== CREW VIEW ==================== */}
-      {viewMode === 'crew' && (
+      {(viewMode as any) === 'crew' && (
         <>
-          {/* Crew vs Solo Comparison */}
-          {crewVsSolo && (
-            <Card className="bg-muted/30 border-border">
-              <CardHeader>
-                <CardTitle className="text-foreground flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-accent" />
-                  Crew vs Solo Comparison
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-6">
-                  {/* Crew Jobs */}
-                  <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
-                    <h4 className="text-lg font-semibold text-accent mb-4">Crew Jobs</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Jobs</p>
-                        <p className="text-xl font-bold text-foreground">{crewVsSolo.crewJobs.totalJobs}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Revenue</p>
-                        <p className="text-xl font-bold text-foreground">${crewVsSolo.crewJobs.totalRevenue.toLocaleString()}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
-                        <p className="text-xl font-bold text-foreground">${crewVsSolo.crewJobs.avgRevenuePerJob.toFixed(0)}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Avg LER</p>
-                        <p className={`text-xl font-bold ${crewVsSolo.crewJobs.avgLER >= 1 ? 'text-green-500' : 'text-yellow-500'}`}>
-                          {crewVsSolo.crewJobs.avgLER.toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Solo Jobs */}
-                  <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                    <h4 className="text-lg font-semibold text-foreground mb-4">Solo Jobs</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Jobs</p>
-                        <p className="text-xl font-bold text-foreground">{crewVsSolo.soloJobs.totalJobs}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Revenue</p>
-                        <p className="text-xl font-bold text-foreground">${crewVsSolo.soloJobs.totalRevenue.toLocaleString()}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
-                        <p className="text-xl font-bold text-foreground">${crewVsSolo.soloJobs.avgRevenuePerJob.toFixed(0)}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Avg LER</p>
-                        <p className={`text-xl font-bold ${crewVsSolo.soloJobs.avgLER >= 1 ? 'text-green-500' : 'text-yellow-500'}`}>
-                          {crewVsSolo.soloJobs.avgLER.toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
           {/* Selected Crew Performance */}
           {selectedCrewId && crewPerformance && (
             <>
@@ -2060,6 +2481,140 @@ const EmployeeLERPage: React.FC = () => {
                 </Card>
               </div>
 
+              {/* Crew vs Crew Comparison */}
+          {selectedCrewId && (
+            <Card className="bg-muted/30 border-border">
+              <CardHeader>
+                <CardTitle className="text-foreground flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-accent" />
+                  Crew Comparison
+                </CardTitle>
+                <div className="flex gap-4 mt-2">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">Crew 1:</Label>
+                    <Select value={selectedCrewId} onValueChange={setSelectedCrewId}>
+                      <SelectTrigger className="w-48">
+                        <SelectValue placeholder="Select crew" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {crews.filter(c => c.is_active).map(crew => (
+                          <SelectItem key={crew.id} value={crew.id || ''}>
+                            {crew.crew_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">Crew 2:</Label>
+                    <Select 
+                      value={comparisonCrewId} 
+                      onValueChange={(value) => value !== selectedCrewId && setComparisonCrewId(value)}
+                    >
+                      <SelectTrigger className="w-48">
+                        <SelectValue placeholder="Select crew to compare" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {crews.filter(c => c.is_active && c.id !== selectedCrewId).map(crew => (
+                          <SelectItem key={crew.id} value={crew.id || ''}>
+                            {crew.crew_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Selected Crew */}
+                  <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
+                    <h4 className="text-lg font-semibold text-accent mb-4">
+                      {crews.find(c => c.id === selectedCrewId)?.crew_name || 'Selected Crew'}
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Jobs</p>
+                        <p className="text-xl font-bold text-foreground">
+                          {calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).totalJobs}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Revenue</p>
+                        <p className="text-xl font-bold text-foreground">
+                          ${calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).totalRevenue.toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
+                        <p className="text-xl font-bold text-foreground">
+                          ${calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).avgRevenuePerJob.toFixed(0)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Avg LER</p>
+                        <p className={`text-xl font-bold ${
+                          calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).avgLER >= 1 
+                            ? 'text-green-500' 
+                            : 'text-yellow-500'
+                        }`}>
+                          {calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).avgLER.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Comparison Crew */}
+                  <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                    <h4 className="text-lg font-semibold text-foreground mb-4">
+                      {comparisonCrewId 
+                        ? crews.find(c => c.id === comparisonCrewId)?.crew_name || 'Comparison Crew'
+                        : 'No comparison crew selected'
+                      }
+                    </h4>
+                    {comparisonCrewId ? (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Jobs</p>
+                          <p className="text-xl font-bold text-foreground">
+                            {calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).totalJobs}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Revenue</p>
+                          <p className="text-xl font-bold text-foreground">
+                            ${calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).totalRevenue.toLocaleString()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
+                          <p className="text-xl font-bold text-foreground">
+                            ${calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).avgRevenuePerJob.toFixed(0)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Avg LER</p>
+                          <p className={`text-xl font-bold ${
+                            calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).avgLER >= 1 
+                              ? 'text-green-500' 
+                              : 'text-yellow-500'
+                          }`}>
+                            {calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).avgLER.toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center text-muted-foreground py-8">
+                        <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                        <p>Select a crew to compare</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
               {/* Member Contributions */}
               <Card className="bg-muted/30">
                 <CardHeader className="flex flex-row items-center justify-between">
@@ -2132,6 +2687,138 @@ const EmployeeLERPage: React.FC = () => {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Crew Work Days Table */}
+              <Card className="bg-muted/30">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="text-foreground flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-accent" />
+                    Crew Work Days
+                    <Badge variant="outline" className="ml-2 text-accent border-accent">
+                      {crews.find(c => c.id === selectedCrewId)?.crew_name || 'Unknown Crew'}
+                    </Badge>
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {crewFilterMonth === 'ytd' 
+                        ? `YTD ${crewFilterYear}` 
+                        : `${new Date(crewFilterYear, typeof crewFilterMonth === 'number' ? crewFilterMonth : 0, 1).toLocaleDateString('en-US', { month: 'long' })} ${crewFilterYear}`
+                      }
+                    </span>
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setOpenInCrewMode(true);
+                      setShowAddDay(true);
+                    }}
+                    className="text-accent border-accent hover:bg-accent/20"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Crew Day
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {crewWorkDays.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">No crew work days found for this period</p>
+                      <p className="text-sm text-muted-foreground mt-2">Add a crew day using the button above or import via CSV</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="text-left py-3 px-4 text-muted-foreground font-medium">Date</th>
+                            <th className="text-left py-3 px-4 text-muted-foreground font-medium">Crew Members</th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">Jobs</th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">Revenue</th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">Hours</th>
+                            <th className="text-center py-3 px-4 text-muted-foreground font-medium">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {crewWorkDays.map((day, index) => {
+                            const regularMembers = day.crewMembers.filter(m => !m.isHelper);
+                            const helpers = day.crewMembers.filter(m => m.isHelper);
+                            
+                            return (
+                              <tr key={day.date} className={index % 2 === 0 ? 'bg-muted/20' : ''}>
+                                <td className="py-3 px-4">
+                                  <div className="font-medium text-foreground">{day.dayOfWeek}</div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {new Date(day.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4">
+                                  <div className="flex flex-wrap gap-1">
+                                    {regularMembers.map(m => (
+                                      <Badge key={m.employeeId} variant="outline" className="text-xs">
+                                        {m.employeeName}
+                                      </Badge>
+                                    ))}
+                                    {helpers.map(m => (
+                                      <Badge key={m.employeeId} variant="secondary" className="text-xs bg-accent/20 text-accent">
+                                        {m.employeeName} (Helper)
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4 text-right text-foreground">{day.totalJobs}</td>
+                                <td className="py-3 px-4 text-right text-foreground font-medium">${day.totalRevenue.toLocaleString()}</td>
+                                <td className="py-3 px-4 text-right text-foreground">{day.totalHours}</td>
+                                <td className="py-3 px-4 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        setEditingCrewWorkDay(day);
+                                        setShowMasterCrewEdit(true);
+                                      }}
+                                      className="text-accent hover:text-accent hover:bg-accent/20"
+                                    >
+                                      Edit
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={async () => {
+                                        if (!confirm(`Delete crew day for ${day.dayOfWeek}, ${new Date(day.date + 'T00:00:00').toLocaleDateString()}?\n\nThis will delete records for all ${day.crewMembers.length} crew members.`)) {
+                                          return;
+                                        }
+                                        
+                                        try {
+                                          // Delete all crew member records for this day
+                                          const recordIds = day.crewMembers.map(m => m.recordId);
+                                          const result = await employeeLERService.bulkDeleteDailyRecords(recordIds);
+                                          
+                                          if (result.errors.length > 0) {
+                                            alert(`Deleted ${result.success} records.\n\nErrors:\n${result.errors.join('\n')}`);
+                                          }
+                                          
+                                          // Reload crew work days
+                                          await loadCrewWorkDays(selectedCrewId);
+                                        } catch (error) {
+                                          console.error('Error deleting crew day:', error);
+                                          alert('Error deleting crew day. Please try again.');
+                                        }
+                                      }}
+                                      className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </>
           )}
 
@@ -2151,7 +2838,7 @@ const EmployeeLERPage: React.FC = () => {
       )}
 
       {/* ==================== INDIVIDUAL VIEW ==================== */}
-      {viewMode === 'individual' && (
+      {(viewMode as any) === 'individual' && (
         <>
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2316,6 +3003,17 @@ const EmployeeLERPage: React.FC = () => {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-foreground">Daily Performance Records</CardTitle>
             <div className="flex gap-3 items-center">
+              {/* Sort Order Toggle */}
+              <Button
+                onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                variant="outline"
+                size="sm"
+                title={`Currently: ${sortOrder === 'desc' ? 'Newest First' : 'Oldest First'}`}
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
+              </Button>
+
               {/* CSV Upload Button */}
               <Button 
                 onClick={async () => {
@@ -2362,6 +3060,18 @@ const EmployeeLERPage: React.FC = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-700">
+                    <th className="text-left py-3 px-2 text-muted-foreground font-medium w-10">
+                      <Checkbox
+                        checked={selectedRecordIds.length === filteredDailyRecords.length && filteredDailyRecords.length > 0}
+                        onCheckedChange={(checked: boolean) => {
+                          if (checked) {
+                            setSelectedRecordIds(filteredDailyRecords.map(r => r.id).filter((id): id is string => id !== undefined));
+                          } else {
+                            setSelectedRecordIds([]);
+                          }
+                        }}
+                      />
+                    </th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Date</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Jobs</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Revenue</th>
@@ -2377,32 +3087,36 @@ const EmployeeLERPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredDailyRecords.map((record, index) => {
-                    // Check if this employee has both crew and solo records on the same day
-                    const hasBothTypesOnSameDay = filteredDailyRecords.some(
-                      r => r.date === record.date && r.isCrewJob !== record.isCrewJob
-                    );
-                    
+                  {aggregatedRecords.map((record, index) => {
                     return (
                     <tr key={record.id || index} className="border-b border-gray-800 hover:bg-[rgb(17,24,39)]">
+                      <td className="py-3 px-2">
+                        {record.id && (
+                          <Checkbox
+                            checked={selectedRecordIds.includes(record.id)}
+                            onCheckedChange={(checked: boolean) => {
+                              if (checked && record.id) {
+                                setSelectedRecordIds([...selectedRecordIds, record.id]);
+                              } else if (record.id) {
+                                setSelectedRecordIds(selectedRecordIds.filter(id => id !== record.id));
+                              }
+                            }}
+                          />
+                        )}
+                      </td>
                       <td className="py-3 px-4 text-foreground">
                         <div className="flex items-center gap-2">
-                          <div className="font-medium">{record.workDay}</div>
+                          <div className="font-medium">{record.workDay || ''}</div>
                           {record.isCrewJob ? (
                             <Badge variant="outline" className="text-accent border-accent/50 text-xs">
                               <Users className="h-3 w-3 mr-1" />
                               Crew
                             </Badge>
-                          ) : hasBothTypesOnSameDay && (
-                            <Badge variant="outline" className="text-amber-400 border-amber-400/50 text-xs">
+                          ) : (
+                            <Badge variant="outline" className="text-blue-400 border-blue-400/50 text-xs">
                               <User className="h-3 w-3 mr-1" />
                               Solo
                             </Badge>
-                          )}
-                          {hasBothTypesOnSameDay && (
-                            <span className="text-xs text-muted-foreground" title="This employee worked both solo and crew jobs on this day">
-                              +{record.isCrewJob ? 'Solo' : 'Crew'}
-                            </span>
                           )}
                         </div>
                         <div className="text-xs text-gray-500">
@@ -2491,7 +3205,7 @@ const EmployeeLERPage: React.FC = () => {
                               setEditingRecord({ record, index });
                               setShowAddDay(true);
                             }}
-                            className="text-amber-500 hover:text-amber-400"
+                            className="text-accent hover:text-accent/80"
                           >
                             Edit
                           </Button>
@@ -2500,14 +3214,12 @@ const EmployeeLERPage: React.FC = () => {
                             size="sm"
                             onClick={async () => {
                               if (confirm('Are you sure you want to delete this record?')) {
-                                const recordToDelete = selectedPeriod.dailyRecords[index];
-                                
-                                if (!recordToDelete.id) {
+                                if (!record.id) {
                                   alert('Error: Record ID not found');
                                   return;
                                 }
                                 
-                                const success = await employeeLERService.deleteDailyRecord(recordToDelete.id);
+                                const success = await employeeLERService.deleteDailyRecord(record.id);
                                 
                                 if (success) {
                                   await loadEmployeeData(selectedEmployeeId);
@@ -2580,6 +3292,33 @@ const EmployeeLERPage: React.FC = () => {
                   )}
                 </tbody>
               </table>
+              
+              {/* Bulk Actions Bar */}
+              {selectedRecordIds.length > 0 && (
+                <div className="sticky bottom-0 bg-background border-t border-border p-4 flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    {selectedRecordIds.length} record{selectedRecordIds.length !== 1 ? 's' : ''} selected
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedRecordIds([])}
+                    >
+                      Clear Selection
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-500 hover:text-red-600 border-red-500/50"
+                      onClick={handleBulkDelete}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Selected
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -2877,10 +3616,11 @@ const EmployeeLERPage: React.FC = () => {
           base_rate: emp.current_base_rate || 0 // Map from current_base_rate to base_rate
         } as EmployeeForCrewEntry))}
         defaultCrewMode={openInCrewMode}
-        defaultCrewId={viewMode === 'crew' ? selectedCrewId : ''}
+        defaultCrewId={(viewMode as any) === 'crew' ? selectedCrewId : ''}
         overheadPercent={companySettings.overheadPercent}
         crewBonusThresholdMin={companySettings.crewBonusThresholdMin || 15}
         crewBonusThresholdMax={companySettings.crewBonusThresholdMax || 100}
+        crewRecordsReadOnly={(viewMode as any) === 'individual'}
         onUpdate={async (record, serviceBreakdown: ServiceBreakdownItem[]) => {
           if (editingRecord) {
             const currentPeriod = payPeriodsData[selectedPeriodIndex];
@@ -2917,75 +3657,43 @@ const EmployeeLERPage: React.FC = () => {
                 console.log(`📋 Found ${linkedRecords.length} linked crew records`);
                 
                 if (linkedRecords.length > 1) {
-                  // Update all linked records with the same service breakdown and shared data
-                  let updateCount = 0;
-                  
-                  for (const linkedRecord of linkedRecords) {
-                    const employee = allEmployees.find(e => e.id === linkedRecord.employee_id);
-                    if (!employee) continue;
-                    
-                    // Build the update record with shared crew data
-                    const crewUpdateRecord = {
-                      ...record,
-                      // Keep the original employee's base rate for their individual calculation
-                      baseRate: employee.current_base_rate || 0
-                    };
-                    
-                    const supabaseRecord = convertToSupabaseFormat(crewUpdateRecord);
-                    const success = await employeeLERService.updateDailyRecord(linkedRecord.id, supabaseRecord);
-                    
-                    if (success) {
-                      updateCount++;
-                      
-                      // Update service labor records for this employee
-                      const laborCosts = {
-                        basePay: record.employeeBasePay,
-                        overtimePay: record.overtimePay,
-                        bonuses: record.bonusQualifiedForPercent + record.appointmentBasedBonus,
-                        tips: record.tipAmount
-                      };
-                      
-                      await serviceLaborService.updateServiceLaborRecords(
-                        dbUserId,
-                        linkedRecord.employee_id,
-                        linkedRecord.pay_period_id,
-                        record.date,
-                        serviceBreakdown,
-                        laborCosts
-                      );
-                      
-                      // Update crew attributions
-                      await crewService.deleteCrewAttributions(linkedRecord.id);
-                    }
-                  }
-                  
-                  // Create new crew attributions for all members
-                  if (record.isCrewJob && record.crewId) {
-                    const crewMembers = crewMembersMap[record.crewId] || [];
-                    if (crewMembers.length > 0) {
-                      const totalBonus = record.bonusQualifiedForPercent + record.appointmentBasedBonus;
-                      // Create attributions for the first record (they're linked)
-                      await crewService.createCrewAttributions(
-                        dbUserId,
-                        recordToUpdate.id,
-                        record.crewId,
-                        record.totalJobRevenue,
-                        totalBonus,
-                        record.totalHoursWorked,
-                        crewMembers,
-                        crewRoles
-                      );
-                    }
-                  }
-                  
-                  console.log(`✅ Updated ${updateCount} of ${linkedRecords.length} linked crew records`);
-                  alert(`Updated ${updateCount} crew member records for this day.`);
-                  
-                  setShowAddDay(false);
-                  setEditingRecord(null);
-                  await loadEmployeeData(selectedEmployeeId);
-                  return;
+                  // Store the pending edit and show confirmation modal
+                  setPendingCrewEdit({
+                    record,
+                    serviceBreakdown,
+                    linkedRecords
+                  });
+                  setShowCrewEditConfirm(true);
+                  return; // Don't proceed with update until confirmed
                 }
+                
+                // If only one linked record (the current employee), proceed with individual update
+                // Create new crew attributions for all members
+                if (record.isCrewJob && record.crewId) {
+                  const crewMembers = crewMembersMap[record.crewId] || [];
+                  if (crewMembers.length > 0) {
+                    const totalBonus = record.bonusQualifiedForPercent + record.appointmentBasedBonus;
+                    // Create attributions for the first record (they're linked)
+                    await crewService.createCrewAttributions(
+                      dbUserId,
+                      recordToUpdate.id,
+                      record.crewId,
+                      record.totalJobRevenue,
+                      totalBonus,
+                      record.totalHoursWorked,
+                      crewMembers,
+                      crewRoles
+                    );
+                  }
+                }
+                
+                console.log(`✅ Updated 1 of ${linkedRecords.length} linked crew records`);
+                alert(`Updated 1 crew member record for this day.`);
+                
+                setShowAddDay(false);
+                setEditingRecord(null);
+                await loadEmployeeData(selectedEmployeeId);
+                return;
               }
               // ========== END CREW RECORD EDITING ==========
               
@@ -3048,23 +3756,44 @@ const EmployeeLERPage: React.FC = () => {
           }
         }}
         onAdd={async (record, serviceBreakdown: ServiceBreakdownItem[]) => {
-          const currentPeriod = payPeriodsData[selectedPeriodIndex];
-          if (!currentPeriod.periodId || !employeeInfo.id || !dbUserId) {
-            alert('Error: No pay period selected or missing employee data');
+          if (!employeeInfo.id || !dbUserId) {
+            alert('Error: Missing employee data');
             return;
           }
           
+          // Auto-find the correct pay period based on the date
+          console.log('🔍 Finding pay period for date:', record.date);
+          const correctPeriod = await employeeLERService.getOrCreatePayPeriod(
+            dbUserId,
+            employeeInfo.id,
+            record.date,
+            companySettings.paySchedule,
+            companySettings.payDayOfWeek,
+            companySettings.payReferenceDate,
+            companySettings.paySemiMonthlyDates
+          );
+          
+          if (!correctPeriod) {
+            alert('Error: Could not determine pay period for this date');
+            return;
+          }
+          
+          console.log('✅ Found pay period:', correctPeriod.period_name);
+          
           // Check if date already exists in this pay period
-          const dateExists = currentPeriod.dailyRecords.some(r => r.date === record.date);
+          console.log('🔍 Checking if date exists in period:', correctPeriod.id);
+          const existingRecords = await employeeLERService.getDailyRecordsForEmployee(employeeInfo.id, correctPeriod.id!);
+          const dateExists = existingRecords.some(r => r.date === record.date);
+          
           if (dateExists) {
-            alert(`A record for ${new Date(record.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} already exists in this pay period. Please edit the existing record or choose a different date.`);
+            alert(`A record for ${new Date(record.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} already exists. Please edit the existing record or choose a different date.`);
             return;
           }
           
           try {
-            // Save daily record (include employee_id)
+            // Save daily record with the correct pay period
             const supabaseRecord = convertToSupabaseFormat(record);
-            const savedRecord = await employeeLERService.createDailyRecord(currentPeriod.periodId, supabaseRecord, employeeInfo.id);
+            const savedRecord = await employeeLERService.createDailyRecord(correctPeriod.id!, supabaseRecord, employeeInfo.id);
             
             if (!savedRecord) {
               alert('Error saving record. Please try again.');
@@ -3082,8 +3811,8 @@ const EmployeeLERPage: React.FC = () => {
             await serviceLaborService.createServiceLaborRecords(
               dbUserId,
               employeeInfo.id,
-              currentPeriod.periodId,
-              record.date,
+              correctPeriod.id || '',
+              record.date || '',
               serviceBreakdown,
               laborCosts
             );
@@ -3147,6 +3876,7 @@ const EmployeeLERPage: React.FC = () => {
               }
               
               // Get pay period for this employee
+              console.log(`🔍 Finding pay period for employee ${employee.name} (${empId}) for date ${baseRecord.date}`);
               const payPeriod = await employeeLERService.getOrCreatePayPeriod(
                 dbUserId,
                 empId,
@@ -3157,7 +3887,10 @@ const EmployeeLERPage: React.FC = () => {
                 companySettings.paySemiMonthlyDates
               );
               
+              console.log(`📅 Pay period result for ${employee.name}:`, payPeriod);
+              
               if (!payPeriod?.id) {
+                console.error(`❌ No pay period found for ${employee.name}`);
                 conflictingEmployees.push(`${employee.name} (no pay period)`);
                 continue;
               }
@@ -3166,10 +3899,15 @@ const EmployeeLERPage: React.FC = () => {
               payPeriodCache[empId] = { id: payPeriod.id, period_name: payPeriod.period_name };
               
               // Check for existing records
+              console.log(`🔍 Checking existing records for ${employee.name} in period ${payPeriod.id}`);
               const existingRecords = await employeeLERService.getDailyRecordsForPeriod(payPeriod.id, empId);
+              console.log(`📊 Found ${existingRecords.length} existing records for ${employee.name}`);
+              
               const duplicateExists = existingRecords.some(r => 
                 r.date === baseRecord.date && r.is_crew_job === baseRecord.isCrewJob
               );
+              
+              console.log(`❌ Duplicate exists for ${employee.name}: ${duplicateExists}`);
               
               if (duplicateExists) {
                 conflictingEmployees.push(employee.name);
@@ -3207,18 +3945,19 @@ const EmployeeLERPage: React.FC = () => {
                 continue;
               }
               
-              const empData = employeeData[empId];
-              const isHelper = empData?.isHelper || false;
-              console.log(`✓ Found employee: ${employee.name}, base_rate: ${employee.current_base_rate}, isHelper: ${isHelper}`);
-              
-              // Use cached pay period
+              // Get pay period from cache
               const payPeriod = payPeriodCache[empId];
-              if (!payPeriod?.id) {
-                console.error(`❌ No cached pay period for employee ${empId}`);
+              if (!payPeriod || !payPeriod.id) {
+                console.error(`❌ No valid pay period found for ${employee.name}, skipping`);
                 errorCount++;
                 continue;
               }
-              console.log(`✓ Using cached pay period: ${payPeriod.period_name} (${payPeriod.id})`);
+              
+              console.log(`✅ Using pay period ${payPeriod.period_name} (${payPeriod.id}) for ${employee.name}`);
+              
+              const empData = employeeData[empId];
+              const isHelper = empData?.isHelper || false;
+              console.log(`✓ Found employee: ${employee.name}, base_rate: ${employee.current_base_rate}, isHelper: ${isHelper}`);
               
               // Recalculate with this employee's base rate
               const empBaseRate = baseRates[empId] || employee.current_base_rate || 0;
@@ -3366,11 +4105,29 @@ const EmployeeLERPage: React.FC = () => {
                 dailyNetProfitAfterBonus,
                 dailyNetProfitAfterBonusPercent,
                 // Include service breakdown for saving
-                serviceBreakdown: serviceBreakdown
+                serviceBreakdown: serviceBreakdown,
+                // Build jobTypes from service breakdown for consistency
+                jobTypes: serviceBreakdown.reduce((acc, item) => {
+                  if (item.serviceName && item.jobs > 0) {
+                    acc[item.serviceName] = item.jobs;
+                  }
+                  return acc;
+                }, {} as { [key: string]: number })
               };
               
               // Save the record
+              console.log('💾 Saving employee record with serviceBreakdown:', serviceBreakdown);
+              console.log('💾 employeeRecord before conversion:', {
+                ...employeeRecord,
+                serviceBreakdown: employeeRecord.serviceBreakdown,
+                jobTypes: employeeRecord.jobTypes
+              });
               const supabaseRecord = convertToSupabaseFormat(employeeRecord);
+              console.log('💾 supabaseRecord after conversion:', {
+                ...supabaseRecord,
+                service_breakdown: supabaseRecord.service_breakdown,
+                job_types: supabaseRecord.job_types
+              });
               const savedRecord = await employeeLERService.createDailyRecord(payPeriod.id, supabaseRecord, empId);
               
               if (!savedRecord) {
@@ -3411,6 +4168,27 @@ const EmployeeLERPage: React.FC = () => {
                     crewMembersList,
                     crewRoles
                   );
+                  
+                  // Save crew composition to daily_record_crew_members
+                  console.log('💾 Saving crew composition to daily_record_crew_members');
+                  for (const member of crewMembersList) {
+                    const employeeData = employeeIds.find(id => id === member.employee_id);
+                    if (employeeData) {
+                      const hoursPerEmployee = baseRecord.totalHoursWorked / crewMembersList.length;
+                      const revenuePerEmployee = baseRecord.totalJobRevenue / crewMembersList.length;
+                      
+                      await crewService.addDailyRecordCrewMember({
+                        daily_record_id: savedRecord.id,
+                        employee_id: member.employee_id,
+                        role_id: member.role_id,
+                        hours_worked: hoursPerEmployee,
+                        bonus_percentage: member.bonus_percentage || 0,
+                        attributed_revenue: revenuePerEmployee,
+                        attributed_bonus: member.bonus_percentage ? (member.bonus_percentage / 100) * totalBonus : 0
+                      });
+                    }
+                  }
+                  console.log('✅ Saved crew composition to daily_record_crew_members');
                 }
               }
               
@@ -3472,9 +4250,10 @@ const EmployeeLERPage: React.FC = () => {
           setCompanySettings(settingsWithDefaults);
           Object.assign(COMPANY_SETTINGS, settingsWithDefaults);
           
-          const success = await employeeLERService.saveCompanySettings(dbUserId, settings);
+          // Save settings to database
+          const success = await employeeLERService.saveCompanySettings(dbUserId, settingsWithDefaults);
           if (success) {
-            alert('Company settings saved successfully!');
+            console.log('✅ Company settings saved successfully');
           } else {
             alert('Error saving company settings. Please try again.');
           }
@@ -3488,6 +4267,199 @@ const EmployeeLERPage: React.FC = () => {
         onImport={handleCSVImport}
         employees={allEmployees}
         services={services}
+      />
+      
+      {/* Crew Edit Confirmation Modal */}
+      {showCrewEditConfirm && pendingCrewEdit && (
+        <CrewEditConfirmationModal
+          open={showCrewEditConfirm}
+          onClose={() => {
+            setShowCrewEditConfirm(false);
+            setPendingCrewEdit(null);
+          }}
+          onConfirm={handleConfirmCrewEdit}
+          crewRecord={editingRecord?.record || pendingCrewEdit.record}
+          affectedCrewMembers={pendingCrewEdit.linkedRecords.map(record => {
+            const employee = allEmployees.find(e => e.id === record.employee_id);
+            return {
+              employeeId: record.employee_id,
+              employeeName: employee?.name || 'Unknown',
+              baseRate: employee?.current_base_rate || 0,
+              totalHours: pendingCrewEdit.record.totalHoursWorked,
+              totalRevenue: pendingCrewEdit.record.totalJobRevenue,
+              ler: pendingCrewEdit.record.ler,
+              bonus: pendingCrewEdit.record.bonusQualifiedForPercent + pendingCrewEdit.record.appointmentBasedBonus
+            };
+          })}
+          newValues={{
+            totalHours: pendingCrewEdit.record.totalHoursWorked,
+            totalRevenue: pendingCrewEdit.record.totalJobRevenue,
+            notes: pendingCrewEdit.record.notes
+          }}
+        />
+      )}
+
+      {/* Master Crew Edit Modal */}
+      <MasterCrewEditModal
+        open={showMasterCrewEdit}
+        onClose={() => {
+          setShowMasterCrewEdit(false);
+          setEditingCrewWorkDay(null);
+        }}
+        crewWorkDay={editingCrewWorkDay}
+        crewName={crews.find(c => c.id === selectedCrewId)?.name || 'Crew'}
+        services={services}
+        allEmployees={allEmployees.map(emp => ({
+          id: emp.id,
+          name: emp.name,
+          position: emp.position,
+          base_rate: emp.current_base_rate || 0
+        }))}
+        crewMemberIds={(crewMembersMap[selectedCrewId] || []).map(m => m.employee_id)}
+        crewMembers={(crewMembersMap[selectedCrewId] || []).map(m => ({
+          employee_id: m.employee_id,
+          role_id: m.role_id,
+          bonus_percentage: m.bonus_percentage
+        }))}
+        onSave={async (data) => {
+          if (!dbUserId || !editingCrewWorkDay || !selectedCrewId) {
+            throw new Error('Missing required data');
+          }
+          
+          console.log('💾 Saving master crew edit:', data);
+          
+          // Calculate totals from service breakdown
+          const totalRevenue = data.serviceBreakdown.reduce((sum, s) => sum + (s.revenue || 0), 0);
+          const totalJobTime = data.serviceBreakdown.reduce((sum, s) => sum + (s.hours || 0), 0);
+          const totalJobs = data.serviceBreakdown.filter(s => s.serviceId).length;
+          
+          // Build job types from service breakdown
+          const jobTypes = data.serviceBreakdown.reduce((acc, item) => {
+            if (item.serviceName && item.serviceId) {
+              acc[item.serviceName] = 1;
+            }
+            return acc;
+          }, {} as { [key: string]: number });
+          
+          // Calculate total hours for helpers (for their bonus percentage)
+          const totalCrewHours = data.totalHours * data.crewMembers.length;
+          
+          // First pass: Calculate gross profit before bonus (needed for bonus calculation)
+          // Use equal revenue split for regular members
+          const memberCount = data.crewMembers.length;
+          const memberRevenue = totalRevenue / memberCount;
+          
+          // Calculate total COGS
+          let totalCOGS = 0;
+          for (const svc of data.serviceBreakdown) {
+            const cogsPct = servicesWithCOGS[svc.serviceName] || 0;
+            totalCOGS += svc.revenue * (cogsPct / 100);
+          }
+          
+          // Calculate total labor cost and gross profit for bonus pool
+          let totalLaborCost = 0;
+          for (const member of data.crewMembers) {
+            const empBaseRate = member.baseRate || 0;
+            const memberHours = data.totalHours;
+            const regularHours = Math.min(memberHours, 8);
+            const overtimeHours = Math.max(0, memberHours - 8);
+            totalLaborCost += regularHours * empBaseRate + overtimeHours * empBaseRate * 1.5;
+          }
+          
+          const overheadPercent = companySettings.overheadPercent || 32;
+          const totalOverhead = totalRevenue * (overheadPercent / 100);
+          const totalCostOfJob = totalLaborCost + totalCOGS + totalOverhead;
+          const grossProfitBeforeBonus = totalRevenue - totalCostOfJob;
+          const ler = totalLaborCost > 0 ? grossProfitBeforeBonus / totalLaborCost : 0;
+          
+          // Determine if crew qualifies for bonus
+          const qualifyForBonus = ler >= (companySettings.crewBonusThresholdMin || 15) / 100;
+          const totalBonusPool = qualifyForBonus ? grossProfitBeforeBonus * Math.min(ler, (companySettings.crewBonusThresholdMax || 100) / 100) : 0;
+          
+          console.log(`📊 Crew totals: Revenue=$${totalRevenue}, LaborCost=$${totalLaborCost}, GrossProfit=$${grossProfitBeforeBonus}, LER=${(ler * 100).toFixed(1)}%, BonusPool=$${totalBonusPool}`);
+          
+          // Update each crew member's record
+          for (const member of data.crewMembers) {
+            if (!member.recordId) {
+              console.log(`➕ Adding new helper: ${member.employeeName}`);
+              continue;
+            }
+            
+            const empBaseRate = member.baseRate || 0;
+            const memberHours = data.totalHours;
+            
+            // Calculate pay
+            const regularHours = Math.min(memberHours, 8);
+            const overtimeHours = Math.max(0, memberHours - 8);
+            const basePay = regularHours * empBaseRate;
+            const overtimePay = overtimeHours * empBaseRate * 1.5;
+            const totalBasePay = basePay + overtimePay;
+            
+            // COGS split equally
+            const memberCOGS = totalCOGS / memberCount;
+            
+            // Calculate member's bonus based on role percentage OR hours worked (for helpers)
+            let memberBonus = 0;
+            if (qualifyForBonus) {
+              if (member.isHelper) {
+                // Helpers get bonus based on % of hours worked
+                const helperHoursPercent = memberHours / totalCrewHours;
+                memberBonus = totalBonusPool * helperHoursPercent;
+                console.log(`  👷 Helper ${member.employeeName}: ${(helperHoursPercent * 100).toFixed(1)}% of hours = $${memberBonus.toFixed(2)} bonus`);
+              } else {
+                // Regular crew members get bonus based on role percentage (60/40)
+                const roleBonusPercent = member.bonusPercentage || 0;
+                memberBonus = totalBonusPool * (roleBonusPercent / 100);
+                console.log(`  👤 ${member.employeeName}: ${roleBonusPercent}% role = $${memberBonus.toFixed(2)} bonus`);
+              }
+            }
+            
+            // Calculate member-specific metrics
+            const memberOverhead = memberRevenue * (overheadPercent / 100);
+            const memberTotalCost = totalBasePay + memberCOGS + memberOverhead;
+            const memberGrossProfit = memberRevenue - memberTotalCost;
+            const memberGrossProfitPercent = memberRevenue > 0 ? (memberGrossProfit / memberRevenue) * 100 : 0;
+            const memberLER = totalBasePay > 0 ? memberGrossProfit / totalBasePay : 0;
+            
+            const updateData = {
+              total_hours_worked: memberHours,
+              total_job_time: totalJobTime,
+              total_job_revenue: memberRevenue,
+              number_of_jobs: totalJobs,
+              job_types: jobTypes,
+              service_breakdown: { services: data.serviceBreakdown },
+              employee_base_pay: totalBasePay,
+              overtime_hours: overtimeHours,
+              overtime_pay: overtimePay,
+              cogs_no_labor: memberCOGS,
+              cogs_no_labor_percent: memberRevenue > 0 ? (memberCOGS / memberRevenue) * 100 : 0,
+              gross_profit_before_bonus: memberGrossProfit,
+              gross_profit_before_bonus_percent: memberGrossProfitPercent,
+              ler: memberLER,
+              qualify_for_bonus: qualifyForBonus,
+              bonus_qualified_for_percent: memberBonus,
+              daily_net_profit_after_bonus: memberGrossProfit - memberBonus,
+              daily_net_profit_after_bonus_percent: memberRevenue > 0 ? ((memberGrossProfit - memberBonus) / memberRevenue) * 100 : 0,
+              notes: data.notes || null,
+              // CRITICAL: Preserve crew tracking fields
+              is_crew_job: true,
+              crew_id: selectedCrewId
+            };
+            
+            console.log(`📝 Updating record ${member.recordId} for ${member.employeeName}`);
+            await employeeLERService.updateDailyRecord(member.recordId, updateData);
+          }
+          
+          // Reload crew work days
+          await loadCrewWorkDays(selectedCrewId);
+          
+          // Reload employee data if in individual view
+          if (selectedEmployeeId) {
+            await loadEmployeeData(selectedEmployeeId);
+          }
+          
+          console.log('✅ Master crew edit saved successfully');
+        }}
       />
     </>
   );

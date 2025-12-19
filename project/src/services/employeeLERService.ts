@@ -64,6 +64,8 @@ export interface DailyRecord {
   crew_id?: string;
   is_crew_job?: boolean;
   tracking_mode?: 'employee' | 'crew';
+  // Record type for hybrid tracking
+  record_type?: 'solo' | 'crew';
 }
 
 export interface COGSSettings {
@@ -292,6 +294,54 @@ export async function createPayPeriod(userId: string, period: PayPeriod): Promis
   return data;
 }
 
+// Bulk delete daily records
+export const bulkDeleteDailyRecords = async (recordIds: string[]): Promise<{ success: number; errors: string[] }> => {
+  try {
+    const errors: string[] = [];
+    let success = 0;
+    
+    // Delete in batches to avoid overwhelming the database
+    const batchSize = 50;
+    for (let i = 0; i < recordIds.length; i += batchSize) {
+      const batch = recordIds.slice(i, i + batchSize);
+      
+      const { error } = await supabase
+        .from('employee_daily_records')
+        .delete()
+        .in('id', batch);
+      
+      if (error) {
+        console.error('Bulk delete error:', error);
+        errors.push(`Failed to delete batch starting at index ${i}: ${error.message}`);
+      } else {
+        success += batch.length;
+      }
+    }
+    
+    return { success, errors };
+  } catch (error) {
+    console.error('Bulk delete error:', error);
+    return { success: 0, errors: [error instanceof Error ? error.message : 'Unknown error'] };
+  }
+};
+
+// Get daily records for a specific employee within a pay period
+export async function getDailyRecordsForEmployee(employeeId: string, payPeriodId: string): Promise<DailyRecord[]> {
+  const { data, error } = await supabase
+    .from('employee_daily_records')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .eq('pay_period_id', payPeriodId)
+    .order('date', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching daily records for employee:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
 // Get or create pay period for a specific date
 // Used for crew entry mode where we need to find/create periods for multiple employees
 export async function getOrCreatePayPeriod(
@@ -303,25 +353,46 @@ export async function getOrCreatePayPeriod(
   payReferenceDate?: string,
   paySemiMonthlyDates?: [number, number]
 ): Promise<PayPeriod | null> {
-  if (!userId || !date) return null;
+  console.log(`🔍 getOrCreatePayPeriod called with:`, {
+    userId,
+    employeeId,
+    date,
+    paySchedule,
+    payDayOfWeek,
+    payReferenceDate,
+    paySemiMonthlyDates
+  });
   
-  // Parse the date
-  const targetDate = new Date(date + 'T00:00:00');
-  const year = targetDate.getFullYear();
+  if (!userId || !date) {
+    console.error('❌ Missing userId or date');
+    return null;
+  }
+  
+  // Parse the date without timezone conversion
+  const [year, month, day] = date.split('-').map(Number);
+  const targetDate = new Date(year, month - 1, day); // month is 0-indexed
+  console.log(`📅 Target date: ${targetDate.toISOString()}`);
   
   // Get existing pay periods for this user
+  console.log('📋 Fetching existing pay periods...');
   const existingPeriods = await getPayPeriods(userId);
+  console.log(`📊 Found ${existingPeriods.length} existing periods:`, existingPeriods.map(p => ({ id: p.id, name: p.period_name, start: p.start_date, end: p.end_date })));
   
   // Find a period that contains this date
   const matchingPeriod = existingPeriods.find(p => {
-    const startDate = new Date(p.start_date + 'T00:00:00');
-    const endDate = new Date(p.end_date + 'T00:00:00');
+    const [sYear, sMonth, sDay] = p.start_date.split('-').map(Number);
+    const [eYear, eMonth, eDay] = p.end_date.split('-').map(Number);
+    const startDate = new Date(sYear, sMonth - 1, sDay);
+    const endDate = new Date(eYear, eMonth - 1, eDay);
     return targetDate >= startDate && targetDate <= endDate;
   });
   
   if (matchingPeriod) {
+    console.log(`✅ Found matching period: ${matchingPeriod.period_name}`);
     return matchingPeriod;
   }
+  
+  console.log('⚠️ No matching period found, creating new one...');
   
   // No matching period found - create one
   // Calculate period boundaries based on pay schedule
@@ -332,7 +403,13 @@ export async function getOrCreatePayPeriod(
   if (paySchedule === 'bi-weekly') {
     // Find the start of the bi-weekly period
     // Use reference date or default to a known Friday
-    const refDate = payReferenceDate ? new Date(payReferenceDate + 'T00:00:00') : new Date('2024-01-05T00:00:00');
+    let refDate: Date;
+    if (payReferenceDate) {
+      const [rYear, rMonth, rDay] = payReferenceDate.split('-').map(Number);
+      refDate = new Date(rYear, rMonth - 1, rDay);
+    } else {
+      refDate = new Date(2024, 0, 5); // 2024-01-05
+    }
     const daysSinceRef = Math.floor((targetDate.getTime() - refDate.getTime()) / (1000 * 60 * 60 * 24));
     const periodNumber = Math.floor(daysSinceRef / 14);
     
@@ -386,6 +463,13 @@ export async function getOrCreatePayPeriod(
     return `${year}-${month}-${day}`;
   };
   
+  console.log(`📝 Creating new pay period:`, {
+    period_name: periodName,
+    start_date: formatDate(periodStart),
+    end_date: formatDate(periodEnd),
+    year
+  });
+  
   // Create the new period
   const newPeriod = await createPayPeriod(userId, {
     period_name: periodName,
@@ -394,10 +478,31 @@ export async function getOrCreatePayPeriod(
     year
   });
   
+  console.log(`✅ Created new period:`, newPeriod);
+  
   return newPeriod;
 }
 
-// Get daily records for a specific pay period and employee (used for checking duplicates)
+// Get all daily records for a specific date (across all employees)
+export async function getDailyRecordsForDate(date: string): Promise<DailyRecord[]> {
+  const { data, error } = await supabase
+    .from('employee_daily_records')
+    .select('*')
+    .eq('date', date)
+    .order('created_at', { ascending: true });
+  
+  if (error) {
+    console.error('Error fetching daily records for date:', error);
+    throw error;
+  }
+  
+  return (data || []).map(record => ({
+    ...record,
+    serviceBreakdown: record.service_breakdown?.services || []
+  }));
+}
+
+// Get all daily records for a specific pay period and employee (used for checking duplicates)
 // Now also returns is_crew_job to allow one solo + one crew record per day
 export async function getDailyRecordsForPeriod(
   payPeriodId: string, 
@@ -575,7 +680,12 @@ export async function getDailyRecords(payPeriodId: string, employeeId?: string):
     return [];
   }
 
-  return data || [];
+  // Transform service_breakdown from { services: [] } to [] for frontend compatibility
+  // Handle both wrapped and unwrapped formats
+  return (data || []).map(record => ({
+    ...record,
+    serviceBreakdown: record.service_breakdown?.services || record.service_breakdown || []
+  }));
 }
 
 export async function createDailyRecord(payPeriodId: string, record: DailyRecord, employeeId?: string): Promise<DailyRecord | null> {
@@ -584,100 +694,131 @@ export async function createDailyRecord(payPeriodId: string, record: DailyRecord
     employeeId,
     recordEmployeeId: record.employee_id,
     finalEmployeeId: employeeId || record.employee_id,
-    date: record.date
+    date: record.date,
+    isCrewJob: record.is_crew_job,
+    crewId: record.crew_id
+  });
+  
+  // Validate date is within pay period
+  if (payPeriodId && record.date) {
+    console.log('📅 Validating date against pay period...');
+    // This is a basic check - you may need to fetch the pay period dates to validate properly
+    console.log('⚠️ TODO: Add proper date validation against pay period');
+  }
+  
+  // Log the full record being inserted
+  const recordToInsert = {
+    pay_period_id: payPeriodId, // Use the parameter, not record.pay_period_id
+    employee_id: employeeId || record.employee_id, // Use parameter as priority
+    work_day: record.work_day,
+    date: record.date,
+    called_out: record.called_out,
+    number_of_jobs: record.number_of_jobs,
+    job_types: record.job_types || {},
+    total_job_revenue: record.total_job_revenue,
+    total_hours_worked: record.total_hours_worked,
+    total_job_time: record.total_job_time,
+    base_rate: record.base_rate,
+    employee_base_pay: record.employee_base_pay,
+    overtime_hours: record.overtime_hours,
+    overtime_pay: record.overtime_pay,
+    cogs_no_labor: record.cogs_no_labor,
+    cogs_no_labor_percent: record.cogs_no_labor_percent,
+    overhead_costs_percent: record.overhead_costs_percent,
+    gross_profit_before_bonus: record.gross_profit_before_bonus,
+    gross_profit_before_bonus_percent: record.gross_profit_before_bonus_percent,
+    ler: record.ler,
+    qualify_for_bonus: record.qualify_for_bonus,
+    bonus_qualified_for_percent: record.bonus_qualified_for_percent,
+    appointment_based_bonus: record.appointment_based_bonus,
+    tip_amount: record.tip_amount,
+    total_employee_pay: record.total_employee_pay,
+    daily_hourly_with_tips_and_bonus: record.daily_hourly_with_tips_and_bonus,
+    daily_net_profit_after_bonus: record.daily_net_profit_after_bonus,
+    daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
+    notes: record.notes,
+    service_breakdown: record.service_breakdown || { services: [] },
+    // Crew tracking fields
+    crew_id: record.crew_id || null,
+    is_crew_job: record.is_crew_job || false,
+    tracking_mode: record.tracking_mode || 'employee',
+    record_type: record.is_crew_job ? 'crew' : 'solo'
+  };
+  
+  console.log('📝 Record to insert:', {
+    ...recordToInsert,
+    job_types: recordToInsert.job_types,
+    service_breakdown: recordToInsert.service_breakdown
   });
   
   const { data, error } = await supabase
     .from('employee_daily_records')
-    .insert([{
-      pay_period_id: payPeriodId,
-      employee_id: employeeId || record.employee_id,
-      work_day: record.work_day,
-      date: record.date,
-      called_out: record.called_out,
-      number_of_jobs: record.number_of_jobs,
-      job_types: record.job_types,
-      total_job_revenue: record.total_job_revenue,
-      total_hours_worked: record.total_hours_worked,
-      total_job_time: record.total_job_time,
-      base_rate: record.base_rate,
-      employee_base_pay: record.employee_base_pay,
-      overtime_hours: record.overtime_hours,
-      overtime_pay: record.overtime_pay,
-      cogs_no_labor: record.cogs_no_labor,
-      cogs_no_labor_percent: record.cogs_no_labor_percent,
-      overhead_costs_percent: record.overhead_costs_percent,
-      gross_profit_before_bonus: record.gross_profit_before_bonus,
-      gross_profit_before_bonus_percent: record.gross_profit_before_bonus_percent,
-      ler: record.ler,
-      qualify_for_bonus: record.qualify_for_bonus,
-      bonus_qualified_for_percent: record.bonus_qualified_for_percent,
-      appointment_based_bonus: record.appointment_based_bonus,
-      tip_amount: record.tip_amount,
-      total_employee_pay: record.total_employee_pay,
-      daily_hourly_with_tips_and_bonus: record.daily_hourly_with_tips_and_bonus,
-      daily_net_profit_after_bonus: record.daily_net_profit_after_bonus,
-      daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
-      notes: record.notes,
-      service_breakdown: record.service_breakdown || { services: [] },
-      // Crew tracking fields
-      crew_id: record.crew_id || null,
-      is_crew_job: record.is_crew_job || false,
-      tracking_mode: record.tracking_mode || 'employee'
-    }])
+    .insert([recordToInsert])
     .select()
     .single();
 
   if (error) {
     console.error('❌ Error creating daily record:', error);
+    console.error('Raw error JSON:', JSON.stringify(error, null, 2));
     console.error('Error details:', {
       message: error.message,
       details: error.details,
       hint: error.hint,
       code: error.code
     });
+    
+    // Check if it's a duplicate/unique constraint error
+    if (error.code === '23505') {
+      console.error('⚠️ This appears to be a duplicate record error');
+      console.error('Check if a record already exists for this date/employee/pay period');
+    }
+    
     return null;
   }
 
-  console.log('✅ Daily record created successfully:', data?.id);
+  console.log('✅ Record created successfully:', data);
   return data;
 }
 
 export async function updateDailyRecord(recordId: string, record: DailyRecord): Promise<boolean> {
   const updateData: any = {
-      work_day: record.work_day,
-      date: record.date,
-      called_out: record.called_out,
-      number_of_jobs: record.number_of_jobs,
-      job_types: record.job_types,
-      total_job_revenue: record.total_job_revenue,
-      total_hours_worked: record.total_hours_worked,
-      total_job_time: record.total_job_time,
-      base_rate: record.base_rate,
-      employee_base_pay: record.employee_base_pay,
-      overtime_hours: record.overtime_hours,
-      overtime_pay: record.overtime_pay,
-      cogs_no_labor: record.cogs_no_labor,
-      cogs_no_labor_percent: record.cogs_no_labor_percent,
-      overhead_costs_percent: record.overhead_costs_percent,
-      gross_profit_before_bonus: record.gross_profit_before_bonus,
-      gross_profit_before_bonus_percent: record.gross_profit_before_bonus_percent,
-      ler: record.ler,
-      qualify_for_bonus: record.qualify_for_bonus,
-      bonus_qualified_for_percent: record.bonus_qualified_for_percent,
-      appointment_based_bonus: record.appointment_based_bonus,
-      tip_amount: record.tip_amount,
-      total_employee_pay: record.total_employee_pay,
-      daily_hourly_with_tips_and_bonus: record.daily_hourly_with_tips_and_bonus,
-      daily_net_profit_after_bonus: record.daily_net_profit_after_bonus,
-      daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
-      notes: record.notes,
-      service_breakdown: record.service_breakdown || { services: [] },
-      // Crew tracking fields
-      crew_id: record.crew_id || null,
-      is_crew_job: record.is_crew_job || false,
-      tracking_mode: record.tracking_mode || 'employee'
-    };
+    pay_period_id: record.pay_period_id,
+    employee_id: record.employee_id,
+    work_day: record.work_day,
+    date: record.date,
+    called_out: record.called_out,
+    number_of_jobs: record.number_of_jobs,
+    job_types: record.job_types,
+    total_job_revenue: record.total_job_revenue,
+    total_hours_worked: record.total_hours_worked,
+    total_job_time: record.total_job_time,
+    base_rate: record.base_rate,
+    employee_base_pay: record.employee_base_pay,
+    overtime_hours: record.overtime_hours,
+    overtime_pay: record.overtime_pay,
+    cogs_no_labor: record.cogs_no_labor,
+    cogs_no_labor_percent: record.cogs_no_labor_percent,
+    overhead_costs_percent: record.overhead_costs_percent,
+    gross_profit_before_bonus: record.gross_profit_before_bonus,
+    gross_profit_before_bonus_percent: record.gross_profit_before_bonus_percent,
+    ler: record.ler,
+    qualify_for_bonus: record.qualify_for_bonus,
+    bonus_qualified_for_percent: record.bonus_qualified_for_percent,
+    appointment_based_bonus: record.appointment_based_bonus,
+    tip_amount: record.tip_amount,
+    total_employee_pay: record.total_employee_pay,
+    daily_hourly_with_tips_and_bonus: record.daily_hourly_with_tips_and_bonus,
+    daily_net_profit_after_bonus: record.daily_net_profit_after_bonus,
+    daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
+    notes: record.notes,
+    service_breakdown: record.service_breakdown || { services: [] },
+    // Crew tracking fields
+    crew_id: record.crew_id || null,
+    is_crew_job: record.is_crew_job || false,
+    tracking_mode: record.tracking_mode || 'employee',
+    // Record type for hybrid tracking
+    record_type: record.record_type || 'solo'
+  };
   
   // Include employee_id if provided
   if (record.employee_id) {
@@ -698,17 +839,35 @@ export async function updateDailyRecord(recordId: string, record: DailyRecord): 
 }
 
 export async function deleteDailyRecord(recordId: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('employee_daily_records')
-    .delete()
-    .eq('id', recordId);
+  try {
+    // First delete related crew member records
+    const { error: crewError } = await supabase
+      .from('daily_record_crew_members')
+      .delete()
+      .eq('daily_record_id', recordId);
 
-  if (error) {
-    console.error('Error deleting daily record:', error);
+    if (crewError) {
+      console.error('Error deleting crew member records:', crewError);
+      // Continue with main record deletion even if crew deletion fails
+    }
+
+    // Then delete the main daily record
+    const { error } = await supabase
+      .from('employee_daily_records')
+      .delete()
+      .eq('id', recordId);
+
+    if (error) {
+      console.error('Error deleting daily record:', error);
+      return false;
+    }
+
+    console.log('✅ Record and related crew members deleted successfully');
+    return true;
+  } catch (error) {
+    console.error('Error during record deletion:', error);
     return false;
   }
-
-  return true;
 }
 
 // ============================================
@@ -948,4 +1107,83 @@ export async function saveCompanySettings(userId: string, settings: CompanySetti
   }
 
   return true;
+}
+
+// ============================================
+// CSV IMPORT HELPERS
+// ============================================
+
+export interface ExistingRecordInfo {
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  recordType: 'solo' | 'crew';
+  id: string;
+}
+
+/**
+ * Check for existing daily records that would conflict with a CSV import
+ * Returns a list of existing records that match the employee+date combinations
+ */
+export async function checkExistingRecordsForImport(
+  userId: string,
+  employeeDatePairs: Array<{ employeeId: string; employeeName: string; date: string; isCrewJob: boolean }>
+): Promise<ExistingRecordInfo[]> {
+  if (!userId || employeeDatePairs.length === 0) {
+    return [];
+  }
+
+  // Get unique employee IDs
+  const employeeIds = [...new Set(employeeDatePairs.map(p => p.employeeId))];
+  
+  // Get unique dates
+  const dates = [...new Set(employeeDatePairs.map(p => p.date))];
+
+  // Query for existing records
+  const { data, error } = await supabase
+    .from('employee_daily_records')
+    .select('id, employee_id, date, record_type')
+    .in('employee_id', employeeIds)
+    .in('date', dates);
+
+  if (error) {
+    console.error('Error checking existing records:', error);
+    return [];
+  }
+
+  if (!data || data.length === 0) {
+    return [];
+  }
+
+  // Map employee IDs to names for the response
+  const employeeNameMap = new Map<string, string>();
+  employeeDatePairs.forEach(p => {
+    employeeNameMap.set(p.employeeId, p.employeeName);
+  });
+
+  // Filter to only records that match the import type (solo vs crew)
+  const existingRecords: ExistingRecordInfo[] = [];
+  
+  data.forEach(record => {
+    // Find matching import pair
+    const matchingPair = employeeDatePairs.find(
+      p => p.employeeId === record.employee_id && p.date === record.date
+    );
+    
+    if (matchingPair) {
+      // Check if record type matches what we're trying to import
+      const importRecordType = matchingPair.isCrewJob ? 'crew' : 'solo';
+      if (record.record_type === importRecordType) {
+        existingRecords.push({
+          employeeId: record.employee_id,
+          employeeName: employeeNameMap.get(record.employee_id) || 'Unknown',
+          date: record.date,
+          recordType: record.record_type as 'solo' | 'crew',
+          id: record.id
+        });
+      }
+    }
+  });
+
+  return existingRecords;
 }

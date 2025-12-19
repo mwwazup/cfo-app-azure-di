@@ -10,6 +10,7 @@ interface SelectProps {
 interface SelectTriggerProps {
   className?: string;
   children: React.ReactNode;
+  disabled?: boolean;
 }
 
 interface SelectContentProps {
@@ -82,7 +83,7 @@ export function Select({ value, onValueChange, children }: SelectProps) {
   );
 }
 
-export function SelectTrigger({ className = '', children, onClick, isOpen, selectedLabel }: SelectTriggerProps & { onClick?: () => void; isOpen?: boolean; selectedLabel?: string }) {
+export function SelectTrigger({ className = '', children, onClick, isOpen, selectedLabel, disabled }: SelectTriggerProps & { onClick?: () => void; isOpen?: boolean; selectedLabel?: string }) {
   // Pass selectedLabel to SelectValue child
   const childrenWithLabel = React.Children.map(children, (child) => {
     if (React.isValidElement(child) && child.type === SelectValue) {
@@ -94,7 +95,8 @@ export function SelectTrigger({ className = '', children, onClick, isOpen, selec
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className={`flex h-10 w-full items-center justify-between rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent disabled:cursor-not-allowed disabled:opacity-50 transition-colors ${className}`}
     >
       {childrenWithLabel}
