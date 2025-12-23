@@ -178,6 +178,7 @@ export function AddDailyRecordWithServices({
   const { services } = useServices(); // Fetch services from database
   
   const [date, setDate] = useState('');
+  const [calledOut, setCalledOut] = useState(false);
   const [tips, setTips] = useState('0');
   const [notes, setNotes] = useState('');
   const [applyAppointmentBonus, setApplyAppointmentBonus] = useState(COMPANY_SETTINGS.enableAppointmentBonus);
@@ -218,6 +219,7 @@ export function AddDailyRecordWithServices({
     if (open && !editingRecord) {
       // Clear all fields for new record
       setDate('');
+      setCalledOut(false);
       setTips('0');
       setNotes('');
       setTotalDailyHours('');
@@ -289,6 +291,7 @@ export function AddDailyRecordWithServices({
       console.log('🎯 Set isCrewJob to:', editingRecord.isCrewJob || false);
       
       setDate(editingRecord.date);
+      setCalledOut(editingRecord.calledOut || false);
       setTips(editingRecord.tipAmount.toString());
       setNotes(editingRecord.notes || '');
       setTotalDailyHours(editingRecord.totalHoursWorked.toString());
@@ -341,7 +344,7 @@ export function AddDailyRecordWithServices({
                 let helperHours: number | undefined;
                 if (isHelper && member.helper_appointments) {
                   helperAppointments = member.helper_appointments;
-                  helperHours = helperAppointments.reduce((sum: number, ha: HelperAppointment) => sum + ha.hours, 0);
+                  helperHours = helperAppointments?.reduce((sum: number, ha: HelperAppointment) => sum + ha.hours, 0) || 0;
                   console.log('📋 Loaded helper appointments:', helperAppointments, 'total hours:', helperHours);
                 }
                 
@@ -570,6 +573,36 @@ export function AddDailyRecordWithServices({
   const calculatePreview = () => {
     const { totalJobs, crewJobTime: totalJobTime, crewRevenue: totalRevenue, dailyHours, nonJobTime } = calculateTotals();
     
+    // If called out sick, return all zeros (no work done, no costs incurred)
+    if (calledOut) {
+      return {
+        totalJobs: 0,
+        totalJobTime: 0,
+        dailyHours: 0,
+        nonJobTime: 0,
+        totalRevenue: 0,
+        basePay: 0,
+        overtimeHours: 0,
+        overtimePay: 0,
+        cogsNoLabor: 0,
+        cogsNoLaborPercent: 0,
+        overheadCostsPercent: COMPANY_SETTINGS.overheadPercent,
+        overheadAllocation: 0,
+        totalCostOfJob: 0,
+        grossProfitBeforeBonus: 0,
+        grossProfitBeforeBonusPercent: 0,
+        ler: 0,
+        qualifyForBonus: false,
+        bonusQualifiedForPercent: 0,
+        bonusQualifiedForDollars: 0,
+        appointmentBasedBonus: 0,
+        totalEmployeePay: 0,
+        dailyHourlyWithTipsAndBonus: 0,
+        dailyNetProfitAfterBonus: 0,
+        dailyNetProfitAfterBonusPercent: 0
+      };
+    }
+    
     // Calculate labor costs based on TOTAL DAILY HOURS (clock in/out), not job time
     // For crew mode: calculate total labor for all crew members
     let regularHours = dailyHours;
@@ -711,13 +744,16 @@ export function AddDailyRecordWithServices({
       return;
     }
     
-    if (!totalDailyHours || parseFloat(totalDailyHours) <= 0) {
-      setValidationError('Please enter total daily hours (clock in/out time)');
-      return;
-    }
-    
-    if (!validateBreakdown()) {
-      return;
+    // Skip hours and service validation if called out sick
+    if (!calledOut) {
+      if (!totalDailyHours || parseFloat(totalDailyHours) <= 0) {
+        setValidationError('Please enter total daily hours (clock in/out time)');
+        return;
+      }
+      
+      if (!validateBreakdown()) {
+        return;
+      }
     }
 
     // ============================================
@@ -806,12 +842,12 @@ export function AddDailyRecordWithServices({
     const record: DailyRecord = {
       workDay,
       date,
-      calledOut: false,
-      numberOfJobs: totalJobs,
-      jobTypes,
-      totalJobRevenue: totalRevenue,
-      totalHoursWorked: dailyHours,  // Total daily hours (clock in/out)
-      totalJobTime: totalJobTime,     // Actual time on jobs
+      calledOut,
+      numberOfJobs: calledOut ? 0 : totalJobs,
+      jobTypes: calledOut ? {} : jobTypes,
+      totalJobRevenue: calledOut ? 0 : totalRevenue,
+      totalHoursWorked: calledOut ? 0 : dailyHours,  // Total daily hours (clock in/out)
+      totalJobTime: calledOut ? 0 : totalJobTime,     // Actual time on jobs
       baseRate,
       employeeBasePay: preview.basePay,
       overtimeHours: preview.overtimeHours,
@@ -825,13 +861,13 @@ export function AddDailyRecordWithServices({
       qualifyForBonus: preview.qualifyForBonus,
       bonusQualifiedForPercent: preview.bonusQualifiedForPercent,
       appointmentBasedBonus: preview.appointmentBasedBonus,
-      tipAmount: parseFloat(tips) || 0,
+      tipAmount: calledOut ? 0 : (parseFloat(tips) || 0),
       totalEmployeePay: preview.totalEmployeePay,
       dailyHourlyWithTipsAndBonus: preview.dailyHourlyWithTipsAndBonus,
       dailyNetProfitAfterBonus: preview.dailyNetProfitAfterBonus,
       dailyNetProfitAfterBonusPercent: preview.dailyNetProfitAfterBonusPercent,
       notes,
-      serviceBreakdown: serviceBreakdown.filter(item => item.serviceId && item.jobs > 0),
+      serviceBreakdown: calledOut ? [] : serviceBreakdown.filter(item => item.serviceId && item.jobs > 0),
       // Crew tracking fields
       crewId: isCrewJob ? selectedCrewId : undefined,
       isCrewJob: isCrewJob,
@@ -1036,18 +1072,41 @@ export function AddDailyRecordWithServices({
         )}
 
         <div className="space-y-6">
-          {/* Date */}
-          <div>
-            <Label htmlFor="date" className="text-foreground">Date</Label>
-            <Input
-              id="date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              disabled={isFormReadOnly}
-              className="bg-background text-foreground border-border [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:invert"
-            />
+          {/* Date and Called Out */}
+          <div className="flex items-end gap-4">
+            <div className="flex-1">
+              <Label htmlFor="date" className="text-foreground">Date</Label>
+              <Input
+                id="date"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                disabled={isFormReadOnly}
+                className="bg-background text-foreground border-border [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:invert"
+              />
+            </div>
+            <div className="flex items-center gap-2 pb-2">
+              <Checkbox
+                id="calledOut"
+                checked={calledOut}
+                onCheckedChange={(checked) => setCalledOut(checked === true)}
+                disabled={isFormReadOnly}
+              />
+              <Label htmlFor="calledOut" className="text-foreground cursor-pointer">
+                Called Out Sick
+              </Label>
+            </div>
           </div>
+          
+          {/* Called Out Notice */}
+          {calledOut && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+              <p className="text-sm text-amber-500">
+                <strong>Sick Day:</strong> This day will be marked as called out. No jobs, revenue, or bonuses will be recorded. 
+                Hours worked will still be tracked if entered.
+              </p>
+            </div>
+          )}
 
           {/* Job Type Toggle - Solo vs Crew (hidden when editing or opened in crew mode) */}
           {crews.length > 0 && !defaultCrewMode && !editingRecord && (
@@ -1146,10 +1205,6 @@ export function AddDailyRecordWithServices({
                       {/* Crew member checkboxes */}
                       <div className="space-y-2">
                         {selectedCrewEmployees.map(emp => {
-                          // For editing, use the role from the crew member data, not the static crew map
-                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                          const role = emp.bonusPercentage > 0 ? { bonus_percentage: emp.bonusPercentage } : null;
-                          
                           return (
                             <div key={emp.employeeId} className="space-y-1">
                               <div 
@@ -1530,11 +1585,6 @@ export function AddDailyRecordWithServices({
                   {helper.helperAppointments && helper.helperAppointments.length > 0 && (() => {
                     // Calculate detailed breakdown
                     const helperHrs = helper.helperHours || 0;
-                    const crewMemberCount = selectedCrewEmployees.filter(e => !e.isHelper).length;
-                    const crewDailyHours = parseFloat(totalDailyHours) || 0;
-                    // totalCrewHours calculated but not displayed
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    const totalCrewHours = (crewDailyHours * crewMemberCount) + helperHrs;
                     
                     // Helper's revenue from selected jobs
                     const helperRevenue = helper.helperAppointments.reduce((sum, ha) => {
@@ -1544,32 +1594,14 @@ export function AddDailyRecordWithServices({
                     }, 0);
                     
                     // Total revenue
-                    const totalRevenue = serviceBreakdown.reduce((sum, s) => sum + (s.revenue || 0), 0);
-                    
-                    // Crew revenue (jobs helper didn't work on)
-                    // crewOnlyRevenue calculated for reference
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    const crewOnlyRevenue = totalRevenue - helperRevenue;
                     
                     // Helper's labor cost
-                    const helperLabor = helperHrs * helper.baseRate;
                     
                     // Helper's COGS (from their jobs only - 1 job per appointment)
-                    const helperCOGS = helper.helperAppointments.reduce((sum, ha) => {
-                      const appt = serviceBreakdown[ha.appointmentIndex];
-                      if (!appt) return sum;
-                      const costPerService = servicesWithCOGS[appt.serviceName] || 0;
-                      return sum + costPerService; // Each appointment = 1 job
-                    }, 0);
                     
                     // Helper's overhead
-                    const helperOverhead = helperRevenue * (COMPANY_SETTINGS.overheadPercent / 100);
                     
                     // Helper's profit
-                    const helperProfit = helperRevenue - helperLabor - helperCOGS - helperOverhead;
-                    // helperProfitPct calculated for reference
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    const helperProfitPct = helperRevenue > 0 ? (helperProfit / helperRevenue) * 100 : 0;
                     
                     // Calculate bonus using same logic as job breakdown
                     const totalDailyBonus = preview.bonusQualifiedForDollars + preview.appointmentBasedBonus;
@@ -1585,7 +1617,7 @@ export function AddDailyRecordWithServices({
                         // helperAppt used in calculation
                         const helperHrs = helperAppt?.hours || 0;
                         const crewDailyHours = parseFloat(totalDailyHours) || 0;
-                        const totalJobHours = (crewDailyHours * crewMemberCount) + helperHrs;
+                        const totalJobHours = (crewDailyHours * (crewMembers?.length || 0)) + helperHrs;
                         const helperShare = totalJobHours > 0 ? helperHrs / totalJobHours : 0;
                         
                         return sum + (jobBonus * helperShare);

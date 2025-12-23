@@ -780,50 +780,64 @@ export async function createDailyRecord(payPeriodId: string, record: DailyRecord
   return data;
 }
 
-export async function updateDailyRecord(recordId: string, record: DailyRecord): Promise<boolean> {
-  const updateData: any = {
-    pay_period_id: record.pay_period_id,
-    employee_id: record.employee_id,
-    work_day: record.work_day,
-    date: record.date,
-    called_out: record.called_out,
-    number_of_jobs: record.number_of_jobs,
-    job_types: record.job_types,
-    total_job_revenue: record.total_job_revenue,
-    total_hours_worked: record.total_hours_worked,
-    total_job_time: record.total_job_time,
-    base_rate: record.base_rate,
-    employee_base_pay: record.employee_base_pay,
-    overtime_hours: record.overtime_hours,
-    overtime_pay: record.overtime_pay,
-    cogs_no_labor: record.cogs_no_labor,
-    cogs_no_labor_percent: record.cogs_no_labor_percent,
-    overhead_costs_percent: record.overhead_costs_percent,
-    gross_profit_before_bonus: record.gross_profit_before_bonus,
-    gross_profit_before_bonus_percent: record.gross_profit_before_bonus_percent,
-    ler: record.ler,
-    qualify_for_bonus: record.qualify_for_bonus,
-    bonus_qualified_for_percent: record.bonus_qualified_for_percent,
-    appointment_based_bonus: record.appointment_based_bonus,
-    tip_amount: record.tip_amount,
-    total_employee_pay: record.total_employee_pay,
-    daily_hourly_with_tips_and_bonus: record.daily_hourly_with_tips_and_bonus,
-    daily_net_profit_after_bonus: record.daily_net_profit_after_bonus,
-    daily_net_profit_after_bonus_percent: record.daily_net_profit_after_bonus_percent,
-    notes: record.notes,
-    service_breakdown: record.service_breakdown || { services: [] },
-    // Crew tracking fields
-    crew_id: record.crew_id || null,
-    is_crew_job: record.is_crew_job || false,
-    tracking_mode: record.tracking_mode || 'employee',
-    // Record type for hybrid tracking
-    record_type: record.record_type || 'solo'
-  };
-  
-  // Include employee_id if provided
-  if (record.employee_id) {
-    updateData.employee_id = record.employee_id;
+export async function getDailyRecordById(recordId: string): Promise<DailyRecord | null> {
+  const { data, error } = await supabase
+    .from('employee_daily_records')
+    .select('*')
+    .eq('id', recordId)
+    .single();
+
+  if (error) {
+    console.error('Error fetching daily record by ID:', error);
+    return null;
   }
+
+  return data;
+}
+
+export async function updateDailyRecord(recordId: string, record: Partial<DailyRecord>): Promise<boolean> {
+  // Build update object with only defined fields to avoid overwriting with undefined
+  const updateData: any = {};
+  
+  // Only include fields that are explicitly provided (not undefined)
+  if (record.pay_period_id !== undefined) updateData.pay_period_id = record.pay_period_id;
+  if (record.employee_id !== undefined) updateData.employee_id = record.employee_id;
+  if (record.work_day !== undefined) updateData.work_day = record.work_day;
+  if (record.date !== undefined) updateData.date = record.date;
+  if (record.called_out !== undefined) updateData.called_out = record.called_out;
+  if (record.number_of_jobs !== undefined) updateData.number_of_jobs = record.number_of_jobs;
+  if (record.job_types !== undefined) updateData.job_types = record.job_types;
+  if (record.total_job_revenue !== undefined) updateData.total_job_revenue = record.total_job_revenue;
+  if (record.total_hours_worked !== undefined) updateData.total_hours_worked = record.total_hours_worked;
+  if (record.total_job_time !== undefined) updateData.total_job_time = record.total_job_time;
+  if (record.base_rate !== undefined) updateData.base_rate = record.base_rate;
+  if (record.employee_base_pay !== undefined) updateData.employee_base_pay = record.employee_base_pay;
+  if (record.overtime_hours !== undefined) updateData.overtime_hours = record.overtime_hours;
+  if (record.overtime_pay !== undefined) updateData.overtime_pay = record.overtime_pay;
+  if (record.cogs_no_labor !== undefined) updateData.cogs_no_labor = record.cogs_no_labor;
+  if (record.cogs_no_labor_percent !== undefined) updateData.cogs_no_labor_percent = record.cogs_no_labor_percent;
+  if (record.overhead_costs_percent !== undefined) updateData.overhead_costs_percent = record.overhead_costs_percent;
+  if (record.gross_profit_before_bonus !== undefined) updateData.gross_profit_before_bonus = record.gross_profit_before_bonus;
+  if (record.gross_profit_before_bonus_percent !== undefined) updateData.gross_profit_before_bonus_percent = record.gross_profit_before_bonus_percent;
+  if (record.ler !== undefined) updateData.ler = record.ler;
+  if (record.qualify_for_bonus !== undefined) updateData.qualify_for_bonus = record.qualify_for_bonus;
+  if (record.bonus_qualified_for_percent !== undefined) updateData.bonus_qualified_for_percent = record.bonus_qualified_for_percent;
+  if (record.appointment_based_bonus !== undefined) updateData.appointment_based_bonus = record.appointment_based_bonus;
+  if (record.tip_amount !== undefined) updateData.tip_amount = record.tip_amount;
+  if (record.total_employee_pay !== undefined) updateData.total_employee_pay = record.total_employee_pay;
+  if (record.daily_hourly_with_tips_and_bonus !== undefined) updateData.daily_hourly_with_tips_and_bonus = record.daily_hourly_with_tips_and_bonus;
+  if (record.daily_net_profit_after_bonus !== undefined) updateData.daily_net_profit_after_bonus = record.daily_net_profit_after_bonus;
+  if (record.daily_net_profit_after_bonus_percent !== undefined) updateData.daily_net_profit_after_bonus_percent = record.daily_net_profit_after_bonus_percent;
+  if (record.notes !== undefined) updateData.notes = record.notes;
+  if (record.service_breakdown !== undefined) updateData.service_breakdown = record.service_breakdown;
+  if (record.crew_id !== undefined) updateData.crew_id = record.crew_id;
+  if (record.is_crew_job !== undefined) updateData.is_crew_job = record.is_crew_job;
+  if (record.tracking_mode !== undefined) updateData.tracking_mode = record.tracking_mode;
+  if (record.record_type !== undefined) updateData.record_type = record.record_type;
+  
+  console.log('📝 updateDailyRecord - fields being updated:', Object.keys(updateData));
+  console.log('📝 updateDailyRecord - called_out value:', updateData.called_out);
+  console.log('📝 updateDailyRecord - full updateData:', JSON.stringify(updateData, null, 2));
   
   const { error } = await supabase
     .from('employee_daily_records')
@@ -1186,4 +1200,117 @@ export async function checkExistingRecordsForImport(
   });
 
   return existingRecords;
+}
+
+/**
+ * Migration: Fix Crew LER Values
+ * 
+ * This function corrects the LER values for crew records.
+ * All crew members on the same crew day should have the SAME crew-level LER.
+ * 
+ * IMPORTANT: This ONLY affects crew records. Solo records are NOT touched.
+ */
+export async function migrateCrewLER(): Promise<{
+  updated: number;
+  skipped: number;
+  errors: number;
+  details: string[];
+}> {
+  const result = {
+    updated: 0,
+    skipped: 0,
+    errors: 0,
+    details: [] as string[]
+  };
+
+  console.log('🚀 Starting Crew LER Migration...');
+  console.log('⚠️  This will ONLY update crew records (is_crew_job = true)');
+  console.log('✅ Solo records will NOT be affected\n');
+
+  // Step 1: Fetch all crew records
+  const { data: crewRecords, error: fetchError } = await supabase
+    .from('employee_daily_records')
+    .select('id, date, crew_id, employee_id, gross_profit_before_bonus, employee_base_pay, ler')
+    .eq('is_crew_job', true)
+    .not('crew_id', 'is', null);
+
+  if (fetchError) {
+    console.error('❌ Error fetching crew records:', fetchError);
+    result.errors = 1;
+    result.details.push(`Error fetching crew records: ${fetchError.message}`);
+    return result;
+  }
+
+  if (!crewRecords || crewRecords.length === 0) {
+    console.log('ℹ️  No crew records found. Nothing to migrate.');
+    result.details.push('No crew records found');
+    return result;
+  }
+
+  console.log(`📊 Found ${crewRecords.length} crew records to process\n`);
+  result.details.push(`Found ${crewRecords.length} crew records`);
+
+  // Step 2: Group records by date + crew_id
+  const crewDayGroups = new Map<string, typeof crewRecords>();
+  
+  crewRecords.forEach((record) => {
+    const key = `${record.date}-${record.crew_id}`;
+    const existing = crewDayGroups.get(key);
+    if (existing) {
+      existing.push(record);
+    } else {
+      crewDayGroups.set(key, [record]);
+    }
+  });
+
+  console.log(`📅 Grouped into ${crewDayGroups.size} unique crew days\n`);
+  result.details.push(`Grouped into ${crewDayGroups.size} unique crew days`);
+
+  // Step 3: Calculate correct crew LER for each group and update records
+  for (const [key, records] of crewDayGroups) {
+    const [date] = key.split('-');
+    
+    // Calculate total gross profit and total labor cost for the crew day
+    const totalGrossProfit = records.reduce((sum, r) => sum + (r.gross_profit_before_bonus || 0), 0);
+    const totalLaborCost = records.reduce((sum, r) => sum + (r.employee_base_pay || 0), 0);
+    
+    // Calculate crew-level LER
+    const crewLER = totalLaborCost > 0 ? totalGrossProfit / totalLaborCost : 0;
+    
+    // Check if all records already have the correct LER (within tolerance)
+    const allCorrect = records.every(r => Math.abs(r.ler - crewLER) < 0.01);
+    
+    if (allCorrect) {
+      result.skipped += records.length;
+      continue;
+    }
+
+    console.log(`📝 Crew day ${date}: ${records.length} members, LER ${crewLER.toFixed(2)} (was: ${records.map(r => r.ler.toFixed(2)).join(', ')})`);
+
+    // Update all records in this group with the crew LER
+    for (const record of records) {
+      const { error: updateError } = await supabase
+        .from('employee_daily_records')
+        .update({ ler: crewLER })
+        .eq('id', record.id);
+
+      if (updateError) {
+        console.error(`   ❌ Error updating record ${record.id}:`, updateError);
+        result.errors++;
+      } else {
+        result.updated++;
+      }
+    }
+  }
+
+  // Summary
+  console.log('\n========== Migration Complete ==========');
+  console.log(`✅ Updated: ${result.updated} records`);
+  console.log(`⏭️  Skipped (already correct): ${result.skipped} records`);
+  console.log(`❌ Errors: ${result.errors} records`);
+  console.log('=========================================\n');
+
+  result.details.push(`Updated: ${result.updated}, Skipped: ${result.skipped}, Errors: ${result.errors}`);
+  
+  return result;
 }

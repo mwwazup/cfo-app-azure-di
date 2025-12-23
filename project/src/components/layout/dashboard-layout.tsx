@@ -59,6 +59,7 @@ export function DashboardLayout() {
     ]},
     { name: 'Employee Hub', href: '/employees', icon: Users, children: [
       { name: 'LER Tracking', href: '/employee-ler' },
+      { name: 'Employee Dashboard', href: '/employee-dashboard' },
       { name: 'Bonus ROI', href: '/bonus-roi' },
     ]},
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use

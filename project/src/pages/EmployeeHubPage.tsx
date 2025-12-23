@@ -31,6 +31,7 @@ import { EmployeeSetupDialog } from '../components/employee/EmployeeSetupDialog'
 import { EditEmployeeDialog } from '../components/employee/EditEmployeeDialog';
 import { AddPayPeriodDialog } from '../components/employee/AddPayPeriodDialog';
 import { EditPayPeriodDialog } from '../components/employee/EditPayPeriodDialog';
+import { PayrollSummary } from '../components/employee/PayrollSummary';
 import { Chart } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -1054,7 +1055,7 @@ const EmployeeHubPage: React.FC = () => {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all">All Months</SelectItem>
+                          <SelectItem value="all">Year to Date</SelectItem>
                           <SelectItem value="0">January</SelectItem>
                           <SelectItem value="1">February</SelectItem>
                           <SelectItem value="2">March</SelectItem>
@@ -1154,6 +1155,24 @@ const EmployeeHubPage: React.FC = () => {
               </CardContent>
             </Card>
           </div>
+
+          {/* Payroll Summary */}
+          {dbUserId && payPeriods.length > 0 && (
+            <PayrollSummary
+              dbUserId={dbUserId}
+              payPeriods={payPeriods.map(p => ({
+                id: p.id,
+                name: p.period_name,
+                startDate: p.start_date,
+                endDate: p.end_date
+              }))}
+              allEmployees={employees.map(e => ({
+                id: e.id,
+                name: e.name,
+                position: e.position
+              }))}
+            />
+          )}
 
           {/* Employee Settings */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

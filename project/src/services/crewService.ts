@@ -442,6 +442,71 @@ export async function removeDailyRecordCrewMember(id: string): Promise<boolean> 
   return true;
 }
 
+export async function updateDailyRecordCrewMember(
+  dailyRecordId: string,
+  employeeId: string,
+  updates: {
+    hours_worked?: number;
+    bonus_percentage?: number;
+    attributed_revenue?: number;
+    attributed_bonus?: number;
+    is_helper?: boolean;
+    role_id?: string | null;
+  }
+): Promise<boolean> {
+  if (!dailyRecordId || !employeeId) return false;
+
+  const { error } = await supabase
+    .from('daily_record_crew_members')
+    .update(updates)
+    .eq('daily_record_id', dailyRecordId)
+    .eq('employee_id', employeeId);
+
+  if (error) {
+    console.error('Error updating daily record crew member:', error);
+    return false;
+  }
+
+  return true;
+}
+
+export async function upsertDailyRecordCrewMember(member: Omit<DailyRecordCrewMember, 'id' | 'created_at'>): Promise<boolean> {
+  // Try to update first, if no rows affected then insert
+  const { data: existing } = await supabase
+    .from('daily_record_crew_members')
+    .select('id')
+    .eq('daily_record_id', member.daily_record_id)
+    .eq('employee_id', member.employee_id)
+    .single();
+
+  if (existing) {
+    // Update existing record
+    const { error } = await supabase
+      .from('daily_record_crew_members')
+      .update({
+        role_id: member.role_id || null,
+        hours_worked: member.hours_worked,
+        bonus_percentage: member.bonus_percentage,
+        attributed_revenue: member.attributed_revenue,
+        attributed_bonus: member.attributed_bonus,
+        is_helper: member.is_helper || false,
+        helper_appointments: member.helper_appointments || null
+      })
+      .eq('id', existing.id);
+
+    if (error) {
+      console.error('Error updating daily record crew member:', error);
+      return false;
+    }
+  } else {
+    // Insert new record
+    const result = await addDailyRecordCrewMember(member);
+    if (!result) return false;
+  }
+
+  return true;
+}
+
 // ============================================================================
 // VALIDATION HELPERS
 // ============================================================================
@@ -842,7 +907,7 @@ export async function getCrewPerformanceMetrics(
   // Get all daily records for this crew
   let query = supabase
     .from('employee_daily_records')
-    .select('id, date, total_job_revenue, number_of_jobs, total_hours_worked, gross_profit_before_bonus, employee_base_pay, ler')
+    .select('id, date, total_job_revenue, number_of_jobs, total_hours_worked, gross_profit_before_bonus, employee_base_pay, ler, cogs_no_labor')
     .eq('crew_id', crewId)
     .eq('is_crew_job', true);
 
@@ -873,64 +938,153 @@ export async function getCrewPerformanceMetrics(
   }
 
   // Calculate crew totals
-  const totalRevenue = records.reduce((sum, r) => sum + (r.total_job_revenue || 0), 0);
-  const totalJobs = records.reduce((sum, r) => sum + (r.number_of_jobs || 0), 0);
+  // IMPORTANT: Some records have COGS stored as SPLIT values, others have FULL values (bug)
+  // We need to detect and handle both cases correctly
+  
+  // Group records by date to handle per-day calculations
+  const recordsByDate = new Map<string, typeof records>();
+  records.forEach(r => {
+    const existing = recordsByDate.get(r.date);
+    if (existing) {
+      existing.push(r);
+    } else {
+      recordsByDate.set(r.date, [r]);
+    }
+  });
+  
+  let totalRevenue = 0;
+  let totalJobs = 0;
+  let totalCOGS = 0;
+  
+  recordsByDate.forEach((dayRecords) => {
+    // Revenue: sum all member splits = total crew revenue for that day
+    const dayRevenue = dayRecords.reduce((sum, r) => sum + (r.total_job_revenue || 0), 0);
+    totalRevenue += dayRevenue;
+    
+    // Jobs: take from first record (all members have same job count)
+    totalJobs += dayRecords[0]?.number_of_jobs || 0;
+    
+    // COGS: Check if all members have the same COGS value (indicates unsplit/duplicated)
+    const cogsValues = dayRecords.map(r => r.cogs_no_labor || 0);
+    const allSameCogs = cogsValues.every(c => Math.abs(c - cogsValues[0]) < 0.01);
+    
+    if (allSameCogs && dayRecords.length > 1) {
+      // Same COGS for all members = unsplit, use only once
+      totalCOGS += cogsValues[0];
+    } else {
+      // Different COGS values = properly split, sum them
+      totalCOGS += cogsValues.reduce((sum, c) => sum + c, 0);
+    }
+  });
+  
+  // Hours and BasePay are always per-employee, so sum all records
   const totalHours = records.reduce((sum, r) => sum + (r.total_hours_worked || 0), 0);
-  const totalGrossProfit = records.reduce((sum, r) => sum + (r.gross_profit_before_bonus || 0), 0);
   const totalBasePay = records.reduce((sum, r) => sum + (r.employee_base_pay || 0), 0);
-  const avgLER = totalBasePay > 0 ? totalGrossProfit / totalBasePay : 0;
+  
+  // Calculate CREW-LEVEL gross profit correctly:
+  // Gross Profit = Total Revenue - Total COGS - Total Labor Cost
+  const totalGrossProfit = totalRevenue - totalCOGS - totalBasePay;
+  
+  // Crew LER = Simple average of stored daily LER values (one per day, not per member)
+  // Get unique days and average their LER values
+  const dailyLERs: number[] = [];
+  recordsByDate.forEach((dayRecords) => {
+    // Each day should have the same crew LER stored for all members, take the first valid one
+    const dayLER = dayRecords[0]?.ler;
+    if (dayLER !== undefined && dayLER !== null && dayLER >= 0) {
+      dailyLERs.push(dayLER);
+    }
+  });
+  const avgLER = dailyLERs.length > 0 
+    ? dailyLERs.reduce((sum, ler) => sum + ler, 0) / dailyLERs.length 
+    : 0;
   const avgRevenuePerJob = totalJobs > 0 ? totalRevenue / totalJobs : 0;
   const grossProfitPercent = totalRevenue > 0 ? (totalGrossProfit / totalRevenue) * 100 : 0;
-
-  // Get attributions for member contributions
+  
+  // Get member contributions from daily_record_crew_members (auto-populated when crew jobs are saved)
   const recordIds = records.map(r => r.id);
-  const { data: attributions, error: attrError } = await supabase
-    .from('crew_daily_attributions')
-    .select('employee_id, role_name, bonus_percentage, attributed_revenue, attributed_bonus, attributed_hours')
-    .eq('crew_id', crewId)
+  const { data: crewMembers, error: crewMembersError } = await supabase
+    .from('daily_record_crew_members')
+    .select(`
+      employee_id,
+      role_id,
+      hours_worked,
+      bonus_percentage,
+      attributed_revenue,
+      attributed_bonus,
+      is_helper,
+      crew_roles:role_id (role_name)
+    `)
     .in('daily_record_id', recordIds);
 
-  if (attrError) {
-    console.error('Error fetching attributions:', attrError);
+  if (crewMembersError) {
+    console.error('Error fetching crew members:', crewMembersError);
   }
 
   // Aggregate member contributions
   const memberMap = new Map<string, MemberContribution>();
-  const totalBonus = (attributions || []).reduce((sum, a) => sum + (a.attributed_bonus || 0), 0);
+  const totalBonus = (crewMembers || []).reduce((sum, m) => sum + (m.attributed_bonus || 0), 0);
 
-  for (const attr of attributions || []) {
-    const existing = memberMap.get(attr.employee_id);
+  for (const member of crewMembers || []) {
+    const roleName = (member.crew_roles as any)?.role_name || (member.is_helper ? 'Helper' : 'Unknown');
+    const existing = memberMap.get(member.employee_id);
     if (existing) {
-      existing.attributedRevenue += attr.attributed_revenue || 0;
-      existing.attributedBonus += attr.attributed_bonus || 0;
-      existing.attributedHours += attr.attributed_hours || 0;
+      existing.attributedRevenue += member.attributed_revenue || 0;
+      existing.attributedBonus += member.attributed_bonus || 0;
+      existing.attributedHours += member.hours_worked || 0;
       existing.jobCount += 1;
     } else {
-      memberMap.set(attr.employee_id, {
-        employeeId: attr.employee_id,
+      memberMap.set(member.employee_id, {
+        employeeId: member.employee_id,
         employeeName: '', // Will be filled below
-        roleName: attr.role_name || 'Unknown',
-        bonusPercentage: attr.bonus_percentage || 0,
-        attributedRevenue: attr.attributed_revenue || 0,
-        attributedBonus: attr.attributed_bonus || 0,
-        attributedHours: attr.attributed_hours || 0,
+        roleName: roleName,
+        bonusPercentage: member.bonus_percentage || 0,
+        attributedRevenue: member.attributed_revenue || 0,
+        attributedBonus: member.attributed_bonus || 0,
+        attributedHours: member.hours_worked || 0,
         jobCount: 1
       });
     }
   }
 
-  // Get employee names
+  // Get employee names and positions (position is used as fallback for role)
   const employeeIds = Array.from(memberMap.keys());
   if (employeeIds.length > 0) {
     const { data: employees } = await supabase
       .from('employee_info')
-      .select('id, name')
+      .select('id, name, position')
       .in('id', employeeIds);
 
     for (const emp of employees || []) {
       const member = memberMap.get(emp.id);
       if (member) {
         member.employeeName = emp.name;
+        // Use employee position as fallback if role is Unknown
+        if (member.roleName === 'Unknown' && emp.position) {
+          member.roleName = emp.position;
+        }
+      }
+    }
+    
+    // Get bonus percentages from crew_members table (role assignments)
+    const { data: crewMemberRoles } = await supabase
+      .from('crew_members')
+      .select(`
+        employee_id,
+        role_id,
+        crew_roles:role_id (bonus_percentage)
+      `)
+      .eq('crew_id', crewId)
+      .in('employee_id', employeeIds);
+    
+    for (const cmr of crewMemberRoles || []) {
+      const member = memberMap.get(cmr.employee_id);
+      const bonusPct = (cmr.crew_roles as any)?.bonus_percentage;
+      if (member) {
+        // Always update with the role's bonus percentage
+        if (bonusPct !== undefined && bonusPct !== null) {
+          member.bonusPercentage = bonusPct;
+        }
       }
     }
   }
@@ -994,7 +1148,7 @@ export async function getCrewVsSoloComparison(
   // Get all daily records for these pay periods
   let query = supabase
     .from('employee_daily_records')
-    .select('is_crew_job, total_job_revenue, number_of_jobs, total_hours_worked, gross_profit_before_bonus, employee_base_pay')
+    .select('is_crew_job, total_job_revenue, number_of_jobs, total_hours_worked, gross_profit_before_bonus, employee_base_pay, cogs_no_labor')
     .in('pay_period_id', payPeriodIds);
 
   if (startDate) query = query.gte('date', startDate);
@@ -1011,20 +1165,24 @@ export async function getCrewVsSoloComparison(
   const crewRecords = records.filter(r => r.is_crew_job === true);
   const soloRecords = records.filter(r => r.is_crew_job !== true);
 
-  // Calculate crew metrics
+  // Calculate crew metrics - use crew-level calculation to avoid negative LER from split revenue
   const crewRevenue = crewRecords.reduce((sum, r) => sum + (r.total_job_revenue || 0), 0);
   const crewJobs = crewRecords.reduce((sum, r) => sum + (r.number_of_jobs || 0), 0);
   const crewHours = crewRecords.reduce((sum, r) => sum + (r.total_hours_worked || 0), 0);
-  const crewGrossProfit = crewRecords.reduce((sum, r) => sum + (r.gross_profit_before_bonus || 0), 0);
   const crewBasePay = crewRecords.reduce((sum, r) => sum + (r.employee_base_pay || 0), 0);
+  const crewCOGS = crewRecords.reduce((sum, r) => sum + (r.cogs_no_labor || 0), 0);
+  // Crew Gross Profit = Total Revenue - Total COGS - Total Labor Cost
+  const crewGrossProfit = crewRevenue - crewCOGS - crewBasePay;
   const crewAvgLER = crewBasePay > 0 ? crewGrossProfit / crewBasePay : 0;
 
-  // Calculate solo metrics
+  // Calculate solo metrics - solo records don't have the split revenue issue
   const soloRevenue = soloRecords.reduce((sum, r) => sum + (r.total_job_revenue || 0), 0);
   const soloJobs = soloRecords.reduce((sum, r) => sum + (r.number_of_jobs || 0), 0);
   const soloHours = soloRecords.reduce((sum, r) => sum + (r.total_hours_worked || 0), 0);
-  const soloGrossProfit = soloRecords.reduce((sum, r) => sum + (r.gross_profit_before_bonus || 0), 0);
   const soloBasePay = soloRecords.reduce((sum, r) => sum + (r.employee_base_pay || 0), 0);
+  const soloCOGS = soloRecords.reduce((sum, r) => sum + (r.cogs_no_labor || 0), 0);
+  // Solo Gross Profit = Total Revenue - Total COGS - Total Labor Cost
+  const soloGrossProfit = soloRevenue - soloCOGS - soloBasePay;
   const soloAvgLER = soloBasePay > 0 ? soloGrossProfit / soloBasePay : 0;
 
   return {
@@ -1052,6 +1210,9 @@ export interface CrewWorkDay {
   totalRevenue: number;
   totalJobs: number;
   totalHours: number;
+  totalCOGS: number;
+  netProfit: number;
+  grossProfitPercent: number;
   crewMembers: Array<{
     employeeId: string;
     employeeName: string;
@@ -1072,7 +1233,7 @@ export async function getCrewWorkDays(
   userId: string,
   crewId: string,
   year?: number,
-  month?: number
+  month?: number // 0-indexed (0 = January)
 ): Promise<CrewWorkDay[]> {
   if (!userId || !crewId) return [];
 
@@ -1081,10 +1242,11 @@ export async function getCrewWorkDays(
   let endDate: string | undefined;
   
   if (year) {
-    if (month) {
-      startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-      const lastDay = new Date(year, month, 0).getDate();
-      endDate = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+    if (month !== undefined) {
+      // month is 0-indexed, convert to 1-indexed for string
+      startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      endDate = `${year}-${String(month + 1).padStart(2, '0')}-${lastDay}`;
     } else {
       startDate = `${year}-01-01`;
       endDate = `${year}-12-31`;
@@ -1092,6 +1254,7 @@ export async function getCrewWorkDays(
   }
 
   // Get all daily records for this crew with employee name joined
+  // Note: user_id doesn't exist on employee_daily_records, crew_id is sufficient for filtering
   let query = supabase
     .from('employee_daily_records')
     .select(`
@@ -1102,6 +1265,8 @@ export async function getCrewWorkDays(
       total_job_revenue,
       number_of_jobs,
       total_hours_worked,
+      daily_net_profit_after_bonus,
+      daily_net_profit_after_bonus_percent,
       service_breakdown,
       employee:employee_id (name)
     `)
@@ -1115,9 +1280,11 @@ export async function getCrewWorkDays(
   const { data: records, error } = await query;
 
   if (error) {
-    console.error('Error fetching crew work days:', error);
+    console.error('Error fetching crew work days:', error.message, error.details, error.hint);
     return [];
   }
+
+  console.log('🔍 Crew work days query:', { crewId, startDate, endDate, recordCount: records?.length || 0 });
 
   if (!records || records.length === 0) return [];
 
@@ -1153,12 +1320,13 @@ export async function getCrewWorkDays(
     const existing = dayMap.get(record.date);
     const memberKey = `${record.id}_${record.employee_id}`;
     const memberData = crewMemberMap.get(memberKey);
+    const isHelper = memberData?.isHelper || false;
     
     const member = {
       employeeId: record.employee_id,
       employeeName: employeeMap.get(record.employee_id) || 'Unknown',
       recordId: record.id,
-      isHelper: memberData?.isHelper || false,
+      isHelper: isHelper,
       hours: memberData?.hours || record.total_hours_worked || 0,
       revenue: memberData?.revenue || record.total_job_revenue || 0
     };
@@ -1168,17 +1336,41 @@ export async function getCrewWorkDays(
       if (!existing.crewMembers.find(m => m.employeeId === member.employeeId)) {
         existing.crewMembers.push(member);
       }
-      // Don't double-count revenue/jobs - they're the same for all crew members
+      // If this is a non-helper record and we previously had helper data, update totals
+      // Non-helper records have the full crew totals, helper records have partial data
+      if (!isHelper && existing.totalJobs < (record.number_of_jobs || 0)) {
+        existing.totalRevenue = record.total_job_revenue || 0;
+        existing.totalJobs = record.number_of_jobs || 0;
+        existing.totalHours = record.total_hours_worked || 0;
+        existing.netProfit = record.daily_net_profit_after_bonus || 0;
+        existing.grossProfitPercent = record.daily_net_profit_after_bonus_percent || 0;
+        existing.totalCOGS = existing.totalRevenue - existing.netProfit;
+        // Also update service breakdown from non-helper record
+        const serviceBreakdown = record.service_breakdown?.services || [];
+        existing.serviceBreakdown = serviceBreakdown.map((s: any) => ({
+          serviceName: s.serviceName || s.service_name || '',
+          jobs: s.jobs || 0,
+          hours: s.hours || 0,
+          revenue: s.revenue || 0
+        }));
+      }
     } else {
       // Parse service breakdown
       const serviceBreakdown = record.service_breakdown?.services || [];
+      const totalRevenue = record.total_job_revenue || 0;
+      const netProfit = record.daily_net_profit_after_bonus || 0;
+      const grossProfitPercent = record.daily_net_profit_after_bonus_percent || 0;
+      const totalCOGS = totalRevenue - netProfit;
       
       dayMap.set(record.date, {
         date: record.date,
         dayOfWeek: record.work_day || new Date(record.date).toLocaleDateString('en-US', { weekday: 'long' }),
-        totalRevenue: record.total_job_revenue || 0,
+        totalRevenue: totalRevenue,
         totalJobs: record.number_of_jobs || 0,
         totalHours: record.total_hours_worked || 0,
+        totalCOGS: totalCOGS,
+        netProfit: netProfit,
+        grossProfitPercent: grossProfitPercent,
         crewMembers: [member],
         serviceBreakdown: serviceBreakdown.map((s: any) => ({
           serviceName: s.serviceName || s.service_name || '',

@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Alert, AlertDescription } from '../ui/alert';
 import { Upload, Download, AlertCircle, CheckCircle2, X } from 'lucide-react';
 
 interface CSVRow {

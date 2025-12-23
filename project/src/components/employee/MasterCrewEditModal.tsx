@@ -17,6 +17,11 @@ interface ServiceBreakdownItem {
   revenue: number;
 }
 
+interface HelperAppointment {
+  appointmentIndex: number;
+  hours: number;
+}
+
 interface CrewMemberEdit {
   employeeId: string;
   employeeName: string;
@@ -25,6 +30,8 @@ interface CrewMemberEdit {
   baseRate: number;
   roleId?: string;
   bonusPercentage?: number;
+  helperAppointments?: HelperAppointment[];
+  helperHours?: number;
 }
 
 interface MasterCrewEditModalProps {
@@ -70,6 +77,7 @@ export function MasterCrewEditModal({
   const [serviceBreakdown, setServiceBreakdown] = useState<ServiceBreakdownItem[]>([]);
   const [crewMembers, setCrewMembers] = useState<CrewMemberEdit[]>([]);
   const [showHelperSelector, setShowHelperSelector] = useState(false);
+  const [configuringHelper, setConfiguringHelper] = useState<string | null>(null); // employeeId of helper being configured
   const [saving, setSaving] = useState(false);
   const [validationError, setValidationError] = useState<string>('');
 
@@ -164,7 +172,7 @@ export function MasterCrewEditModal({
     setServiceBreakdown(updated);
   };
 
-  // Add helper
+  // Add helper - opens configuration dialog
   const addHelper = (employeeId: string) => {
     const emp = allEmployees.find(e => e.id === employeeId);
     if (emp && !crewMembers.some(m => m.employeeId === employeeId)) {
@@ -173,10 +181,59 @@ export function MasterCrewEditModal({
         employeeName: emp.name,
         recordId: '', // New helper, no existing record
         isHelper: true,
-        baseRate: emp.base_rate || 0
+        baseRate: emp.base_rate || 0,
+        helperAppointments: [],
+        helperHours: 0
       }]);
+      // Open configuration for this helper
+      setConfiguringHelper(emp.id);
     }
     setShowHelperSelector(false);
+  };
+
+  // Update helper appointments
+  const updateHelperAppointments = (employeeId: string, appointmentIndex: number, hours: number, isSelected: boolean) => {
+    setCrewMembers(prev => prev.map(m => {
+      if (m.employeeId !== employeeId) return m;
+      
+      let appointments = m.helperAppointments || [];
+      
+      if (isSelected) {
+        // Add or update appointment
+        const existing = appointments.find(a => a.appointmentIndex === appointmentIndex);
+        if (existing) {
+          appointments = appointments.map(a => 
+            a.appointmentIndex === appointmentIndex ? { ...a, hours } : a
+          );
+        } else {
+          appointments = [...appointments, { appointmentIndex, hours }];
+        }
+      } else {
+        // Remove appointment
+        appointments = appointments.filter(a => a.appointmentIndex !== appointmentIndex);
+      }
+      
+      // Calculate total helper hours
+      const totalHelperHours = appointments.reduce((sum, a) => sum + a.hours, 0);
+      
+      return {
+        ...m,
+        helperAppointments: appointments,
+        helperHours: totalHelperHours
+      };
+    }));
+  };
+
+  // Check if helper has appointment selected
+  const isAppointmentSelectedForHelper = (employeeId: string, appointmentIndex: number) => {
+    const helper = crewMembers.find(m => m.employeeId === employeeId);
+    return helper?.helperAppointments?.some(a => a.appointmentIndex === appointmentIndex) || false;
+  };
+
+  // Get helper hours for appointment
+  const getHelperHoursForAppointment = (employeeId: string, appointmentIndex: number) => {
+    const helper = crewMembers.find(m => m.employeeId === employeeId);
+    return helper?.helperAppointments?.find(a => a.appointmentIndex === appointmentIndex)?.hours || 0;
   };
 
   // Remove helper
@@ -287,22 +344,106 @@ export function MasterCrewEditModal({
 
               {/* Helpers */}
               {helpers.length > 0 && (
-                <div className="space-y-2 pt-3 border-t border-border">
+                <div className="space-y-3 pt-3 border-t border-border">
                   <p className="text-sm text-muted-foreground">Helpers</p>
-                  <div className="flex flex-wrap gap-2">
-                    {helpers.map(helper => (
-                      <Badge key={helper.employeeId} variant="secondary" className="text-sm py-1 px-3 bg-accent/20 text-accent">
-                        {helper.employeeName}
-                        <span className="ml-2 text-muted-foreground">${helper.baseRate.toFixed(2)}/hr</span>
-                        <button
-                          onClick={() => removeHelper(helper.employeeId)}
-                          className="ml-2 text-red-500 hover:text-red-400"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
+                  {helpers.map(helper => (
+                    <div key={helper.employeeId} className="bg-accent/10 rounded-lg p-3 border border-accent/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="bg-accent/20 text-accent">
+                            {helper.employeeName}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">${helper.baseRate.toFixed(2)}/hr</span>
+                          {helper.helperHours ? (
+                            <span className="text-sm text-accent">• {helper.helperHours} hrs on {helper.helperAppointments?.length || 0} job(s)</span>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setConfiguringHelper(configuringHelper === helper.employeeId ? null : helper.employeeId)}
+                            className="text-accent hover:text-accent/80"
+                          >
+                            {configuringHelper === helper.employeeId ? 'Done' : 'Configure Jobs'}
+                          </Button>
+                          <button
+                            onClick={() => removeHelper(helper.employeeId)}
+                            className="text-red-500 hover:text-red-400 p-1"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {/* Helper Job Configuration */}
+                      {configuringHelper === helper.employeeId && (
+                        <div className="mt-3 space-y-2 bg-background/20 rounded p-3">
+                          <p className="text-sm font-medium text-foreground mb-2">Select jobs this helper worked on:</p>
+                          {serviceBreakdown.filter(s => s.serviceId).length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Add appointments first, then configure helper jobs.</p>
+                          ) : (
+                            serviceBreakdown.map((appt, index) => {
+                              if (!appt.serviceId) return null;
+                              const isSelected = isAppointmentSelectedForHelper(helper.employeeId, index);
+                              const helperHrs = getHelperHoursForAppointment(helper.employeeId, index);
+                              
+                              return (
+                                <div key={index} className="flex items-center gap-3 p-2 rounded border border-border bg-muted/20">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      updateHelperAppointments(
+                                        helper.employeeId,
+                                        index,
+                                        e.target.checked ? 1 : 0,
+                                        e.target.checked
+                                      );
+                                    }}
+                                    className="h-4 w-4 rounded border-border"
+                                  />
+                                  <div className="flex-1">
+                                    <span className="text-sm text-foreground">
+                                      Job {index + 1}: {appt.serviceName}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground ml-2">
+                                      (${appt.revenue} revenue)
+                                    </span>
+                                  </div>
+                                  {isSelected && (
+                                    <div className="flex items-center gap-2">
+                                      <Label className="text-xs text-muted-foreground">Hours:</Label>
+                                      <Input
+                                        type="number"
+                                        step="0.25"
+                                        min="0.25"
+                                        value={helperHrs || ''}
+                                        onChange={(e) => {
+                                          const hrs = parseFloat(e.target.value) || 0;
+                                          updateHelperAppointments(helper.employeeId, index, hrs, true);
+                                        }}
+                                        className="w-20 h-8 text-sm bg-background"
+                                        placeholder="hrs"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                          {helper.helperAppointments && helper.helperAppointments.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-border">
+                              <p className="text-sm text-accent font-medium">
+                                Total: {helper.helperHours?.toFixed(2) || 0} hours on {helper.helperAppointments.length} job(s)
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
 

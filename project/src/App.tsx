@@ -18,6 +18,7 @@ import { FinancialStatementsPage } from './pages/financial-statements';
 import { BudgetVsActualPage } from './pages/BudgetVsActualPage';
 import EmployeeLERPage from './pages/EmployeeLERPage';
 import EmployeeHubPage from './pages/EmployeeHubPage';
+import EmployeeDashboardPage from './pages/EmployeeDashboardPage';
 import CompanySettingsPage from './pages/CompanySettingsPage';
 import { ServiceHubPage } from './pages/ServiceHubPage';
 import { BonusROIAnalysisPage } from './pages/BonusROIAnalysisPage';
@@ -90,7 +91,7 @@ function AppRoutes() {
           </div>
         </header>
       )}
-      <div className="min-h-screen bg-gray-900">
+      <div className="min-h-screen bg-background">
         <ErrorBoundary>
           <Routes>
             {/* Public routes */}
@@ -156,6 +157,11 @@ function AppRoutes() {
             {/* Employee LER Tracking */}
             <Route path="/employee-ler" element={<DashboardLayout />}>
               <Route index element={<EmployeeLERPage />} />
+            </Route>
+            
+            {/* Employee Dashboard - Performance analytics */}
+            <Route path="/employee-dashboard" element={<DashboardLayout />}>
+              <Route index element={<EmployeeDashboardPage />} />
             </Route>
             
             {/* Company Settings */}

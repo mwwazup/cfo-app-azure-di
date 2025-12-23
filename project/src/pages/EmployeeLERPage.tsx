@@ -23,7 +23,8 @@ import {
   ChevronUp,
   Upload,
   X,
-  Trash2
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AddDailyRecordWithServices, EmployeeForCrewEntry } from '../components/employee/AddDailyRecordWithServices';
@@ -138,7 +139,7 @@ const EmployeeLERPage: React.FC = () => {
     currentBaseRate: 32.46
   });
 
-  const [selectedPeriodIndex, setSelectedPeriodIndex] = useState(0);
+  const [selectedPeriodIndex, setSelectedPeriodIndex] = useState(-1); // -1 means "All Pay Periods"
   const [payPeriodsData, setPayPeriodsData] = useState<PayPeriod[]>([]);
   
   // Insights panel state
@@ -158,7 +159,7 @@ const EmployeeLERPage: React.FC = () => {
   const [editingRecord, setEditingRecord] = useState<{record: DailyRecord, index: number} | null>(null);
   const [showCSVUpload, setShowCSVUpload] = useState(false);
   const [needsCalculation, setNeedsCalculation] = useState(false);
-  const [filterYear, setFilterYear] = useState<number | 'all'>('all');
+  const [filterYear, setFilterYear] = useState<number>(new Date().getFullYear());
   const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc'); // Date sort order for daily records
   
@@ -187,11 +188,10 @@ const EmployeeLERPage: React.FC = () => {
   // Crew Performance View state
   const [viewMode, setViewMode] = useState<'individual' | 'crew'>('individual');
   const [selectedCrewId, setSelectedCrewId] = useState<string>('');
-  const [comparisonCrewId, setComparisonCrewId] = useState<string>('');
   const [crewPerformance, setCrewPerformance] = useState<CrewPerformanceMetrics | null>(null);
-  const [_crewVsSolo, setCrewVsSolo] = useState<CrewVsSoloComparison | null>(null);
   const [crewFilterYear, setCrewFilterYear] = useState<number>(new Date().getFullYear());
   const [crewFilterMonth, setCrewFilterMonth] = useState<number | 'ytd'>('ytd');
+  const [crewSelectedPayPeriod, setCrewSelectedPayPeriod] = useState<string>('all');
   const [crewWorkDays, setCrewWorkDays] = useState<CrewWorkDay[]>([]);
   const [editingCrewWorkDay, setEditingCrewWorkDay] = useState<CrewWorkDay | null>(null);
   const [showMasterCrewEdit, setShowMasterCrewEdit] = useState(false);
@@ -318,26 +318,12 @@ const EmployeeLERPage: React.FC = () => {
     if (!dbUserId || !crewId) return;
     
     try {
-      // crewFilterMonth is 0-indexed (January = 0), but service expects 1-indexed
-      const month = crewFilterMonth === 'ytd' ? undefined : (crewFilterMonth as number) + 1;
+      // crewFilterMonth is 0-indexed (January = 0), service also expects 0-indexed
+      const month = crewFilterMonth === 'ytd' ? undefined : (crewFilterMonth as number);
       const metrics = await crewService.getCrewPerformanceMetrics(dbUserId, crewId, crewFilterYear, month);
       setCrewPerformance(metrics);
     } catch (error) {
       console.error('Error loading crew performance:', error);
-    }
-  }
-
-  // Load crew vs solo comparison
-  async function loadCrewVsSoloComparison() {
-    if (!dbUserId) return;
-    
-    try {
-      // crewFilterMonth is 0-indexed (January = 0), but service expects 1-indexed
-      const month = crewFilterMonth === 'ytd' ? undefined : (crewFilterMonth as number) + 1;
-      const comparison = await crewService.getCrewVsSoloComparison(dbUserId, crewFilterYear, month);
-      setCrewVsSolo(comparison);
-    } catch (error) {
-      console.error('Error loading crew vs solo comparison:', error);
     }
   }
 
@@ -346,9 +332,11 @@ const EmployeeLERPage: React.FC = () => {
     if (!dbUserId || !crewId) return;
     
     try {
-      // crewFilterMonth is 0-indexed (January = 0), but getCrewWorkDays expects 1-indexed
-      const month = crewFilterMonth === 'ytd' ? undefined : (crewFilterMonth as number) + 1;
+      // crewFilterMonth is 0-indexed (January = 0), service also expects 0-indexed
+      const month = crewFilterMonth === 'ytd' ? undefined : (crewFilterMonth as number);
+      console.log('🔍 Loading crew work days:', { crewId, year: crewFilterYear, month, dbUserId });
       const days = await crewService.getCrewWorkDays(dbUserId, crewId, crewFilterYear, month);
+      console.log('📅 Crew work days loaded:', days.length, 'days');
       setCrewWorkDays(days);
     } catch (error) {
       console.error('Error loading crew work days:', error);
@@ -359,7 +347,6 @@ const EmployeeLERPage: React.FC = () => {
   // Load crew data when switching to crew view or changing filters
   useEffect(() => {
     if ((viewMode as any) === 'crew' && dbUserId) {
-      loadCrewVsSoloComparison();
       if (selectedCrewId) {
         loadCrewPerformance(selectedCrewId);
         loadCrewWorkDays(selectedCrewId);
@@ -433,26 +420,45 @@ const EmployeeLERPage: React.FC = () => {
         const overtimePay = totalOTHours * (baseRate * OT_MULTIPLIER);
         const basePay = regularPay + overtimePay;
         
-        // Recalculate all dependent values
-        const totalCostOfJob = basePay + record.cogsNoLabor + (record.totalJobRevenue * (record.overheadCostsPercent / 100));
-        const grossProfitBeforeBonus = record.totalJobRevenue - totalCostOfJob;
-        const grossProfitBeforeBonusPercent = record.totalJobRevenue > 0 
-          ? (grossProfitBeforeBonus / record.totalJobRevenue) * 100 
-          : 0;
-        const ler = basePay > 0 ? grossProfitBeforeBonus / basePay : 0;
+        // For CREW records, preserve the saved LER/profit values from database
+        // These are crew-level metrics that shouldn't be recalculated from individual split revenue
+        // For SOLO records, recalculate based on overtime adjustments to ensure accurate bonus qualification
+        const isCrewRecord = record.isCrewJob || record.trackingMode === 'crew';
+        
+        let grossProfitBeforeBonus: number;
+        let grossProfitBeforeBonusPercent: number;
+        let ler: number;
+        let dailyNetProfitAfterBonus: number;
+        let dailyNetProfitAfterBonusPercent: number;
+        
+        if (isCrewRecord) {
+          // CREW: Preserve saved crew-level metrics from database
+          grossProfitBeforeBonus = record.grossProfitBeforeBonus;
+          grossProfitBeforeBonusPercent = record.grossProfitBeforeBonusPercent;
+          ler = record.ler;
+          dailyNetProfitAfterBonus = record.dailyNetProfitAfterBonus;
+          dailyNetProfitAfterBonusPercent = record.dailyNetProfitAfterBonusPercent;
+        } else {
+          // SOLO: Recalculate based on overtime adjustments
+          // This is critical for accurate bonus qualification - overtime increases labor cost, reducing LER
+          const totalCostOfJob = basePay + record.cogsNoLabor + (record.totalJobRevenue * (record.overheadCostsPercent / 100));
+          grossProfitBeforeBonus = record.totalJobRevenue - totalCostOfJob;
+          grossProfitBeforeBonusPercent = record.totalJobRevenue > 0 
+            ? (grossProfitBeforeBonus / record.totalJobRevenue) * 100 
+            : 0;
+          ler = basePay > 0 ? grossProfitBeforeBonus / basePay : 0;
+          dailyNetProfitAfterBonus = record.totalJobRevenue - totalCostOfJob - record.bonusQualifiedForPercent - record.appointmentBasedBonus;
+          dailyNetProfitAfterBonusPercent = record.totalJobRevenue > 0 
+            ? (dailyNetProfitAfterBonus / record.totalJobRevenue) * 100 
+            : 0;
+        }
         
         // PRESERVE bonus qualification and amounts from database - don't recalculate them here
-        // This function is only for recalculating overtime, not bonuses
-        // Recalculating qualifyForBonus would be wrong because overtime changes affect the percentage
         const qualifyForBonus = record.qualifyForBonus;
         const bonusQualifiedForPercent = record.bonusQualifiedForPercent;
         const appointmentBasedBonus = record.appointmentBasedBonus;
         const totalEmployeePay = basePay + bonusQualifiedForPercent + appointmentBasedBonus + record.tipAmount;
         const dailyHourlyWithTipsAndBonus = dailyHours > 0 ? totalEmployeePay / dailyHours : 0;
-        const dailyNetProfitAfterBonus = record.totalJobRevenue - totalCostOfJob - bonusQualifiedForPercent - appointmentBasedBonus;
-        const dailyNetProfitAfterBonusPercent = record.totalJobRevenue > 0 
-          ? (dailyNetProfitAfterBonus / record.totalJobRevenue) * 100 
-          : 0;
         
         // Update record with recalculated values
         updatedRecords.push({
@@ -584,8 +590,8 @@ const EmployeeLERPage: React.FC = () => {
                 });
               }
               
-              // Calculate totals from recalculated records
-              const workingRecords = recalculatedRecords.filter(r => !r.calledOut && r.numberOfJobs > 0);
+              // Calculate totals from recalculated records (filter out negative LER)
+              const workingRecords = recalculatedRecords.filter(r => !r.calledOut && r.numberOfJobs > 0 && r.ler >= 0);
               console.log(`   └─ Working records:`, workingRecords.length);
               
               return {
@@ -861,10 +867,10 @@ const EmployeeLERPage: React.FC = () => {
           const baseRate = employee.current_base_rate;
           const dayOfWeek = recordDate.toLocaleDateString('en-US', { weekday: 'long' });
           
-          // Calculate COGS
+          // Calculate COGS - servicesWithCOGS contains $ cost per job, NOT percentage
           const totalCOGS = serviceBreakdown.reduce((sum, s) => {
-            const cogsPercent = servicesWithCOGS[s.serviceName] || 0;
-            return sum + (s.revenue * (cogsPercent / 100));
+            const costPerJob = servicesWithCOGS[s.serviceName] || 0;
+            return sum + (costPerJob * s.jobs); // $ per job × number of jobs
           }, 0);
 
           // Calculate base pay and overtime
@@ -883,12 +889,18 @@ const EmployeeLERPage: React.FC = () => {
           }
 
           const totalEmployeeBasePay = basePay + overtimePay;
-          const grossProfit = totalRevenue - totalCOGS - totalEmployeeBasePay;
+          
+          // Calculate overhead allocation
+          const overheadAllocation = totalRevenue * (companySettings.overheadPercent / 100);
+          
+          // Gross Profit = Revenue - COGS - Labor - Overhead
+          const grossProfit = totalRevenue - totalCOGS - totalEmployeeBasePay - overheadAllocation;
           const grossProfitPercent = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
           const ler = totalEmployeeBasePay > 0 ? grossProfit / totalEmployeeBasePay : 0;
 
-          // Calculate bonuses
+          // Calculate bonuses - qualification based on GROSS PROFIT PERCENTAGE, not LER
           console.log('💰 Bonus calculation:', {
+            grossProfitPercent,
             ler,
             totalJobs,
             bonusThresholdMin: companySettings.bonusThresholdMin,
@@ -898,10 +910,11 @@ const EmployeeLERPage: React.FC = () => {
           
           let bonusQualified = 0;
           let appointmentBonus = 0;
-          const qualifyForBonus = ler >= companySettings.bonusThresholdMin && ler <= companySettings.bonusThresholdMax;
+          const qualifyForBonus = grossProfitPercent >= companySettings.bonusThresholdMin && grossProfitPercent <= companySettings.bonusThresholdMax;
 
           if (qualifyForBonus) {
-            bonusQualified = grossProfit * 0.10;
+            // Bonus = LER × Daily Hours (same as Edit modal)
+            bonusQualified = ler * totalDailyHours;
           }
 
           if (companySettings.enableAppointmentBonus && totalJobs >= 3) {
@@ -1123,21 +1136,36 @@ const EmployeeLERPage: React.FC = () => {
           
           const dayOfWeek = recordDate.toLocaleDateString('en-US', { weekday: 'long' });
           
-          // Calculate COGS
+          // Calculate COGS - servicesWithCOGS contains $ cost per job, NOT percentage
           const totalCOGS = serviceBreakdown.reduce((sum, s) => {
-            const cogsPercent = servicesWithCOGS[s.serviceName] || 0;
-            return sum + (s.revenue * (cogsPercent / 100));
+            const costPerJob = servicesWithCOGS[s.serviceName] || 0;
+            return sum + (costPerJob * s.jobs); // $ per job × number of jobs
           }, 0);
           
           const crewMemberCount = crewEmployees.length;
           
-          // Create a record for each crew member (revenue split equally)
+          // ============================================
+          // CREW-LEVEL CALCULATIONS (calculate once for the whole crew)
+          // ============================================
+          
+          // Calculate total crew labor cost (sum of all members' labor)
+          let totalCrewLaborCost = 0;
+          const employeeData: Array<{
+            employee: typeof crewEmployees[0];
+            baseRate: number;
+            hours: number;
+            regularHours: number;
+            overtimeHours: number;
+            basePay: number;
+            overtimePay: number;
+            totalBasePay: number;
+            laborCost: number;
+            bonusPercentage: number;
+          }> = [];
+          
           for (const employee of crewEmployees) {
             const baseRate = employee.current_base_rate;
             const employeeHours = totalDailyHours;
-            
-            // Each crew member gets equal share of revenue
-            const attributedRevenue = crewMemberCount > 0 ? Math.round((totalRevenue / crewMemberCount) * 100) / 100 : 0;
             let regularHours = employeeHours;
             let overtimeHours = 0;
             let basePay = 0;
@@ -1152,45 +1180,90 @@ const EmployeeLERPage: React.FC = () => {
               basePay = employeeHours * baseRate;
             }
             
-            const totalEmployeeBasePay = basePay + overtimePay;
+            const totalBasePay = basePay + overtimePay;
+            const laborCost = employeeHours * baseRate;
+            totalCrewLaborCost += laborCost;
             
-            // Calculate this employee's labor cost
-            const employeeLaborCost = employeeHours * baseRate;
+            // Get bonus percentage from crew_members table (default to equal split)
+            const crewMembersList = crewMembersMap[crewId] || [];
+            const crewMemberInfo = crewMembersList.find(cm => cm.employee_id === employee.id);
+            const bonusPercentage = crewMemberInfo?.bonus_percentage ?? (100 / crewMemberCount);
             
-            // Each crew member gets equal share of COGS
+            employeeData.push({
+              employee,
+              baseRate,
+              hours: employeeHours,
+              regularHours,
+              overtimeHours,
+              basePay,
+              overtimePay,
+              totalBasePay,
+              laborCost,
+              bonusPercentage
+            });
+          }
+          
+          // Calculate overhead allocation for crew
+          const crewOverheadAllocation = totalRevenue * (companySettings.overheadPercent / 100);
+          
+          // CREW-LEVEL Gross Profit = Total Revenue - Total COGS - Total Crew Labor - Overhead
+          const crewGrossProfit = totalRevenue - totalCOGS - totalCrewLaborCost - crewOverheadAllocation;
+          const crewGrossProfitPercent = totalRevenue > 0 ? (crewGrossProfit / totalRevenue) * 100 : 0;
+          
+          // CREW-LEVEL LER = Crew Gross Profit / Total Crew Labor
+          const crewLER = totalCrewLaborCost > 0 ? crewGrossProfit / totalCrewLaborCost : 0;
+          
+          // Bonus qualification based on CREW GROSS PROFIT PERCENTAGE (not LER)
+          // Use crew-specific thresholds from company settings
+          const crewBonusThresholdMin = companySettings.crewBonusThresholdMin || 15;
+          const crewBonusThresholdMax = companySettings.crewBonusThresholdMax || 100;
+          const crewQualifiesForBonus = crewGrossProfitPercent >= crewBonusThresholdMin && crewGrossProfitPercent <= crewBonusThresholdMax;
+          
+          // Calculate CREW-LEVEL bonuses (to be split by percentage)
+          let totalCrewBonus = 0;
+          let totalCrewAppointmentBonus = 0;
+          
+          if (crewQualifiesForBonus) {
+            totalCrewBonus = crewGrossProfit * 0.10;
+          }
+          
+          if (companySettings.enableAppointmentBonus && totalJobs >= 3) {
+            if (totalJobs >= 6) totalCrewAppointmentBonus = companySettings.appointmentBonus6PlusJobs;
+            else if (totalJobs === 5) totalCrewAppointmentBonus = companySettings.appointmentBonus5Jobs;
+            else if (totalJobs === 4) totalCrewAppointmentBonus = companySettings.appointmentBonus4Jobs;
+            else if (totalJobs === 3) totalCrewAppointmentBonus = companySettings.appointmentBonus3Jobs;
+          }
+          
+          // ============================================
+          // PER-EMPLOYEE RECORDS (using crew-level metrics)
+          // ============================================
+          
+          for (const empData of employeeData) {
+            const { employee, baseRate, hours: employeeHours, regularHours, overtimeHours, basePay, overtimePay, totalBasePay, laborCost, bonusPercentage } = empData;
+            
+            // Each crew member gets equal share of revenue (for display purposes)
+            const attributedRevenue = crewMemberCount > 0 ? Math.round((totalRevenue / crewMemberCount) * 100) / 100 : 0;
+            
+            // Each crew member gets equal share of COGS (for display purposes)
             const attributedCOGS = crewMemberCount > 0 ? Math.round((totalCOGS / crewMemberCount) * 100) / 100 : 0;
             
-            // Calculate gross profit based on THIS employee's attributed revenue and costs
-            const employeeGrossProfit = attributedRevenue - attributedCOGS - employeeLaborCost;
+            // Each crew member gets equal share of overhead
+            const attributedOverhead = crewMemberCount > 0 ? Math.round((crewOverheadAllocation / crewMemberCount) * 100) / 100 : 0;
+            
+            // Employee's share of gross profit (for display - but LER uses crew-level)
+            const employeeGrossProfit = attributedRevenue - attributedCOGS - laborCost - attributedOverhead;
             const employeeGrossProfitPercent = attributedRevenue > 0 ? (employeeGrossProfit / attributedRevenue) * 100 : 0;
-            const ler = employeeLaborCost > 0 ? employeeGrossProfit / employeeLaborCost : 0;
             
-            // Calculate bonuses (crew threshold is lower: 15% vs 25%)
-            const crewBonusThresholdMin = 0.15;
-            const qualifyForBonus = ler >= crewBonusThresholdMin && ler <= companySettings.bonusThresholdMax;
-            let bonusQualified = 0;
-            let appointmentBonus = 0;
+            // Store CREW LER for this employee (same for all crew members)
+            const ler = crewLER;
             
-            if (qualifyForBonus) {
-              const totalBonus = employeeGrossProfit * 0.10;
-              // Each crew member gets equal share of bonus
-              bonusQualified = crewMemberCount > 0 ? totalBonus / crewMemberCount : 0;
-            }
-            
-            if (companySettings.enableAppointmentBonus && totalJobs >= 3) {
-              let totalAppointmentBonus = 0;
-              if (totalJobs >= 6) totalAppointmentBonus = companySettings.appointmentBonus6PlusJobs;
-              else if (totalJobs === 5) totalAppointmentBonus = companySettings.appointmentBonus5Jobs;
-              else if (totalJobs === 4) totalAppointmentBonus = companySettings.appointmentBonus4Jobs;
-              else if (totalJobs === 3) totalAppointmentBonus = companySettings.appointmentBonus3Jobs;
-              
-              // Each crew member gets equal share of appointment bonus
-              appointmentBonus = crewMemberCount > 0 ? totalAppointmentBonus / crewMemberCount : 0;
-            }
+            // Bonus split by designated percentage (e.g., 60/40)
+            const bonusQualified = crewQualifiesForBonus ? (totalCrewBonus * bonusPercentage / 100) : 0;
+            const appointmentBonus = totalCrewAppointmentBonus * bonusPercentage / 100;
             
             const totalBonuses = bonusQualified + appointmentBonus;
             const tipsPerPerson = tips / crewEmployees.length;
-            const totalEmployeePay = totalEmployeeBasePay + totalBonuses + tipsPerPerson;
+            const totalEmployeePay = totalBasePay + totalBonuses + tipsPerPerson;
             const employeeNetProfit = employeeGrossProfit - bonusQualified - appointmentBonus;
             const employeeNetProfitPercent = attributedRevenue > 0 ? (employeeNetProfit / attributedRevenue) * 100 : 0;
             const hourlyWithBonusAndTips = employeeHours > 0 ? totalEmployeePay / employeeHours : 0;
@@ -1207,7 +1280,7 @@ const EmployeeLERPage: React.FC = () => {
               total_hours_worked: employeeHours,
               total_job_time: totalHours,
               base_rate: baseRate,
-              employee_base_pay: totalEmployeeBasePay,
+              employee_base_pay: totalBasePay,
               overtime_hours: overtimeHours,
               overtime_pay: overtimePay,
               cogs_no_labor: attributedCOGS,
@@ -1216,7 +1289,7 @@ const EmployeeLERPage: React.FC = () => {
               gross_profit_before_bonus: employeeGrossProfit,
               gross_profit_before_bonus_percent: employeeGrossProfitPercent,
               ler: ler,
-              qualify_for_bonus: qualifyForBonus,
+              qualify_for_bonus: crewQualifiesForBonus,
               bonus_qualified_for_percent: bonusQualified,
               appointment_based_bonus: appointmentBonus,
               tip_amount: tipsPerPerson,
@@ -1407,18 +1480,30 @@ const EmployeeLERPage: React.FC = () => {
     }
   };
 
-  // Calculate All Days in Pay Period
-  const handleCalculateAllDays = async () => {
-    if (!selectedPeriod || !dbUserId) {
-      alert('Please select a pay period first');
+  // Calculate All Days - works with filtered records (YTD or specific pay period)
+  const handleCalculateAllDays = async (recordsToProcess?: typeof filteredDailyRecords) => {
+    if (!dbUserId) {
+      alert('Please wait for data to load');
+      return;
+    }
+    
+    // Use provided records or filtered records (works for both YTD and specific pay period)
+    const records = recordsToProcess || filteredDailyRecords;
+    
+    if (records.length === 0) {
+      alert('No records to recalculate');
       return;
     }
     
     // Clear the pulsating state when Calculate All is clicked
     setNeedsCalculation(false);
 
-    const confirmCalc = window.confirm(
-      `This will recalculate all ${selectedPeriod.dailyRecords.length} days in "${selectedPeriod.periodName}".\n\nThis will update LER, bonuses, and profits based on current company settings and COGS values.\n\nContinue?`
+    const periodLabel = selectedPeriod 
+      ? `"${selectedPeriod.periodName}"` 
+      : `${filterMonth === 'all' ? 'Year to Date' : new Date(filterYear, filterMonth as number).toLocaleDateString('en-US', { month: 'long' })} ${filterYear}`;
+
+    const confirmCalc = recordsToProcess ? true : window.confirm(
+      `This will recalculate all ${records.length} days for ${periodLabel}.\n\nThis will update LER, bonuses, and profits based on current company settings and COGS values.\n\nContinue?`
     );
 
     if (!confirmCalc) return;
@@ -1429,7 +1514,7 @@ const EmployeeLERPage: React.FC = () => {
       const errors: string[] = [];
 
       // Process each daily record
-      for (const record of selectedPeriod.dailyRecords) {
+      for (const record of records) {
         try {
           // Skip called out days
           if (record.calledOut) {
@@ -1606,31 +1691,233 @@ const EmployeeLERPage: React.FC = () => {
     }
   };
 
+  // Bulk Recalculate All Employees
+  const [bulkRecalculating, setBulkRecalculating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0, employee: '' });
+  
+  const handleBulkRecalculateAllEmployees = async () => {
+    if (!dbUserId || allEmployees.length === 0) {
+      alert('No employees found to recalculate');
+      return;
+    }
+    
+    const confirmBulk = window.confirm(
+      `This will recalculate ALL records for ALL ${allEmployees.length} employees across ALL pay periods.\n\nThis may take several minutes.\n\nContinue?`
+    );
+    
+    if (!confirmBulk) return;
+    
+    setBulkRecalculating(true);
+    let totalSuccess = 0;
+    let totalErrors = 0;
+    
+    try {
+      for (let i = 0; i < allEmployees.length; i++) {
+        const employee = allEmployees[i];
+        setBulkProgress({ current: i + 1, total: allEmployees.length, employee: employee.name });
+        
+        // Load all records for this employee across all pay periods
+        const allRecordsForEmployee: typeof filteredDailyRecords = [];
+        
+        for (const period of payPeriodsData) {
+          for (const record of period.dailyRecords) {
+            // Skip called out days and days with no services
+            if (!record.calledOut && record.serviceBreakdown && record.serviceBreakdown.length > 0) {
+              allRecordsForEmployee.push(record);
+            }
+          }
+        }
+        
+        if (allRecordsForEmployee.length === 0) {
+          console.log(`Skipping ${employee.name} - no records`);
+          continue;
+        }
+        
+        console.log(`Processing ${employee.name}: ${allRecordsForEmployee.length} records`);
+        
+        // Process each record for this employee
+        for (const record of allRecordsForEmployee) {
+          try {
+            const serviceBreakdown: ServiceBreakdownItem[] = record.serviceBreakdown || [];
+            
+            // Recalculate COGS
+            const totalCOGS = serviceBreakdown.reduce((sum: number, s: ServiceBreakdownItem) => {
+              const costPerService = servicesWithCOGS[s.serviceName] || 0;
+              return sum + (s.jobs * costPerService);
+            }, 0);
+            
+            // Get employee's base rate
+            const empInfo = allEmployees.find((e) => e.id === employee.id);
+            const baseRate = empInfo?.current_base_rate || record.baseRate;
+            const totalDailyHours = record.totalHoursWorked;
+            
+            // Calculate overtime
+            let regularHours = totalDailyHours;
+            let overtimeHours = 0;
+            let basePay = 0;
+            let overtimePay = 0;
+            
+            if (totalDailyHours > companySettings.overtimeHoursDaily) {
+              regularHours = companySettings.overtimeHoursDaily;
+              overtimeHours = totalDailyHours - companySettings.overtimeHoursDaily;
+              basePay = regularHours * baseRate;
+              overtimePay = overtimeHours * baseRate * companySettings.overtimeMultiplier;
+            } else {
+              basePay = totalDailyHours * baseRate;
+            }
+            
+            const totalEmployeeBasePay = basePay + overtimePay;
+            const overheadAllocation = record.totalJobRevenue * (companySettings.overheadPercent / 100);
+            const totalCostOfJob = totalEmployeeBasePay + totalCOGS + overheadAllocation;
+            const grossProfit = record.totalJobRevenue - totalCostOfJob;
+            const grossProfitPercent = record.totalJobRevenue > 0 ? (grossProfit / record.totalJobRevenue) * 100 : 0;
+            const ler = totalEmployeeBasePay > 0 ? grossProfit / totalEmployeeBasePay : 0;
+            
+            // Bonus qualification based on gross profit %
+            let bonusQualified = 0;
+            let appointmentBonus = 0;
+            const thresholdMin = record.isCrewJob 
+              ? (companySettings.crewBonusThresholdMin || 15)
+              : companySettings.bonusThresholdMin;
+            const thresholdMax = record.isCrewJob
+              ? (companySettings.crewBonusThresholdMax || 100)
+              : companySettings.bonusThresholdMax;
+            const qualifyForBonus = grossProfitPercent >= thresholdMin && grossProfitPercent <= thresholdMax;
+            
+            if (qualifyForBonus) {
+              bonusQualified = ler * totalDailyHours;
+            }
+            
+            if (companySettings.enableAppointmentBonus && record.numberOfJobs >= 3) {
+              if (record.numberOfJobs >= 6) appointmentBonus = companySettings.appointmentBonus6PlusJobs;
+              else if (record.numberOfJobs === 5) appointmentBonus = companySettings.appointmentBonus5Jobs;
+              else if (record.numberOfJobs === 4) appointmentBonus = companySettings.appointmentBonus4Jobs;
+              else if (record.numberOfJobs === 3) appointmentBonus = companySettings.appointmentBonus3Jobs;
+            }
+            
+            const totalBonuses = bonusQualified + appointmentBonus;
+            const totalEmployeePay = totalEmployeeBasePay + totalBonuses + record.tipAmount;
+            const netProfit = grossProfit - totalBonuses;
+            const netProfitPercent = record.totalJobRevenue > 0 ? (netProfit / record.totalJobRevenue) * 100 : 0;
+            const hourlyWithBonusAndTips = totalDailyHours > 0 ? totalEmployeePay / totalDailyHours : 0;
+            
+            const updatedRecord: employeeLERService.DailyRecord = {
+              work_day: record.workDay,
+              date: record.date,
+              called_out: record.calledOut,
+              number_of_jobs: record.numberOfJobs,
+              job_types: record.jobTypes,
+              total_job_revenue: record.totalJobRevenue,
+              total_hours_worked: record.totalHoursWorked,
+              total_job_time: record.totalJobTime,
+              base_rate: baseRate,
+              employee_base_pay: totalEmployeeBasePay,
+              overtime_hours: overtimeHours,
+              overtime_pay: overtimePay,
+              cogs_no_labor: totalCOGS,
+              cogs_no_labor_percent: record.totalJobRevenue > 0 ? (totalCOGS / record.totalJobRevenue) * 100 : 0,
+              overhead_costs_percent: companySettings.overheadPercent,
+              gross_profit_before_bonus: grossProfit,
+              gross_profit_before_bonus_percent: grossProfitPercent,
+              ler: ler,
+              qualify_for_bonus: qualifyForBonus,
+              bonus_qualified_for_percent: bonusQualified,
+              appointment_based_bonus: appointmentBonus,
+              tip_amount: record.tipAmount,
+              total_employee_pay: totalEmployeePay,
+              daily_hourly_with_tips_and_bonus: hourlyWithBonusAndTips,
+              daily_net_profit_after_bonus: netProfit,
+              daily_net_profit_after_bonus_percent: netProfitPercent,
+              notes: record.notes,
+              service_breakdown: { services: serviceBreakdown }
+            };
+            
+            const updated = await employeeLERService.updateDailyRecord(record.id!, updatedRecord);
+            if (updated) {
+              totalSuccess++;
+            } else {
+              totalErrors++;
+            }
+          } catch (err) {
+            console.error(`Error processing record ${record.date} for ${employee.name}:`, err);
+            totalErrors++;
+          }
+        }
+      }
+      
+      // Reload current employee's data
+      await loadEmployeeData(selectedEmployeeId);
+      
+      alert(`Bulk recalculation complete!\n\n✅ ${totalSuccess} records updated\n❌ ${totalErrors} errors`);
+    } catch (error) {
+      console.error('Bulk recalculate error:', error);
+      alert('Error during bulk recalculation. Check console for details.');
+    } finally {
+      setBulkRecalculating(false);
+      setBulkProgress({ current: 0, total: 0, employee: '' });
+    }
+  };
+
   const payPeriods = payPeriodsData;
 
   const selectedPeriod = payPeriods[selectedPeriodIndex];
 
-  // Filter records: If filters are "all", show selected pay period. If filters are active, show across all pay periods.
+  // Filter records based on year/month/pay period selection
   const filteredDailyRecords = useMemo(() => {
-    // If both filters are "all", show only the selected pay period's records
-    if (filterYear === 'all' && filterMonth === 'all') {
-      if (!selectedPeriod) return [];
-      return selectedPeriod.dailyRecords;
+    // If a specific pay period is selected (not "all"), show only that period's records
+    if (selectedPeriodIndex !== -1 && selectedPeriod) {
+      // Filter the selected period's records by year (and month if set)
+      return selectedPeriod.dailyRecords.filter(record => {
+        const recordDate = parseLocalDate(record.date);
+        
+        // Year filter
+        if (recordDate.getFullYear() !== filterYear) {
+          return false;
+        }
+        
+        // Month filter (0-indexed) - only if not "all"
+        if (filterMonth !== 'all' && recordDate.getMonth() !== filterMonth) {
+          return false;
+        }
+        
+        return true;
+      }).sort((a, b) => {
+        const dateA = parseLocalDate(a.date);
+        const dateB = parseLocalDate(b.date);
+        return sortOrder === 'desc' 
+          ? dateB.getTime() - dateA.getTime()
+          : dateA.getTime() - dateB.getTime();
+      });
     }
     
-    // If any filter is active, search across ALL pay periods
+    // If month is "all" (Year to Date) and no specific pay period, show all records for the selected year
+    if (filterMonth === 'all') {
+      const allRecords = payPeriodsData.flatMap(p => p.dailyRecords);
+      return allRecords.filter(record => {
+        const recordDate = parseLocalDate(record.date);
+        return recordDate.getFullYear() === filterYear;
+      }).sort((a, b) => {
+        const dateA = parseLocalDate(a.date);
+        const dateB = parseLocalDate(b.date);
+        return sortOrder === 'desc' 
+          ? dateB.getTime() - dateA.getTime()
+          : dateA.getTime() - dateB.getTime();
+      });
+    }
+    
+    // If a specific month is selected but no specific pay period, search across ALL pay periods for that month
     const allRecords = payPeriodsData.flatMap(period => period.dailyRecords);
     
     const filtered = allRecords.filter(record => {
       const recordDate = parseLocalDate(record.date);
       
       // Year filter
-      if (filterYear !== 'all' && recordDate.getFullYear() !== filterYear) {
+      if (recordDate.getFullYear() !== filterYear) {
         return false;
       }
       
       // Month filter (0-indexed)
-      if (filterMonth !== 'all' && recordDate.getMonth() !== filterMonth) {
+      if (recordDate.getMonth() !== filterMonth) {
         return false;
       }
       
@@ -1645,7 +1932,7 @@ const EmployeeLERPage: React.FC = () => {
         ? dateB.getTime() - dateA.getTime()
         : dateA.getTime() - dateB.getTime();
     });
-  }, [payPeriodsData, selectedPeriod, filterYear, filterMonth, sortOrder]);
+  }, [payPeriodsData, selectedPeriod, selectedPeriodIndex, filterYear, filterMonth, sortOrder]);
 
   // Show each record as its own row (no aggregation)
   // This allows users to see and edit solo and crew records separately
@@ -1660,6 +1947,7 @@ const EmployeeLERPage: React.FC = () => {
         totalJobs: 0,
         totalRevenue: 0,
         totalHours: 0,
+        totalOTHours: 0,
         avgLER: 0,
         totalLERBonus: 0,
         totalApptBonus: 0,
@@ -1673,16 +1961,39 @@ const EmployeeLERPage: React.FC = () => {
     const totalJobs = filteredDailyRecords.reduce((sum, r) => sum + r.numberOfJobs, 0);
     const totalRevenue = filteredDailyRecords.reduce((sum, r) => sum + r.totalJobRevenue, 0);
     const totalHours = filteredDailyRecords.reduce((sum, r) => sum + r.totalHoursWorked, 0);
+    const totalOTHours = filteredDailyRecords.reduce((sum, r) => sum + r.overtimeHours, 0);
     const totalLERBonus = filteredDailyRecords.reduce((sum, r) => sum + (r.qualifyForBonus ? r.bonusQualifiedForPercent : 0), 0);
     const totalApptBonus = filteredDailyRecords.reduce((sum, r) => sum + r.appointmentBasedBonus, 0);
     const totalBonuses = totalLERBonus + totalApptBonus;
     const totalPay = filteredDailyRecords.reduce((sum, r) => sum + r.totalEmployeePay, 0);
     const totalNetProfit = filteredDailyRecords.reduce((sum, r) => sum + r.dailyNetProfitAfterBonus, 0);
     
-    // Calculate average LER (weighted by gross profit)
-    const totalGrossProfit = filteredDailyRecords.reduce((sum, r) => sum + r.grossProfitBeforeBonus, 0);
-    const totalBasePay = filteredDailyRecords.reduce((sum, r) => sum + r.employeeBasePay, 0);
-    const avgLER = totalBasePay > 0 ? totalGrossProfit / totalBasePay : 0;
+    // Calculate average LER (simple average of stored LER values)
+    // Filter out called out days, days with no jobs, and negative LER values
+    const workingRecords = filteredDailyRecords.filter(r => !r.calledOut && r.numberOfJobs > 0 && r.ler >= 0);
+    const soloWorkingRecords = workingRecords.filter(r => !r.isCrewJob);
+    const crewWorkingRecords = workingRecords.filter(r => r.isCrewJob);
+    const avgLER = workingRecords.length > 0 
+      ? workingRecords.reduce((sum, r) => sum + r.ler, 0) / workingRecords.length 
+      : 0;
+    
+    // Debug: Show breakdown by solo vs crew
+    console.log('📊 LER Tracking filteredTotals:', {
+      filterYear,
+      filterMonth,
+      totalFilteredRecords: filteredDailyRecords.length,
+      totalRecords: workingRecords.length,
+      soloRecords: soloWorkingRecords.length,
+      crewRecords: crewWorkingRecords.length,
+      soloAvgLER: soloWorkingRecords.length > 0 
+        ? (soloWorkingRecords.reduce((sum, r) => sum + r.ler, 0) / soloWorkingRecords.length).toFixed(2)
+        : 'N/A',
+      crewAvgLER: crewWorkingRecords.length > 0 
+        ? (crewWorkingRecords.reduce((sum, r) => sum + r.ler, 0) / crewWorkingRecords.length).toFixed(2)
+        : 'N/A',
+      combinedAvgLER: avgLER.toFixed(2),
+      soloRecordDates: soloWorkingRecords.map(r => ({ date: r.date, ler: r.ler.toFixed(2) }))
+    });
     
     // Calculate average net profit percent
     const avgNetProfitPercent = totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : 0;
@@ -1691,6 +2002,7 @@ const EmployeeLERPage: React.FC = () => {
       totalJobs,
       totalRevenue,
       totalHours,
+      totalOTHours,
       avgLER,
       totalLERBonus,
       totalApptBonus,
@@ -1701,34 +2013,10 @@ const EmployeeLERPage: React.FC = () => {
     };
   }, [filteredDailyRecords]);
 
-  // Calculate YTD KPIs (across all pay periods in current year)
+  // Calculate KPIs based on current filter selection (not always YTD)
   const kpis = useMemo(() => {
-    if (payPeriods.length === 0) {
-      return {
-        avgLER: 0,
-        totalBonusEarned: 0,
-        avgHourlyRate: 0,
-        profitMargin: 0,
-        totalRevenue: 0,
-        totalHours: 0,
-        totalGrossProfit: 0
-      };
-    }
-
-    // Get current year
-    const currentYear = new Date().getFullYear();
-    const today = new Date();
-
-    // Aggregate all daily records from all pay periods in current year, up to today
-    const ytdRecords = payPeriods.flatMap(period => 
-      period.dailyRecords.filter(record => {
-        const recordDate = parseLocalDate(record.date);
-        return recordDate.getFullYear() === currentYear && recordDate <= today;
-      })
-    );
-
-    // Filter out called out days and days with no jobs
-    const workingRecords = ytdRecords.filter(r => !r.calledOut && r.numberOfJobs > 0);
+    // Filter out called out days, days with no jobs, and negative LER values
+    const workingRecords = filteredDailyRecords.filter(r => !r.calledOut && r.numberOfJobs > 0 && r.ler >= 0);
     
     if (workingRecords.length === 0) {
       return {
@@ -1766,7 +2054,55 @@ const EmployeeLERPage: React.FC = () => {
       totalHours,
       totalGrossProfit
     };
-  }, [payPeriods]);
+  }, [filteredDailyRecords]);
+  
+  // Dynamic label for KPI cards based on current filter
+  const kpiPeriodLabel = useMemo(() => {
+    if (selectedPeriod) {
+      return selectedPeriod.periodName;
+    }
+    if (filterMonth === 'all') {
+      return `${filterYear} YTD`;
+    }
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${monthNames[filterMonth as number]} ${filterYear}`;
+  }, [selectedPeriod, filterMonth, filterYear]);
+
+  // Filter crew work days based on selected pay period
+  const filteredCrewWorkDays = useMemo(() => {
+    if (crewSelectedPayPeriod === 'all') {
+      return crewWorkDays;
+    }
+    
+    // Find the selected pay period
+    const selectedPayPeriod = payPeriods.find(p => p.startDate === crewSelectedPayPeriod);
+    if (!selectedPayPeriod) {
+      return crewWorkDays;
+    }
+    
+    const periodStart = parseLocalDate(selectedPayPeriod.startDate);
+    const periodEnd = parseLocalDate(selectedPayPeriod.endDate);
+    
+    return crewWorkDays.filter(day => {
+      const dayDate = parseLocalDate(day.date);
+      return dayDate >= periodStart && dayDate <= periodEnd;
+    });
+  }, [crewWorkDays, crewSelectedPayPeriod, payPeriods]);
+
+  // Dynamic label for crew KPI cards based on current filter
+  const crewKpiPeriodLabel = useMemo(() => {
+    if (crewSelectedPayPeriod !== 'all') {
+      const selectedPayPeriod = payPeriods.find(p => p.startDate === crewSelectedPayPeriod);
+      if (selectedPayPeriod) {
+        return selectedPayPeriod.periodName;
+      }
+    }
+    if (crewFilterMonth === 'ytd') {
+      return `${crewFilterYear} YTD`;
+    }
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${monthNames[crewFilterMonth as number]} ${crewFilterYear}`;
+  }, [crewSelectedPayPeriod, crewFilterMonth, crewFilterYear, payPeriods]);
 
   // Calculate crew capacity metrics for Lighthouse guidance
   // TODO: Implement crew capacity metrics when needed
@@ -1788,13 +2124,17 @@ const EmployeeLERPage: React.FC = () => {
       }
     });
 
-    // Calculate metrics
+    // Calculate metrics at CREW LEVEL to avoid negative LER from split revenue
     const totalJobs = crewRecords.reduce((sum, r) => sum + r.numberOfJobs, 0);
     const totalRevenue = crewRecords.reduce((sum, r) => sum + r.totalJobRevenue, 0);
+    const totalBasePay = crewRecords.reduce((sum, r) => sum + r.employeeBasePay, 0);
+    const totalCOGS = crewRecords.reduce((sum, r) => sum + r.cogsNoLabor, 0);
     const avgRevenuePerJob = totalJobs > 0 ? totalRevenue / totalJobs : 0;
-    const avgLER = crewRecords.length > 0 
-      ? crewRecords.reduce((sum, r) => sum + r.ler, 0) / crewRecords.length 
-      : 0;
+    
+    // Crew LER = (Total Revenue - Total COGS - Total Labor) / Total Labor
+    // This avoids the issue where individual employee LERs are negative due to revenue splitting
+    const crewGrossProfit = totalRevenue - totalCOGS - totalBasePay;
+    const avgLER = totalBasePay > 0 ? crewGrossProfit / totalBasePay : 0;
 
     return {
       totalJobs,
@@ -1804,7 +2144,8 @@ const EmployeeLERPage: React.FC = () => {
     };
   };
 
-  // Calculate employee insights based on view mode
+  // Calculate LER-focused insights based on view mode
+  // This section focuses on efficiency and profitability metrics
   const employeeInsights = useMemo(() => {
     const insights: Array<{ type: 'success' | 'warning' | 'info' | 'tip'; title: string; message: string; }> = [];
     
@@ -1812,104 +2153,82 @@ const EmployeeLERPage: React.FC = () => {
       ? payPeriods[selectedPeriodIndex]?.dailyRecords || []
       : payPeriods.flatMap(p => p.dailyRecords);
     
-    const workingRecords = records.filter(r => !r.calledOut && r.numberOfJobs > 0);
+    const workingRecords = records.filter(r => !r.calledOut && r.numberOfJobs > 0 && r.ler >= 0);
     
     if (workingRecords.length === 0) {
       insights.push({ type: 'info', title: 'No Data Yet', message: `No working days recorded for ${insightsViewMode === 'period' ? 'this pay period' : 'this year'}.` });
       return insights;
     }
 
+    // LER calculations (workingRecords already filtered for ler >= 0)
     const avgLER = workingRecords.reduce((sum, r) => sum + r.ler, 0) / workingRecords.length;
     const avgProfit = workingRecords.reduce((sum, r) => sum + r.grossProfitBeforeBonusPercent, 0) / workingRecords.length;
-    const totalRevenue = workingRecords.reduce((sum, r) => sum + r.totalJobRevenue, 0);
-    const totalJobs = workingRecords.reduce((sum, r) => sum + r.numberOfJobs, 0);
-    const totalBonuses = workingRecords.reduce((sum, r) => sum + r.appointmentBasedBonus, 0);
-    const avgJobsPerDay = totalJobs / workingRecords.length;
-    const avgRevenuePerJob = totalRevenue / totalJobs;
     const lerVariance = workingRecords.reduce((sum, r) => sum + Math.pow(r.ler - avgLER, 2), 0) / workingRecords.length;
     const lerStdDev = Math.sqrt(lerVariance);
     const sortedByLER = [...workingRecords].sort((a, b) => b.ler - a.ler);
     const bestDay = sortedByLER[0];
-    
-    const serviceCount: { [key: string]: number } = {};
-    workingRecords.forEach(record => {
-      Object.entries(record.jobTypes).forEach(([service, count]) => {
-        serviceCount[service] = (serviceCount[service] || 0) + count;
-      });
-    });
-    const topService = Object.entries(serviceCount).sort((a, b) => b[1] - a[1])[0];
+    const worstDay = sortedByLER[sortedByLER.length - 1];
+    const totalJobs = workingRecords.reduce((sum, r) => sum + r.numberOfJobs, 0);
 
-    // Generate insights - Performance Level + Consistency Combined
+    // LER Performance Level + Consistency Combined
     if (avgLER >= 1.5) {
       if (lerStdDev < 0.3) {
-        insights.push({ type: 'success', title: 'Excellent & Consistent', message: `${employeeInfo.name} is performing exceptionally with an average LER of ${avgLER.toFixed(2)} and excellent day-to-day consistency. Keep up the great work!` });
+        insights.push({ type: 'success', title: 'Excellent & Consistent LER', message: `Average LER of ${avgLER.toFixed(2)} with excellent day-to-day consistency (σ=${lerStdDev.toFixed(2)}). Peak efficiency!` });
       } else if (lerStdDev > 0.6) {
-        insights.push({ type: 'success', title: 'High Performance, Variable Execution', message: `${employeeInfo.name} averages ${avgLER.toFixed(2)} LER (excellent), but performance varies significantly between days. Best: ${bestDay.ler.toFixed(2)}, focus on consistency.` });
+        insights.push({ type: 'success', title: 'High LER, Variable Days', message: `Excellent ${avgLER.toFixed(2)} average LER, but varies significantly. Best: ${bestDay.ler.toFixed(2)}, Worst: ${worstDay.ler.toFixed(2)}. Focus on consistency.` });
       } else {
-        insights.push({ type: 'success', title: 'Excellent Performance', message: `${employeeInfo.name} is performing exceptionally with an average LER of ${avgLER.toFixed(2)}. Keep up the great work!` });
+        insights.push({ type: 'success', title: 'Excellent LER', message: `Average LER of ${avgLER.toFixed(2)} is well above target. Strong contribution to profitability.` });
       }
     } else if (avgLER >= 1.0) {
       if (lerStdDev < 0.3) {
-        insights.push({ type: 'success', title: 'Solid & Reliable', message: `${employeeInfo.name} consistently meets targets with ${avgLER.toFixed(2)} LER. Reliable day-to-day execution.` });
+        insights.push({ type: 'success', title: 'Solid & Reliable LER', message: `Consistently meets target with ${avgLER.toFixed(2)} LER (σ=${lerStdDev.toFixed(2)}). Reliable efficiency.` });
       } else if (lerStdDev > 0.6) {
-        insights.push({ type: 'info', title: 'Inconsistent Performance', message: `Average LER of ${avgLER.toFixed(2)} meets target, but varies significantly day-to-day. Best: ${bestDay.ler.toFixed(2)}. Focus on maintaining peak performance.` });
+        insights.push({ type: 'info', title: 'LER Inconsistency', message: `Average ${avgLER.toFixed(2)} LER meets target, but swings from ${worstDay.ler.toFixed(2)} to ${bestDay.ler.toFixed(2)}. Identify what drives good days.` });
       } else {
-        insights.push({ type: 'success', title: 'Strong Performance', message: `${employeeInfo.name} is meeting targets with an average LER of ${avgLER.toFixed(2)}. Solid contribution to profitability.` });
+        insights.push({ type: 'success', title: 'Target LER Achieved', message: `Average LER of ${avgLER.toFixed(2)} meets the 1.0 target. Solid profitability contribution.` });
       }
     } else if (avgLER >= 0.7) {
       if (lerStdDev > 0.6) {
-        insights.push({ type: 'warning', title: 'Inconsistent Execution', message: `LER of ${avgLER.toFixed(2)} is below target with high day-to-day variation. Best day: ${bestDay.ler.toFixed(2)}. Identify what works on good days and replicate it.` });
+        insights.push({ type: 'warning', title: 'LER Below Target + Inconsistent', message: `${avgLER.toFixed(2)} LER is below target with high variation. Best day hit ${bestDay.ler.toFixed(2)} - replicate those conditions.` });
       } else {
-        insights.push({ type: 'warning', title: 'Approaching Target', message: `${employeeInfo.name}'s LER of ${avgLER.toFixed(2)} is approaching the 1.0 target. Focus on efficiency to reach profitability goals.` });
+        insights.push({ type: 'warning', title: 'LER Approaching Target', message: `LER of ${avgLER.toFixed(2)} is close to the 1.0 target. Small efficiency gains will push you over.` });
       }
     } else {
-      insights.push({ type: 'warning', title: 'Below Target', message: `${employeeInfo.name}'s LER of ${avgLER.toFixed(2)} is below target. Consider reviewing job efficiency and time management.` });
+      insights.push({ type: 'warning', title: 'LER Below Target', message: `LER of ${avgLER.toFixed(2)} is significantly below the 1.0 target. Review job efficiency and labor costs.` });
     }
 
+    // LER Trend (if enough data)
+    if (workingRecords.length >= 5) {
+      const recentRecords = workingRecords.slice(-5);
+      const olderRecords = workingRecords.slice(0, Math.max(1, workingRecords.length - 5));
+      const recentAvgLER = recentRecords.reduce((sum, r) => sum + r.ler, 0) / recentRecords.length;
+      const olderAvgLER = olderRecords.reduce((sum, r) => sum + r.ler, 0) / olderRecords.length;
+      const lerChange = recentAvgLER - olderAvgLER;
+      
+      if (lerChange > 0.15) {
+        insights.push({ type: 'success', title: 'LER Trending Up', message: `Recent LER (${recentAvgLER.toFixed(2)}) is improving vs earlier (${olderAvgLER.toFixed(2)}). +${lerChange.toFixed(2)} improvement!` });
+      } else if (lerChange < -0.15) {
+        insights.push({ type: 'warning', title: 'LER Trending Down', message: `Recent LER (${recentAvgLER.toFixed(2)}) is declining vs earlier (${olderAvgLER.toFixed(2)}). ${lerChange.toFixed(2)} drop - investigate causes.` });
+      }
+    }
+
+    // Profit Margin (directly tied to LER)
     if (avgProfit >= 40) {
-      insights.push({ type: 'success', title: 'High Profit Margin', message: `Excellent ${avgProfit.toFixed(1)}% average profit margin. ${employeeInfo.name} is maximizing profitability per job.` });
-    } else if (avgProfit < 30) {
-      insights.push({ type: 'warning', title: 'Low Profit Margin', message: `Profit margin of ${avgProfit.toFixed(1)}% is below optimal. Review pricing or reduce job time to improve margins.` });
+      insights.push({ type: 'success', title: 'High Profit Margin', message: `${avgProfit.toFixed(1)}% average gross profit margin. Excellent job-level profitability.` });
+    } else if (avgProfit < 25) {
+      insights.push({ type: 'warning', title: 'Low Profit Margin', message: `${avgProfit.toFixed(1)}% profit margin is below optimal. This directly impacts LER - review pricing or reduce job time.` });
     }
 
-    // Time Efficiency Analysis - Revenue per hour worked
-    const totalHours = workingRecords.reduce((sum, r) => sum + r.totalHoursWorked, 0);
-    const revenuePerHour = totalRevenue / totalHours;
-    const avgHoursPerJob = totalHours / totalJobs;
-    
-    if (revenuePerHour >= 150) {
-      insights.push({ type: 'success', title: 'Excellent Time Efficiency', message: `Generating $${revenuePerHour.toFixed(0)}/hour with ${avgHoursPerJob.toFixed(1)} hours per job. ${employeeInfo.name} works efficiently and maximizes billable time.` });
-    } else if (revenuePerHour >= 100) {
-      insights.push({ type: 'info', title: 'Good Time Usage', message: `Producing $${revenuePerHour.toFixed(0)}/hour at ${avgHoursPerJob.toFixed(1)} hours per job. Solid efficiency, room to improve speed on complex jobs.` });
-    } else if (revenuePerHour >= 75) {
-      insights.push({ type: 'warning', title: 'Time Efficiency Concern', message: `Only $${revenuePerHour.toFixed(0)}/hour with ${avgHoursPerJob.toFixed(1)} hours per job. Jobs taking too long - review processes or reduce non-billable time.` });
-    } else {
-      insights.push({ type: 'warning', title: 'Low Time Efficiency', message: `$${revenuePerHour.toFixed(0)}/hour is below target. At ${avgHoursPerJob.toFixed(1)} hours per job, ${employeeInfo.name} may be working slowly or spending too much time on low-value tasks.` });
+    // Best/Worst Day Analysis
+    if (workingRecords.length >= 3 && bestDay.ler - worstDay.ler > 0.5) {
+      insights.push({ 
+        type: 'tip', 
+        title: 'LER Range Analysis', 
+        message: `Best day: ${bestDay.ler.toFixed(2)} LER on ${new Date(bestDay.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Worst: ${worstDay.ler.toFixed(2)} on ${new Date(worstDay.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Compare what was different.` 
+      });
     }
 
-    if (avgJobsPerDay >= 5) {
-      insights.push({ type: 'success', title: 'High Productivity', message: `Averaging ${avgJobsPerDay.toFixed(1)} jobs per day. ${employeeInfo.name} is maintaining excellent throughput.` });
-    } else if (avgJobsPerDay < 3) {
-      insights.push({ type: 'tip', title: 'Opportunity for Growth', message: `Currently averaging ${avgJobsPerDay.toFixed(1)} jobs per day. Consider scheduling optimization to increase volume.` });
-    }
-
-    if (avgRevenuePerJob >= 250) {
-      insights.push({ type: 'success', title: 'Strong Revenue Per Job', message: `Average of $${avgRevenuePerJob.toFixed(0)} per job. ${employeeInfo.name} is securing high-value work.` });
-    }
-
-    if (totalBonuses > 0) {
-      const bonusPercentOfRevenue = (totalBonuses / totalRevenue) * 100;
-      insights.push({ type: 'info', title: 'Bonus Earnings', message: `Earned $${totalBonuses.toFixed(2)} in bonuses (${bonusPercentOfRevenue.toFixed(1)}% of revenue). Great performance-based compensation!` });
-    }
-
-    if (topService) {
-      const topServicePercent = (topService[1] / totalJobs) * 100;
-      if (topServicePercent > 60) {
-        insights.push({ type: 'info', title: 'Service Specialization', message: `${topService[0]} represents ${topServicePercent.toFixed(0)}% of jobs. ${employeeInfo.name} has strong specialization in this service.` });
-      }
-    }
-
-    // Identify weakest service - always show if multiple services exist
+    // Service-specific LER analysis
     const serviceLERData: { [key: string]: { totalLER: number; count: number; jobs: number } } = {};
     workingRecords.forEach(record => {
       Object.entries(record.jobTypes).forEach(([service, jobCount]) => {
@@ -1924,9 +2243,8 @@ const EmployeeLERPage: React.FC = () => {
       });
     });
 
-    // Calculate average LER per service and find the weakest one (with at least 3 jobs)
     const serviceAverages = Object.entries(serviceLERData)
-      .filter(([_, data]) => data.jobs >= 3) // Only consider services with at least 3 jobs
+      .filter(([_, data]) => data.jobs >= 3)
       .map(([service, data]) => ({
         service,
         avgLER: data.totalLER / data.count,
@@ -1934,15 +2252,14 @@ const EmployeeLERPage: React.FC = () => {
       }))
       .sort((a, b) => a.avgLER - b.avgLER);
 
-    // Always show weakest service if multiple services exist
     if (serviceAverages.length > 1) {
       const weakestService = serviceAverages[0];
       const strongestService = serviceAverages[serviceAverages.length - 1];
       
       insights.push({ 
-        type: 'warning', 
-        title: 'Weakest Service', 
-        message: `${weakestService.service} shows lowest efficiency at ${weakestService.avgLER.toFixed(2)} LER (${weakestService.jobs} jobs) vs ${strongestService.service} at ${strongestService.avgLER.toFixed(2)} LER. Focus training here.` 
+        type: 'info', 
+        title: 'LER by Service Type', 
+        message: `Highest LER: ${strongestService.service} (${strongestService.avgLER.toFixed(2)}). Lowest: ${weakestService.service} (${weakestService.avgLER.toFixed(2)}). Focus efficiency training on ${weakestService.service}.` 
       });
     }
 
@@ -2057,8 +2374,8 @@ const EmployeeLERPage: React.FC = () => {
       </div>
     );
   }
-  // Show empty state if no data yet
-  else if (!selectedPeriod) {
+  // Show empty state if no pay periods exist at all
+  else if (payPeriodsData.length === 0) {
     content = (
       <div className="container mx-auto p-6 flex items-center justify-center min-h-[60vh]">
         <div className="text-center max-w-lg">
@@ -2167,46 +2484,40 @@ const EmployeeLERPage: React.FC = () => {
               </div>
             )}
 
-            {/* Pay Period & Date Filters */}
+            {/* Filters: Year → Month → Pay Period */}
             <div className="bg-muted/30 rounded-lg p-4">
               <div className="flex flex-wrap items-center gap-6">
-                {/* Pay Period Selector */}
-                <div className="flex items-center gap-3">
-                  <Label className="text-sm font-medium whitespace-nowrap">Pay Period:</Label>
-                  <select
-                    value={selectedPeriodIndex}
-                    onChange={(e) => setSelectedPeriodIndex(Number(e.target.value))}
-                    className="px-3 py-2 border rounded-md bg-background text-foreground min-w-[200px]"
-                  >
-                    {payPeriods.map((period, index) => (
-                      <option key={index} value={index}>
-                        {period.periodName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Divider */}
-                <div className="h-8 w-px bg-border" />
-
                 {/* Year Filter */}
                 <div className="flex items-center gap-2">
-                  <Label className="text-sm text-muted-foreground whitespace-nowrap">Filter Records:</Label>
                   <Calendar className="h-4 w-4 text-accent" />
                   <Select 
-                    value={filterYear === 'all' ? 'all' : filterYear.toString()}
-                    onValueChange={(value) => setFilterYear(value === 'all' ? 'all' : parseInt(value))}
+                    value={filterYear.toString()}
+                    onValueChange={(value) => {
+                      setFilterYear(parseInt(value));
+                      setSelectedPeriodIndex(-1); // Reset to 'All Pay Periods' when year changes
+                    }}
                   >
                     <SelectTrigger className="w-28">
                       <SelectValue placeholder="Year" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Years</SelectItem>
-                      {Array.from(new Set(payPeriodsData.flatMap(p => 
-                        p.dailyRecords.map(r => new Date(r.date).getFullYear())
-                      ))).sort((a, b) => b - a).map(year => (
-                        <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
-                      ))}
+                      {(() => {
+                        // Get years from daily records
+                        const recordYears = payPeriodsData.flatMap(p => 
+                          p.dailyRecords.map(r => new Date(r.date).getFullYear())
+                        );
+                        // Get years from pay period dates as fallback
+                        const periodYears = payPeriodsData.flatMap(p => [
+                          new Date(p.startDate).getFullYear(),
+                          new Date(p.endDate).getFullYear()
+                        ]);
+                        // Always include current year
+                        const currentYear = new Date().getFullYear();
+                        const allYears = new Set([...recordYears, ...periodYears, currentYear]);
+                        return Array.from(allYears).sort((a, b) => b - a).map(year => (
+                          <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                        ));
+                      })()}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2215,13 +2526,16 @@ const EmployeeLERPage: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <Select 
                     value={filterMonth === 'all' ? 'all' : filterMonth.toString()}
-                    onValueChange={(value) => setFilterMonth(value === 'all' ? 'all' : parseInt(value))}
+                    onValueChange={(value) => {
+                      setFilterMonth(value === 'all' ? 'all' : parseInt(value));
+                      setSelectedPeriodIndex(-1); // Reset to 'All Pay Periods' when month changes
+                    }}
                   >
                     <SelectTrigger className="w-36">
                       <SelectValue placeholder="Month" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Months</SelectItem>
+                      <SelectItem value="all">Year to Date</SelectItem>
                       <SelectItem value="0">January</SelectItem>
                       <SelectItem value="1">February</SelectItem>
                       <SelectItem value="2">March</SelectItem>
@@ -2238,12 +2552,53 @@ const EmployeeLERPage: React.FC = () => {
                   </Select>
                 </div>
 
+                {/* Pay Period Selector - Filtered by Year/Month */}
+                <div className="flex items-center gap-3">
+                  <Label className="text-sm font-medium whitespace-nowrap">Pay Period:</Label>
+                  <Select
+                    value={selectedPeriodIndex === -1 ? 'all' : selectedPeriodIndex.toString()}
+                    onValueChange={(value) => setSelectedPeriodIndex(value === 'all' ? -1 : Number(value))}
+                  >
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Select Pay Period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Pay Periods</SelectItem>
+                      {payPeriods
+                        .map((period, index) => ({ period, index }))
+                        .filter(({ period }) => {
+                          // Filter by year
+                          const periodStart = new Date(period.startDate);
+                          const periodEnd = new Date(period.endDate);
+                          const yearMatch = periodStart.getFullYear() === filterYear || periodEnd.getFullYear() === filterYear;
+                          if (!yearMatch) return false;
+                          
+                          // Filter by month if set
+                          if (filterMonth !== 'all') {
+                            const periodStart = new Date(period.startDate);
+                            const periodEnd = new Date(period.endDate);
+                            const monthStart = new Date(filterYear as number, filterMonth as number, 1);
+                            const monthEnd = new Date(filterYear as number, (filterMonth as number) + 1, 0);
+                            const overlaps = periodStart <= monthEnd && periodEnd >= monthStart;
+                            if (!overlaps) return false;
+                          }
+                          return true;
+                        })
+                        .map(({ period, index }) => (
+                          <SelectItem key={index} value={index.toString()}>
+                            {period.periodName}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {/* Clear Filters Button */}
-                {(filterYear !== 'all' || filterMonth !== 'all') && (
+                {filterMonth !== 'all' && (
                   <Button
                     onClick={() => {
-                      setFilterYear('all');
                       setFilterMonth('all');
+                      setSelectedPeriodIndex(-1);
                     }}
                     variant="ghost"
                     size="sm"
@@ -2354,8 +2709,10 @@ const EmployeeLERPage: React.FC = () => {
                     onValueChange={(value) => {
                       if (value === 'ytd') {
                         setCrewFilterMonth('ytd');
+                        setCrewSelectedPayPeriod('all');
                       } else {
                         setCrewFilterMonth(parseInt(value));
+                        setCrewSelectedPayPeriod('all');
                       }
                     }}
                   >
@@ -2372,6 +2729,42 @@ const EmployeeLERPage: React.FC = () => {
                           </SelectItem>
                         );
                       })}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Pay Period Filter */}
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm text-muted-foreground whitespace-nowrap">Pay Period:</Label>
+                  <Select 
+                    value={crewSelectedPayPeriod}
+                    onValueChange={setCrewSelectedPayPeriod}
+                  >
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Select Pay Period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Pay Periods</SelectItem>
+                      {payPeriods
+                        .filter(period => {
+                          const periodStart = parseLocalDate(period.startDate);
+                          const periodEnd = parseLocalDate(period.endDate);
+                          const yearMatch = periodStart.getFullYear() === crewFilterYear || periodEnd.getFullYear() === crewFilterYear;
+                          if (!yearMatch) return false;
+                          
+                          if (crewFilterMonth !== 'ytd') {
+                            const monthStart = new Date(crewFilterYear, crewFilterMonth as number, 1);
+                            const monthEnd = new Date(crewFilterYear, (crewFilterMonth as number) + 1, 0);
+                            const overlaps = periodStart <= monthEnd && periodEnd >= monthStart;
+                            if (!overlaps) return false;
+                          }
+                          return true;
+                        })
+                        .map((period) => (
+                          <SelectItem key={period.startDate} value={period.startDate}>
+                            {period.periodName}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2411,7 +2804,7 @@ const EmployeeLERPage: React.FC = () => {
                         <TrendingUp className="h-5 w-5 text-accent" />
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm text-muted-foreground">Crew LER</p>
+                        <p className="text-sm text-muted-foreground">Crew LER ({crewKpiPeriodLabel})</p>
                         <div className={`text-2xl font-bold mt-1 ${crewPerformance.avgLER >= 1 ? 'text-green-500' : crewPerformance.avgLER >= 0.7 ? 'text-yellow-500' : 'text-red-500'}`}>
                           {crewPerformance.avgLER.toFixed(2)}
                         </div>
@@ -2430,7 +2823,7 @@ const EmployeeLERPage: React.FC = () => {
                         <DollarSign className="h-5 w-5 text-accent" />
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm text-muted-foreground">Total Revenue</p>
+                        <p className="text-sm text-muted-foreground">Total Revenue ({crewKpiPeriodLabel})</p>
                         <div className="text-2xl font-bold text-foreground mt-1">
                           ${crewPerformance.totalRevenue.toLocaleString()}
                         </div>
@@ -2449,7 +2842,7 @@ const EmployeeLERPage: React.FC = () => {
                         <Award className="h-5 w-5 text-accent" />
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
+                        <p className="text-sm text-muted-foreground">Avg Revenue/Job ({crewKpiPeriodLabel})</p>
                         <div className="text-2xl font-bold text-foreground mt-1">
                           ${crewPerformance.avgRevenuePerJob.toFixed(0)}
                         </div>
@@ -2468,7 +2861,7 @@ const EmployeeLERPage: React.FC = () => {
                         <DollarSign className="h-5 w-5 text-accent" />
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm text-muted-foreground">Gross Profit %</p>
+                        <p className="text-sm text-muted-foreground">Gross Profit % ({crewKpiPeriodLabel})</p>
                         <div className={`text-2xl font-bold mt-1 ${crewPerformance.grossProfitPercent >= 25 ? 'text-green-500' : 'text-yellow-500'}`}>
                           {crewPerformance.grossProfitPercent.toFixed(1)}%
                         </div>
@@ -2481,179 +2874,15 @@ const EmployeeLERPage: React.FC = () => {
                 </Card>
               </div>
 
-              {/* Crew vs Crew Comparison */}
-          {selectedCrewId && (
-            <Card className="bg-muted/30 border-border">
-              <CardHeader>
-                <CardTitle className="text-foreground flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-accent" />
-                  Crew Comparison
-                </CardTitle>
-                <div className="flex gap-4 mt-2">
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm">Crew 1:</Label>
-                    <Select value={selectedCrewId} onValueChange={setSelectedCrewId}>
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Select crew" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {crews.filter(c => c.is_active).map(crew => (
-                          <SelectItem key={crew.id} value={crew.id || ''}>
-                            {crew.crew_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm">Crew 2:</Label>
-                    <Select 
-                      value={comparisonCrewId} 
-                      onValueChange={(value) => value !== selectedCrewId && setComparisonCrewId(value)}
-                    >
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Select crew to compare" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {crews.filter(c => c.is_active && c.id !== selectedCrewId).map(crew => (
-                          <SelectItem key={crew.id} value={crew.id || ''}>
-                            {crew.crew_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-6">
-                  {/* Selected Crew */}
-                  <div className="bg-accent/10 rounded-lg p-4 border border-accent/30">
-                    <h4 className="text-lg font-semibold text-accent mb-4">
-                      {crews.find(c => c.id === selectedCrewId)?.crew_name || 'Selected Crew'}
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Jobs</p>
-                        <p className="text-xl font-bold text-foreground">
-                          {calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).totalJobs}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Revenue</p>
-                        <p className="text-xl font-bold text-foreground">
-                          ${calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).totalRevenue.toLocaleString()}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
-                        <p className="text-xl font-bold text-foreground">
-                          ${calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).avgRevenuePerJob.toFixed(0)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Avg LER</p>
-                        <p className={`text-xl font-bold ${
-                          calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).avgLER >= 1 
-                            ? 'text-green-500' 
-                            : 'text-yellow-500'
-                        }`}>
-                          {calculateCrewMetrics(selectedCrewId, crewFilterYear, crewFilterMonth).avgLER.toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Comparison Crew */}
-                  <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                    <h4 className="text-lg font-semibold text-foreground mb-4">
-                      {comparisonCrewId 
-                        ? crews.find(c => c.id === comparisonCrewId)?.crew_name || 'Comparison Crew'
-                        : 'No comparison crew selected'
-                      }
-                    </h4>
-                    {comparisonCrewId ? (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-sm text-muted-foreground">Total Jobs</p>
-                          <p className="text-xl font-bold text-foreground">
-                            {calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).totalJobs}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Total Revenue</p>
-                          <p className="text-xl font-bold text-foreground">
-                            ${calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).totalRevenue.toLocaleString()}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Avg Revenue/Job</p>
-                          <p className="text-xl font-bold text-foreground">
-                            ${calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).avgRevenuePerJob.toFixed(0)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Avg LER</p>
-                          <p className={`text-xl font-bold ${
-                            calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).avgLER >= 1 
-                              ? 'text-green-500' 
-                              : 'text-yellow-500'
-                          }`}>
-                            {calculateCrewMetrics(comparisonCrewId, crewFilterYear, crewFilterMonth).avgLER.toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center text-muted-foreground py-8">
-                        <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                        <p>Select a crew to compare</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
               {/* Member Contributions */}
               <Card className="bg-muted/30">
-                <CardHeader className="flex flex-row items-center justify-between">
+                <CardHeader>
                   <CardTitle className="text-foreground">Member Contributions</CardTitle>
-                  {crewPerformance.memberContributions.length === 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={async () => {
-                        if (!dbUserId) return;
-                        const confirmed = window.confirm(
-                          'This will sync crew attribution data for all existing crew jobs.\n\nThis is needed if crew jobs were logged before the attribution system was set up.\n\nContinue?'
-                        );
-                        if (!confirmed) return;
-                        
-                        try {
-                          const result = await crewService.backfillCrewAttributions(dbUserId);
-                          alert(`Sync complete!\n\n${result.success} crew jobs synced\n${result.skipped} already had data\n${result.failed} failed`);
-                          // Reload crew performance data
-                          if (selectedCrewId) {
-                            loadCrewPerformance(selectedCrewId);
-                          }
-                        } catch (error) {
-                          console.error('Error syncing crew data:', error);
-                          alert('Error syncing crew data. Check console for details.');
-                        }
-                      }}
-                      className="text-accent border-accent hover:bg-accent/20"
-                    >
-                      <AlertCircle className="h-4 w-4 mr-2" />
-                      Sync Crew Data
-                    </Button>
-                  )}
                 </CardHeader>
                 <CardContent>
                   {crewPerformance.memberContributions.length === 0 ? (
                     <div className="text-center py-4">
-                      <p className="text-muted-foreground mb-2">No crew job data for this period</p>
-                      <p className="text-sm text-muted-foreground">If you have crew jobs logged, click "Sync Crew Data" above to generate attribution data.</p>
+                      <p className="text-muted-foreground">No crew job data for this period</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -2698,10 +2927,7 @@ const EmployeeLERPage: React.FC = () => {
                       {crews.find(c => c.id === selectedCrewId)?.crew_name || 'Unknown Crew'}
                     </Badge>
                     <span className="text-sm font-normal text-muted-foreground">
-                      {crewFilterMonth === 'ytd' 
-                        ? `YTD ${crewFilterYear}` 
-                        : `${new Date(crewFilterYear, typeof crewFilterMonth === 'number' ? crewFilterMonth : 0, 1).toLocaleDateString('en-US', { month: 'long' })} ${crewFilterYear}`
-                      }
+                      ({crewKpiPeriodLabel})
                     </span>
                   </CardTitle>
                   <Button
@@ -2718,27 +2944,28 @@ const EmployeeLERPage: React.FC = () => {
                   </Button>
                 </CardHeader>
                 <CardContent>
-                  {crewWorkDays.length === 0 ? (
+                  {filteredCrewWorkDays.length === 0 ? (
                     <div className="text-center py-8">
                       <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                       <p className="text-muted-foreground">No crew work days found for this period</p>
                       <p className="text-sm text-muted-foreground mt-2">Add a crew day using the button above or import via CSV</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
                       <table className="w-full">
-                        <thead>
+                        <thead className="sticky top-0 bg-card z-10">
                           <tr className="border-b border-border">
                             <th className="text-left py-3 px-4 text-muted-foreground font-medium">Date</th>
                             <th className="text-left py-3 px-4 text-muted-foreground font-medium">Crew Members</th>
                             <th className="text-right py-3 px-4 text-muted-foreground font-medium">Jobs</th>
                             <th className="text-right py-3 px-4 text-muted-foreground font-medium">Revenue</th>
                             <th className="text-right py-3 px-4 text-muted-foreground font-medium">Hours</th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">Net Profit</th>
                             <th className="text-center py-3 px-4 text-muted-foreground font-medium">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {crewWorkDays.map((day, index) => {
+                          {filteredCrewWorkDays.map((day, index) => {
                             const regularMembers = day.crewMembers.filter(m => !m.isHelper);
                             const helpers = day.crewMembers.filter(m => m.isHelper);
                             
@@ -2767,6 +2994,14 @@ const EmployeeLERPage: React.FC = () => {
                                 <td className="py-3 px-4 text-right text-foreground">{day.totalJobs}</td>
                                 <td className="py-3 px-4 text-right text-foreground font-medium">${day.totalRevenue.toLocaleString()}</td>
                                 <td className="py-3 px-4 text-right text-foreground">{day.totalHours}</td>
+                                <td className="py-3 px-4 text-right">
+                                  <div className={`font-medium ${day.netProfit >= 0 ? 'text-foreground' : 'text-red-500'}`}>
+                                    ${day.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </div>
+                                  <div className={`text-sm ${day.grossProfitPercent >= 25 ? 'text-green-500' : day.grossProfitPercent >= 15 ? 'text-yellow-500' : 'text-red-500'}`}>
+                                    {day.grossProfitPercent.toFixed(1)}%
+                                  </div>
+                                </td>
                                 <td className="py-3 px-4 text-center">
                                   <div className="flex items-center justify-center gap-2">
                                     <Button
@@ -2853,7 +3088,7 @@ const EmployeeLERPage: React.FC = () => {
                 )}
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Average LER (YTD)</p>
+                <p className="text-sm text-muted-foreground">Average LER ({kpiPeriodLabel})</p>
                 <div className={`text-2xl font-bold mt-1 ${getLERColor(kpis.avgLER)}`}>
                   {kpis.avgLER.toFixed(2)}
                 </div>
@@ -2872,7 +3107,7 @@ const EmployeeLERPage: React.FC = () => {
                 <Award className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Bonus Earned (YTD)</p>
+                <p className="text-sm text-muted-foreground">Bonus Earned ({kpiPeriodLabel})</p>
                 <div className="text-2xl font-bold text-foreground mt-1">
                   ${kpis.totalBonusEarned.toFixed(0)}
                 </div>
@@ -2891,7 +3126,7 @@ const EmployeeLERPage: React.FC = () => {
                 <Clock className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Avg Hourly Rate (YTD)</p>
+                <p className="text-sm text-muted-foreground">Avg Hourly Rate ({kpiPeriodLabel})</p>
                 <div className="text-2xl font-bold text-foreground mt-1">
                   ${kpis.avgHourlyRate.toFixed(2)}
                 </div>
@@ -2910,7 +3145,7 @@ const EmployeeLERPage: React.FC = () => {
                 <DollarSign className="h-5 w-5 text-accent" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Profit Margin (YTD)</p>
+                <p className="text-sm text-muted-foreground">Profit Margin ({kpiPeriodLabel})</p>
                 <div className={`text-2xl font-bold mt-1 ${kpis.profitMargin >= 25 ? 'text-green-600' : 'text-red-600'}`}>
                   {kpis.profitMargin.toFixed(1)}%
                 </div>
@@ -2931,9 +3166,7 @@ const EmployeeLERPage: React.FC = () => {
               <CardTitle className="text-foreground">
                 {filterMonth !== 'all' 
                   ? `LER Trend - ${lerTrendData.length} days` 
-                  : (filterYear !== 'all' || filterMonth !== 'all')
-                    ? `LER Trend - ${lerTrendData.reduce((sum, m) => sum + m.days, 0)} days across ${lerTrendData.length} months`
-                    : `LER Trend (YTD) - ${lerTrendData.reduce((sum, m) => sum + m.days, 0)} days across ${lerTrendData.length} months`
+                  : `LER Trend (${filterYear}) - ${lerTrendData.reduce((sum, m) => sum + m.days, 0)} days across ${lerTrendData.length} months`
                 }
               </CardTitle>
             </CardHeader>
@@ -2966,9 +3199,9 @@ const EmployeeLERPage: React.FC = () => {
           <Card className="bg-muted/30">
             <CardHeader>
               <CardTitle className="text-foreground">
-                {(filterYear !== 'all' || filterMonth !== 'all')
+                {filterMonth !== 'all'
                   ? 'Job Type Distribution'
-                  : `Job Type Distribution (YTD) - ${jobTypeData.reduce((sum, item) => sum + item.value, 0)} total jobs`
+                  : `Job Type Distribution (${filterYear}) - ${jobTypeData.reduce((sum, item) => sum + item.value, 0)} total jobs`
                 }
               </CardTitle>
             </CardHeader>
@@ -3030,14 +3263,35 @@ const EmployeeLERPage: React.FC = () => {
 
               {/* Calculate All Days Button */}
               <Button 
-                onClick={handleCalculateAllDays}
+                onClick={() => handleCalculateAllDays()}
                 variant={needsCalculation ? "primary" : "outline"}
                 size="sm"
-                disabled={!selectedPeriod || selectedPeriod.dailyRecords.length === 0}
+                disabled={filteredDailyRecords.length === 0 || bulkRecalculating}
                 className={needsCalculation ? 'animate-pulse bg-accent hover:bg-accent/90 text-background border-accent border-2' : ''}
               >
                 <TrendingUp className="h-4 w-4 mr-2" />
-                Calculate All
+                Recalculate All
+              </Button>
+
+              {/* Bulk Recalculate All Employees Button */}
+              <Button 
+                onClick={handleBulkRecalculateAllEmployees}
+                variant="outline"
+                size="sm"
+                disabled={bulkRecalculating || allEmployees.length === 0}
+                className="text-amber-500 border-amber-500/50 hover:bg-amber-500/10"
+              >
+                {bulkRecalculating ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    {bulkProgress.current}/{bulkProgress.total}
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Recalc All Employees
+                  </>
+                )}
               </Button>
 
               {/* Add Day Button */}
@@ -3056,11 +3310,11 @@ const EmployeeLERPage: React.FC = () => {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 bg-card z-20">
                   <tr className="border-b border-gray-700">
-                    <th className="text-left py-3 px-2 text-muted-foreground font-medium w-10">
+                    <th className="text-left py-3 px-2 text-muted-foreground font-medium w-10 sticky left-0 bg-card z-30">
                       <Checkbox
                         checked={selectedRecordIds.length === filteredDailyRecords.length && filteredDailyRecords.length > 0}
                         onCheckedChange={(checked: boolean) => {
@@ -3076,24 +3330,25 @@ const EmployeeLERPage: React.FC = () => {
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Jobs</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Revenue</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Hours</th>
+                    <th className="text-left py-3 px-4 text-muted-foreground font-medium">OT Hrs</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Base Rate</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">LER</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">LER Bonus</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Appt Bonus</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Total Bonus</th>
-                    <th className="text-left py-3 px-4 text-muted-foreground font-medium">Total Pay</th>
                     <th className="text-left py-3 px-4 text-muted-foreground font-medium">Net Profit</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {aggregatedRecords.map((record, index) => {
+                    const isSelected = record.id ? selectedRecordIds.includes(record.id) : false;
                     return (
-                    <tr key={record.id || index} className="border-b border-gray-800 hover:bg-[rgb(17,24,39)]">
-                      <td className="py-3 px-2">
+                    <tr key={record.id || index} className={`border-b border-gray-800 hover:bg-[rgb(17,24,39)] ${isSelected ? 'bg-accent/20' : ''}`}>
+                      <td className={`py-3 px-2 sticky left-0 z-10 ${isSelected ? 'bg-accent/20' : 'bg-card'}`}>
                         {record.id && (
                           <Checkbox
-                            checked={selectedRecordIds.includes(record.id)}
+                            checked={isSelected}
                             onCheckedChange={(checked: boolean) => {
                               if (checked && record.id) {
                                 setSelectedRecordIds([...selectedRecordIds, record.id]);
@@ -3146,6 +3401,15 @@ const EmployeeLERPage: React.FC = () => {
                       <td className="py-3 px-4 text-foreground">
                         {record.totalHoursWorked.toFixed(2)}
                       </td>
+                      <td className="py-3 px-4">
+                        {record.overtimeHours > 0 ? (
+                          <span className="text-amber-500 font-medium">
+                            {record.overtimeHours.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
                       <td className="py-3 px-4 text-foreground font-medium">
                         ${record.baseRate?.toFixed(2) || '0.00'}/hr
                       </td>
@@ -3180,9 +3444,6 @@ const EmployeeLERPage: React.FC = () => {
                         ) : (
                           <span className="text-gray-500">-</span>
                         )}
-                      </td>
-                      <td className="py-3 px-4 text-foreground font-medium">
-                        ${record.totalEmployeePay.toFixed(2)}
                       </td>
                       <td className="py-3 px-4">
                         <div className="text-foreground font-medium">
@@ -3238,56 +3499,50 @@ const EmployeeLERPage: React.FC = () => {
                   );
                   })}
                   
-                  {/* Totals Row - Show when filters are active */}
-                  {(filterYear !== 'all' || filterMonth !== 'all') && filteredDailyRecords.length > 0 && (
-                    <tr className="border-t-2 border-accent bg-accent/10">
-                      <td className="py-3 px-4 text-foreground font-bold">
-                        TOTALS
-                      </td>
-                      <td className="py-3 px-4 text-foreground font-bold">
-                        {filteredTotals.totalJobs}
-                      </td>
-                      <td className="py-3 px-4 text-foreground font-bold">
-                        ${filteredTotals.totalRevenue.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4 text-foreground font-bold">
-                        {filteredTotals.totalHours.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground text-xs">
-                        -
-                      </td>
+                  {/* Totals Row - Always show when there are records */}
+                  {filteredDailyRecords.length > 0 && (
+                    <tr className="border-t-2 border-accent bg-accent/10 font-bold">
+                      {/* Checkbox column - empty */}
+                      <td className="py-3 px-2 sticky left-0 z-10 bg-accent/10"></td>
+                      {/* Date column - TOTALS label */}
+                      <td className="py-3 px-4 text-foreground">TOTALS</td>
+                      {/* Jobs */}
+                      <td className="py-3 px-4 text-foreground">{filteredTotals.totalJobs}</td>
+                      {/* Revenue */}
+                      <td className="py-3 px-4 text-foreground">${filteredTotals.totalRevenue.toFixed(2)}</td>
+                      {/* Hours */}
+                      <td className="py-3 px-4 text-foreground">{filteredTotals.totalHours.toFixed(2)}</td>
+                      {/* OT Hours */}
                       <td className="py-3 px-4">
-                        <Badge variant={getLERBadgeColor(filteredTotals.avgLER)} className="font-bold">
+                        {filteredTotals.totalOTHours > 0 ? (
+                          <span className="text-amber-500">{filteredTotals.totalOTHours.toFixed(2)}</span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
+                      {/* Base Rate - N/A for totals */}
+                      <td className="py-3 px-4 text-muted-foreground">-</td>
+                      {/* LER (Average) */}
+                      <td className="py-3 px-4">
+                        <Badge variant={getLERBadgeColor(filteredTotals.avgLER)}>
                           {filteredTotals.avgLER.toFixed(2)}
                         </Badge>
                       </td>
-                      <td className="py-3 px-4 text-green-500 font-bold">
-                        ${filteredTotals.totalLERBonus.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4 text-green-500 font-bold">
-                        ${filteredTotals.totalApptBonus.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4 text-green-500 font-bold">
-                        ${filteredTotals.totalBonuses.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4 text-foreground font-bold">
-                        ${filteredTotals.totalPay.toFixed(2)}
-                      </td>
+                      {/* LER Bonus */}
+                      <td className="py-3 px-4 text-green-500">${filteredTotals.totalLERBonus.toFixed(2)}</td>
+                      {/* Appt Bonus */}
+                      <td className="py-3 px-4 text-green-500">${filteredTotals.totalApptBonus.toFixed(2)}</td>
+                      {/* Total Bonus */}
+                      <td className="py-3 px-4 text-green-500">${filteredTotals.totalBonuses.toFixed(2)}</td>
+                      {/* Net Profit */}
                       <td className="py-3 px-4">
-                        <div className="text-foreground font-bold">
-                          ${filteredTotals.totalNetProfit.toFixed(2)}
-                        </div>
-                        <div className={`text-xs font-bold ${
-                          filteredTotals.avgNetProfitPercent >= 25 
-                            ? 'text-green-500' 
-                            : 'text-red-500'
-                        }`}>
+                        <div className="text-foreground">${filteredTotals.totalNetProfit.toFixed(2)}</div>
+                        <div className={`text-xs ${filteredTotals.avgNetProfitPercent >= 25 ? 'text-green-500' : 'text-red-500'}`}>
                           {filteredTotals.avgNetProfitPercent.toFixed(1)}%
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-right text-muted-foreground text-xs">
-                        -
-                      </td>
+                      {/* Actions - empty */}
+                      <td className="py-3 px-4 text-right text-muted-foreground">-</td>
                     </tr>
                   )}
                 </tbody>
@@ -3327,7 +3582,7 @@ const EmployeeLERPage: React.FC = () => {
         <Card className="bg-muted/30">
           <CardHeader>
             <CardTitle className="text-foreground">
-              {(filterYear !== 'all' || filterMonth !== 'all') ? 'Filtered Summary' : 'Pay Period Summary'}
+              {filterMonth !== 'all' ? 'Filtered Summary' : `${filterYear} Summary`}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -3335,49 +3590,49 @@ const EmployeeLERPage: React.FC = () => {
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Total Jobs</div>
                 <div className="text-2xl font-bold text-foreground">
-                  {(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalJobs : selectedPeriod.periodTotals.totalJobs}
+                  {filteredTotals.totalJobs}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Total Revenue</div>
                 <div className="text-2xl font-bold text-foreground">
-                  ${(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalRevenue.toFixed(2) : selectedPeriod.periodTotals.totalRevenue.toFixed(2)}
+                  ${filteredTotals.totalRevenue.toFixed(2)}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Total Hours</div>
                 <div className="text-2xl font-bold text-foreground">
-                  {(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalHours.toFixed(2) : selectedPeriod.periodTotals.totalHoursWorked.toFixed(2)}
+                  {filteredTotals.totalHours.toFixed(2)}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Average LER</div>
-                <div className={`text-2xl font-bold ${getLERColor((filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.avgLER : selectedPeriod.periodTotals.avgLER)}`}>
-                  {(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.avgLER.toFixed(2) : selectedPeriod.periodTotals.avgLER.toFixed(2)}
+                <div className={`text-2xl font-bold ${getLERColor(filteredTotals.avgLER)}`}>
+                  {filteredTotals.avgLER.toFixed(2)}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">LER Bonuses</div>
                 <div className="text-2xl font-bold text-green-500">
-                  ${(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalLERBonus.toFixed(2) : selectedPeriod.periodTotals.totalLERBonuses.toFixed(2)}
+                  ${filteredTotals.totalLERBonus.toFixed(2)}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Appt Bonuses</div>
                 <div className="text-2xl font-bold text-green-500">
-                  ${(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalApptBonus.toFixed(2) : selectedPeriod.periodTotals.totalApptBonuses.toFixed(2)}
+                  ${filteredTotals.totalApptBonus.toFixed(2)}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Total Bonuses</div>
                 <div className="text-2xl font-bold text-green-600">
-                  ${(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.totalBonuses.toFixed(2) : selectedPeriod.periodTotals.totalBonuses.toFixed(2)}
+                  ${filteredTotals.totalBonuses.toFixed(2)}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Net Profit Margin</div>
                 <div className="text-2xl font-bold text-foreground">
-                  {(filterYear !== 'all' || filterMonth !== 'all') ? filteredTotals.avgNetProfitPercent.toFixed(1) : selectedPeriod.periodTotals.netProfitAfterBonusPercent.toFixed(1)}%
+                  {filteredTotals.avgNetProfitPercent.toFixed(1)}%
                 </div>
               </div>
             </div>
@@ -3437,7 +3692,7 @@ const EmployeeLERPage: React.FC = () => {
                 <div className="p-2 rounded-lg bg-accent/20">
                   <Lightbulb className="h-5 w-5 text-accent" />
                 </div>
-                <CardTitle className="text-foreground">Performance Insights - {employeeInfo.name}</CardTitle>
+                <CardTitle className="text-foreground">LER Insights - {employeeInfo.name}</CardTitle>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex gap-1 bg-muted/50 rounded-md p-1">
@@ -3994,18 +4249,19 @@ const EmployeeLERPage: React.FC = () => {
               const totalBasePay = employeeBasePay + overtimePay;
               
               // Calculate COGS - for helpers, scale based on their revenue portion
+              // Calculate COGS - servicesWithCOGS contains $ cost per job, NOT percentage
               let cogsNoLabor = 0;
               if (isHelper && empData?.helperRevenue !== undefined && baseRecord.totalJobRevenue > 0) {
-                // Scale COGS proportionally to helper's revenue
+                // Scale COGS proportionally to helper's revenue portion
                 const revenuePortion = empData.helperRevenue / baseRecord.totalJobRevenue;
                 serviceBreakdown.forEach(item => {
-                  const cogsPct = servicesWithCOGS[item.serviceName] || 0;
-                  cogsNoLabor += (item.revenue * revenuePortion) * (cogsPct / 100);
+                  const costPerJob = servicesWithCOGS[item.serviceName] || 0;
+                  cogsNoLabor += costPerJob * revenuePortion; // Proportional share of COGS
                 });
               } else {
                 serviceBreakdown.forEach(item => {
-                  const cogsPct = servicesWithCOGS[item.serviceName] || 0;
-                  cogsNoLabor += item.revenue * (cogsPct / 100);
+                  const costPerJob = servicesWithCOGS[item.serviceName] || 0;
+                  cogsNoLabor += costPerJob; // Each service entry = 1 job
                 });
               }
               
@@ -4309,8 +4565,8 @@ const EmployeeLERPage: React.FC = () => {
         crewWorkDay={editingCrewWorkDay}
         crewName={crews.find(c => c.id === selectedCrewId)?.name || 'Crew'}
         services={services}
-        allEmployees={allEmployees.map(emp => ({
-          id: emp.id,
+        allEmployees={allEmployees.filter(emp => emp.id).map(emp => ({
+          id: emp.id!,
           name: emp.name,
           position: emp.position,
           base_rate: emp.current_base_rate || 0
@@ -4332,6 +4588,7 @@ const EmployeeLERPage: React.FC = () => {
           const totalRevenue = data.serviceBreakdown.reduce((sum, s) => sum + (s.revenue || 0), 0);
           const totalJobTime = data.serviceBreakdown.reduce((sum, s) => sum + (s.hours || 0), 0);
           const totalJobs = data.serviceBreakdown.filter(s => s.serviceId).length;
+          console.log(`🔧 Crew save - Services: ${data.serviceBreakdown.length}, TotalRevenue=$${totalRevenue}, TotalHours=${data.totalHours}, CrewMembers=${data.crewMembers.length}`);
           
           // Build job types from service breakdown
           const jobTypes = data.serviceBreakdown.reduce((acc, item) => {
@@ -4349,21 +4606,27 @@ const EmployeeLERPage: React.FC = () => {
           const memberCount = data.crewMembers.length;
           const memberRevenue = totalRevenue / memberCount;
           
-          // Calculate total COGS
+          // Calculate total COGS - servicesWithCOGS contains $ cost per job, NOT percentage
           let totalCOGS = 0;
           for (const svc of data.serviceBreakdown) {
-            const cogsPct = servicesWithCOGS[svc.serviceName] || 0;
-            totalCOGS += svc.revenue * (cogsPct / 100);
+            const costPerJob = servicesWithCOGS[svc.serviceName] || 0;
+            // Each service entry in serviceBreakdown represents 1 job
+            const svcCOGS = costPerJob;
+            totalCOGS += svcCOGS;
+            console.log(`  📦 ${svc.serviceName}: costPerJob=$${costPerJob}, COGS=$${svcCOGS.toFixed(2)}`);
           }
           
           // Calculate total labor cost and gross profit for bonus pool
           let totalLaborCost = 0;
           for (const member of data.crewMembers) {
             const empBaseRate = member.baseRate || 0;
-            const memberHours = data.totalHours;
+            // Helpers use their specific hours, regular crew uses total daily hours
+            const memberHours = member.isHelper ? (member.helperHours || 0) : data.totalHours;
             const regularHours = Math.min(memberHours, 8);
             const overtimeHours = Math.max(0, memberHours - 8);
-            totalLaborCost += regularHours * empBaseRate + overtimeHours * empBaseRate * 1.5;
+            const memberPay = regularHours * empBaseRate + overtimeHours * empBaseRate * 1.5;
+            totalLaborCost += memberPay;
+            console.log(`  👤 ${member.employeeName}: rate=$${empBaseRate}/hr, hours=${memberHours}, pay=$${memberPay.toFixed(2)}`);
           }
           
           const overheadPercent = companySettings.overheadPercent || 32;
@@ -4376,17 +4639,51 @@ const EmployeeLERPage: React.FC = () => {
           const qualifyForBonus = ler >= (companySettings.crewBonusThresholdMin || 15) / 100;
           const totalBonusPool = qualifyForBonus ? grossProfitBeforeBonus * Math.min(ler, (companySettings.crewBonusThresholdMax || 100) / 100) : 0;
           
-          console.log(`📊 Crew totals: Revenue=$${totalRevenue}, LaborCost=$${totalLaborCost}, GrossProfit=$${grossProfitBeforeBonus}, LER=${(ler * 100).toFixed(1)}%, BonusPool=$${totalBonusPool}`);
+          console.log(`📊 Crew totals: Revenue=$${totalRevenue}, LaborCost=$${totalLaborCost}, COGS=$${totalCOGS}, Overhead=$${totalOverhead} (${overheadPercent}%), TotalCost=$${totalCostOfJob}, GrossProfit=$${grossProfitBeforeBonus}, LER=${(ler * 100).toFixed(1)}%, BonusPool=$${totalBonusPool}`);
+          
+          // Find the pay period ID for this date (needed for creating new helper records)
+          // First try to get it from an existing crew member's record (most reliable)
+          let payPeriodId: string | null = null;
+          
+          const existingMember = data.crewMembers.find(m => m.recordId);
+          if (existingMember?.recordId) {
+            const existingRecord = await employeeLERService.getDailyRecordById(existingMember.recordId);
+            if (existingRecord?.pay_period_id) {
+              payPeriodId = existingRecord.pay_period_id;
+              console.log(`📅 Using pay period ID from existing crew member record: ${payPeriodId}`);
+            }
+          }
+          
+          // Fallback: Find by date range in local payPeriods array
+          if (!payPeriodId) {
+            const payPeriod = payPeriods.find(p => {
+              return data.date >= p.startDate && data.date <= p.endDate;
+            });
+            if (payPeriod) {
+              payPeriodId = payPeriod.periodId || null;
+              console.log(`📅 Using pay period from date range: ${payPeriod.periodName}`);
+            }
+          }
+          
+          // Last resort: Use the most recent pay period
+          if (!payPeriodId && payPeriods.length > 0) {
+            const sortedPeriods = [...payPeriods].sort((a, b) => (b.endDate || '').localeCompare(a.endDate || ''));
+            payPeriodId = sortedPeriods[0]?.periodId || null;
+            console.log(`📅 Last resort: Using most recent pay period: ${sortedPeriods[0]?.periodName}`);
+          }
+          
+          console.log(`📅 Final pay period ID: ${payPeriodId || 'NONE'}`);
+          
+          
+          // Also get the day of week from the date string
+          const [year, month, day] = data.date.split('-').map(Number);
+          const recordDate = new Date(year, month - 1, day); // month is 0-indexed
           
           // Update each crew member's record
           for (const member of data.crewMembers) {
-            if (!member.recordId) {
-              console.log(`➕ Adding new helper: ${member.employeeName}`);
-              continue;
-            }
-            
             const empBaseRate = member.baseRate || 0;
-            const memberHours = data.totalHours;
+            // For helpers, use their configured hours; for regular crew, use total daily hours
+            const memberHours = member.isHelper && member.helperHours ? member.helperHours : data.totalHours;
             
             // Calculate pay
             const regularHours = Math.min(memberHours, 8);
@@ -4415,39 +4712,152 @@ const EmployeeLERPage: React.FC = () => {
             }
             
             // Calculate member-specific metrics
-            const memberOverhead = memberRevenue * (overheadPercent / 100);
-            const memberTotalCost = totalBasePay + memberCOGS + memberOverhead;
-            const memberGrossProfit = memberRevenue - memberTotalCost;
-            const memberGrossProfitPercent = memberRevenue > 0 ? (memberGrossProfit / memberRevenue) * 100 : 0;
-            const memberLER = totalBasePay > 0 ? memberGrossProfit / totalBasePay : 0;
+            // For helpers, calculate revenue based on their hours proportion (not equal split)
+            let actualMemberRevenue = memberRevenue; // Default to equal split for regular crew
+            console.log(`  🔍 ${member.employeeName}: isHelper=${member.isHelper}, helperHours=${member.helperHours}, helperAppointments=${JSON.stringify(member.helperAppointments)}`);
+            if (member.isHelper) {
+              // Helper revenue is based on their hours proportion of the jobs they worked on
+              const helperHrs = member.helperHours || 0;
+              const regularCrewCount = data.crewMembers.filter(m => !m.isHelper).length;
+              
+              if (member.helperAppointments && member.helperAppointments.length > 0) {
+                // Helper worked on specific appointments - calculate their proportional share
+                // For each appointment, helper gets (helper hours on that job / total hours on that job) × job revenue
+                actualMemberRevenue = member.helperAppointments.reduce((sum, ha) => {
+                  const appt = data.serviceBreakdown[ha.appointmentIndex];
+                  const apptRevenue = appt?.revenue || 0;
+                  const helperHoursOnJob = ha.hours || 0;
+                  // Total hours on this job = crew members × daily hours + helper hours on this job
+                  const crewHoursOnJob = regularCrewCount * data.totalHours;
+                  const totalHoursOnJob = crewHoursOnJob + helperHoursOnJob;
+                  const helperPortion = totalHoursOnJob > 0 ? helperHoursOnJob / totalHoursOnJob : 0;
+                  return sum + (apptRevenue * helperPortion);
+                }, 0);
+                console.log(`  📊 Helper ${member.employeeName}: ${helperHrs}hrs on appointments = $${actualMemberRevenue.toFixed(2)} revenue (proportional)`);
+              } else {
+                // No specific appointments - calculate based on total hours proportion
+                const regularCrewHours = regularCrewCount * data.totalHours;
+                const totalAllHours = regularCrewHours + helperHrs;
+                const helperHoursPortion = totalAllHours > 0 ? helperHrs / totalAllHours : 0;
+                actualMemberRevenue = totalRevenue * helperHoursPortion;
+                console.log(`  📊 Helper ${member.employeeName}: ${helperHrs}hrs / ${totalAllHours}hrs = ${(helperHoursPortion * 100).toFixed(1)}% = $${actualMemberRevenue.toFixed(2)} revenue`);
+              }
+            }
             
-            const updateData = {
+            // For crew jobs, use the CREW's LER and proportional gross profit
+            // This prevents the issue where split revenue vs full individual pay creates nonsensical metrics
+            const regularCrewCount = data.crewMembers.filter(m => !m.isHelper).length;
+            
+            let memberGrossProfit: number;
+            let memberGrossProfitPercent: number;
+            let memberLER: number;
+            
+            if (member.isHelper) {
+              // Helper: calculate from their proportional revenue
+              memberGrossProfit = actualMemberRevenue - totalBasePay - (totalCOGS / memberCount) - (actualMemberRevenue * overheadPercent / 100);
+              memberGrossProfitPercent = actualMemberRevenue > 0 ? (memberGrossProfit / actualMemberRevenue) * 100 : 0;
+              memberLER = totalBasePay > 0 ? memberGrossProfit / totalBasePay : 0;
+            } else {
+              // Regular crew member: use CREW's LER and proportional share of crew gross profit
+              // This ensures the individual record reflects the crew's actual performance
+              memberGrossProfit = grossProfitBeforeBonus / regularCrewCount; // Split among regular crew only
+              memberGrossProfitPercent = actualMemberRevenue > 0 ? (memberGrossProfit / actualMemberRevenue) * 100 : 0;
+              memberLER = ler; // Use the CREW's LER, not individual calculation
+              console.log(`  📈 ${member.employeeName}: Using crew LER=${(ler * 100).toFixed(1)}%, grossProfit=$${memberGrossProfit.toFixed(2)}`);
+            }
+            
+            const recordData = {
               total_hours_worked: memberHours,
               total_job_time: totalJobTime,
-              total_job_revenue: memberRevenue,
-              number_of_jobs: totalJobs,
+              total_job_revenue: actualMemberRevenue,
+              number_of_jobs: member.isHelper ? (member.helperAppointments?.length || 0) : totalJobs,
               job_types: jobTypes,
               service_breakdown: { services: data.serviceBreakdown },
               employee_base_pay: totalBasePay,
               overtime_hours: overtimeHours,
               overtime_pay: overtimePay,
               cogs_no_labor: memberCOGS,
-              cogs_no_labor_percent: memberRevenue > 0 ? (memberCOGS / memberRevenue) * 100 : 0,
+              cogs_no_labor_percent: actualMemberRevenue > 0 ? (memberCOGS / actualMemberRevenue) * 100 : 0,
               gross_profit_before_bonus: memberGrossProfit,
               gross_profit_before_bonus_percent: memberGrossProfitPercent,
               ler: memberLER,
               qualify_for_bonus: qualifyForBonus,
               bonus_qualified_for_percent: memberBonus,
               daily_net_profit_after_bonus: memberGrossProfit - memberBonus,
-              daily_net_profit_after_bonus_percent: memberRevenue > 0 ? ((memberGrossProfit - memberBonus) / memberRevenue) * 100 : 0,
-              notes: data.notes || null,
+              daily_net_profit_after_bonus_percent: actualMemberRevenue > 0 ? ((memberGrossProfit - memberBonus) / actualMemberRevenue) * 100 : 0,
+              notes: member.isHelper ? `${data.notes || ''} [Helper on crew job]`.trim() : (data.notes || ''),
               // CRITICAL: Preserve crew tracking fields
               is_crew_job: true,
-              crew_id: selectedCrewId
+              crew_id: selectedCrewId,
+              record_type: 'crew' as const
             };
             
-            console.log(`📝 Updating record ${member.recordId} for ${member.employeeName}`);
-            await employeeLERService.updateDailyRecord(member.recordId, updateData);
+            if (!member.recordId) {
+              // CREATE new record for helper
+              if (!payPeriodId) {
+                console.error(`❌ Cannot create helper record: No pay period found for date ${data.date}`);
+                continue;
+              }
+              
+              console.log(`➕ Creating new helper record for ${member.employeeName}`);
+              
+              const dayOfWeek = recordDate.toLocaleDateString('en-US', { weekday: 'long' });
+              
+              const newRecord: employeeLERService.DailyRecord = {
+                work_day: dayOfWeek,
+                date: data.date,
+                called_out: false,
+                base_rate: empBaseRate,
+                tip_amount: 0,
+                total_employee_pay: totalBasePay + memberBonus,
+                daily_hourly_with_tips_and_bonus: memberHours > 0 ? (totalBasePay + memberBonus) / memberHours : 0,
+                appointment_based_bonus: 0,
+                overhead_costs_percent: overheadPercent,
+                ...recordData
+              };
+              
+              const createdRecord = await employeeLERService.createDailyRecord(payPeriodId, newRecord, member.employeeId);
+              
+              if (createdRecord?.id) {
+                console.log(`✅ Created helper record ${createdRecord.id} for ${member.employeeName}`);
+                
+                // Also add to daily_record_crew_members table
+                await crewService.addDailyRecordCrewMember({
+                  daily_record_id: createdRecord.id,
+                  employee_id: member.employeeId,
+                  role_id: undefined,
+                  hours_worked: memberHours,
+                  bonus_percentage: 0,
+                  attributed_revenue: actualMemberRevenue,
+                  attributed_bonus: memberBonus,
+                  is_helper: true,
+                  helper_appointments: member.helperAppointments || []
+                });
+              } else {
+                console.error(`❌ Failed to create helper record for ${member.employeeName}`);
+              }
+            } else {
+              // UPDATE existing record
+              console.log(`📝 Updating record ${member.recordId} for ${member.employeeName}`, {
+                ler: recordData.ler,
+                grossProfit: recordData.gross_profit_before_bonus,
+                bonus: recordData.bonus_qualified_for_percent,
+                netProfit: recordData.daily_net_profit_after_bonus
+              });
+              await employeeLERService.updateDailyRecord(member.recordId, recordData);
+              
+              // Also update the daily_record_crew_members entry with correct attribution
+              await crewService.upsertDailyRecordCrewMember({
+                daily_record_id: member.recordId,
+                employee_id: member.employeeId,
+                role_id: member.roleId || undefined,
+                hours_worked: memberHours,
+                bonus_percentage: member.bonusPercentage || 0,
+                attributed_revenue: memberRevenue, // Equal split for all crew members
+                attributed_bonus: memberBonus, // Based on role percentage (60/40)
+                is_helper: member.isHelper || false
+              });
+            }
           }
           
           // Reload crew work days
