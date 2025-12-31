@@ -7,7 +7,7 @@ import './index.css';
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const SIGN_IN_URL = import.meta.env.VITE_CLERK_SIGN_IN_URL ?? '/sign-in';
-const SIGN_UP_URL = import.meta.env.VITE_CLERK_SIGN_UP_URL ?? '/sign-in';
+const SIGN_UP_URL = import.meta.env.VITE_CLERK_SIGN_UP_URL ?? '/sign-up';
 const AFTER_SIGN_IN_URL = import.meta.env.VITE_CLERK_AFTER_SIGN_IN_URL ?? '/dashboard';
 const AFTER_SIGN_UP_URL = import.meta.env.VITE_CLERK_AFTER_SIGN_UP_URL ?? '/onboarding';
 

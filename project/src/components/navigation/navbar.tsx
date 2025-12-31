@@ -8,7 +8,7 @@ export default function Navbar() {
           <img 
             src="/wave-rider-logo.png" 
             alt="Wave Rider Logo" 
-            className="h-14 w-auto"
+            className="h-14 w-auto border-0 outline-none"
           />
         </a>
         <nav className="hidden md:flex items-center gap-6">
@@ -24,7 +24,7 @@ export default function Navbar() {
               Log in
             </a>
             <a
-              href="/sign-in"
+              href="/sign-up"
               className="px-4 py-2 bg-accent text-background rounded-md text-sm font-medium hover:bg-accent/90 transition-colors"
             >
               Sign up

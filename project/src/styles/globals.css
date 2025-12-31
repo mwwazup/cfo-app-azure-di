@@ -9,7 +9,7 @@
   }
   
   body {
-    @apply bg-background text-foreground font-sans;
+    @apply bg-card text-foreground font-sans;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
   
@@ -53,5 +53,194 @@
   
   .button-secondary {
     @apply bg-card border border-border text-foreground hover:bg-border;
+  }
+  
+  /* Clerk Pricing Table Custom Styles */
+  /* Clerk pricing table wrapper */
+  .clerk-pricing-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  
+  /* Target any pricing table elements within Clerk component */
+  .clerk-pricing-wrapper div[role="table"],
+  .clerk-pricing-wrapper .clerk-pricing-table,
+  .clerk-pricing-wrapper [data-clerk-pricing-table],
+  .clerk-pricing-wrapper > div > div {
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  
+  /* Individual pricing plans - target multiple possible selectors */
+  .clerk-pricing-wrapper div[role="row"],
+  .clerk-pricing-wrapper .clerk-pricing-plan,
+  .clerk-pricing-wrapper [data-clerk-pricing-plan],
+  .clerk-pricing-wrapper > div > div > div,
+  .clerk-pricing-wrapper article,
+  .clerk-pricing-wrapper section {
+    background: rgba(17, 24, 39, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1rem;
+    padding: 2rem;
+    backdrop-filter: blur(8px);
+    transition: all 0.3s ease;
+    position: relative;
+    min-width: 300px;
+    max-width: 350px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  /* Highlight the "most popular" plan (second one) */
+  .clerk-pricing-wrapper div[role="row"]:nth-child(2),
+  .clerk-pricing-wrapper .clerk-pricing-plan:nth-child(2),
+  .clerk-pricing-wrapper [data-clerk-pricing-plan]:nth-child(2),
+  .clerk-pricing-wrapper > div > div > div:nth-child(2),
+  .clerk-pricing-wrapper article:nth-child(2),
+  .clerk-pricing-wrapper section:nth-child(2) {
+    transform: scale(1.05);
+    border-color: #d5b274;
+    box-shadow: 0 0 20px rgba(213, 178, 116, 0.3);
+    z-index: 10;
+  }
+  
+  /* "Most Popular" ribbon for the second plan */
+  .clerk-pricing-wrapper div[role="row"]:nth-child(2)::before,
+  .clerk-pricing-wrapper .clerk-pricing-plan:nth-child(2)::before,
+  .clerk-pricing-wrapper [data-clerk-pricing-plan]:nth-child(2)::before,
+  .clerk-pricing-wrapper > div > div > div:nth-child(2)::before,
+  .clerk-pricing-wrapper article:nth-child(2)::before,
+  .clerk-pricing-wrapper section:nth-child(2)::before {
+    content: "Most Popular";
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #d5b274;
+    color: #000;
+    padding: 4px 16px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    z-index: 20;
+    white-space: nowrap;
+  }
+  
+  /* Hover effects for all plans */
+  .clerk-pricing-wrapper div[role="row"]:hover,
+  .clerk-pricing-wrapper .clerk-pricing-plan:hover,
+  .clerk-pricing-wrapper [data-clerk-pricing-plan]:hover,
+  .clerk-pricing-wrapper > div > div > div:hover,
+  .clerk-pricing-wrapper article:hover,
+  .clerk-pricing-wrapper section:hover {
+    transform: translateY(-4px);
+    background: rgba(31, 41, 55, 0.9);
+    border-color: rgba(213, 178, 116, 0.5);
+  }
+  
+  /* Don't apply hover transform to the already scaled "most popular" plan */
+  .clerk-pricing-wrapper div[role="row"]:nth-child(2):hover,
+  .clerk-pricing-wrapper .clerk-pricing-plan:nth-child(2):hover,
+  .clerk-pricing-wrapper [data-clerk-pricing-plan]:nth-child(2):hover,
+  .clerk-pricing-wrapper > div > div > div:nth-child(2):hover,
+  .clerk-pricing-wrapper article:nth-child(2):hover,
+  .clerk-pricing-wrapper section:nth-child(2):hover {
+    transform: scale(1.05) translateY(-4px);
+  }
+  
+  /* Style text elements within Clerk component */
+  .clerk-pricing-wrapper h1,
+  .clerk-pricing-wrapper h2,
+  .clerk-pricing-wrapper h3,
+  .clerk-pricing-wrapper h4,
+  .clerk-pricing-wrapper .plan-name,
+  .clerk-pricing-wrapper .title {
+    color: #fff !important;
+    font-weight: 600 !important;
+    font-size: 1.25rem !important;
+    margin-bottom: 0.5rem !important;
+  }
+  
+  .clerk-pricing-wrapper .plan-price,
+  .clerk-pricing-wrapper .price,
+  .clerk-pricing-wrapper [data-price] {
+    color: #d5b274 !important;
+    font-size: 2rem !important;
+    font-weight: 700 !important;
+    margin: 1rem 0 !important;
+  }
+  
+  .clerk-pricing-wrapper .plan-description,
+  .clerk-pricing-wrapper .description,
+  .clerk-pricing-wrapper p {
+    color: rgba(255, 255, 255, 0.8) !important;
+    font-size: 0.875rem !important;
+    margin-bottom: 1rem !important;
+  }
+  
+  /* Style lists/features */
+  .clerk-pricing-wrapper ul,
+  .clerk-pricing-wrapper .plan-features,
+  .clerk-pricing-wrapper .features {
+    list-style: none !important;
+    padding: 0 !important;
+    margin: 1rem 0 !important;
+  }
+  
+  .clerk-pricing-wrapper li,
+  .clerk-pricing-wrapper .feature,
+  .clerk-pricing-wrapper .plan-features li {
+    color: rgba(255, 255, 255, 0.8) !important;
+    padding: 0.5rem 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+  
+  .clerk-pricing-wrapper li:last-child,
+  .clerk-pricing-wrapper .feature:last-child,
+  .clerk-pricing-wrapper .plan-features li:last-child {
+    border-bottom: none !important;
+  }
+  
+  /* Style subscribe buttons */
+  .clerk-pricing-wrapper button,
+  .clerk-pricing-wrapper .subscribe-button,
+  .clerk-pricing-wrapper input[type="submit"],
+  .clerk-pricing-wrapper .btn {
+    background: linear-gradient(135deg, #d5b274, #c5a264) !important;
+    color: #000 !important;
+    border: none !important;
+    padding: 0.75rem 1.5rem !important;
+    border-radius: 0.5rem !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    width: 100% !important;
+    margin-top: 1rem !important;
+  }
+  
+  .clerk-pricing-wrapper button:hover,
+  .clerk-pricing-wrapper .subscribe-button:hover,
+  .clerk-pricing-wrapper input[type="submit"]:hover,
+  .clerk-pricing-wrapper .btn:hover {
+    background: linear-gradient(135deg, #c5a264, #b59354) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(213, 178, 116, 0.4) !important;
+  }
+  
+  /* Special styling for the most popular plan's button */
+  .clerk-pricing-wrapper div[role="row"]:nth-child(2) button,
+  .clerk-pricing-wrapper .clerk-pricing-plan:nth-child(2) button,
+  .clerk-pricing-wrapper [data-clerk-pricing-plan]:nth-child(2) button,
+  .clerk-pricing-wrapper > div > div > div:nth-child(2) button,
+  .clerk-pricing-wrapper article:nth-child(2) button,
+  .clerk-pricing-wrapper section:nth-child(2) button {
+    background: linear-gradient(135deg, #d5b274, #c5a264) !important;
+    box-shadow: 0 4px 12px rgba(213, 178, 116, 0.4) !important;
   }
 }

@@ -29,8 +29,10 @@ import { MomentumPage } from './pages/momentum';
 import { MomentumWizardPage } from './pages/momentum/wizard';
 import { CallbackPage } from './pages/auth/callback';
 import ClerkSignInPage from './pages/auth/clerk-sign-in';
+import ClerkSignUpPage from './pages/auth/clerk-sign-up';
 import { PricingPage } from './pages/pricing';
 import { AccountPage } from './pages/account';
+import { StartHerePage } from './pages/start-here';
 import './styles/globals.css';
 
 function AppRoutes() {
@@ -48,6 +50,7 @@ function AppRoutes() {
     location.pathname === '/' ||
     location.pathname === '/pricing' ||
     location.pathname.startsWith('/sign-in') ||
+    location.pathname.startsWith('/sign-up') ||
     location.pathname === '/login' ||
     location.pathname === '/signup';
 
@@ -71,7 +74,7 @@ function AppRoutes() {
                   <NavLink to="/financial-statements" className={navLinkClass}>
                     Financial Statements
                   </NavLink>
-                  <NavLink to="/account" className={navLinkClass}>
+                  <NavLink to="/user" className={navLinkClass}>
                     Account
                   </NavLink>
                 </nav>
@@ -79,6 +82,9 @@ function AppRoutes() {
               <SignedOut>
                 <NavLink to="/pricing" className="text-sm font-medium text-gray-300 hover:text-[#d5b274] mr-2">
                   Pricing
+                </NavLink>
+                <NavLink to="/sign-up" className="text-sm font-medium text-gray-300 hover:text-[#d5b274] mr-2">
+                  Sign up
                 </NavLink>
                 <NavLink to="/sign-in" className="text-sm font-medium text-gray-300 hover:text-[#d5b274]">
                   Log in
@@ -106,11 +112,11 @@ function AppRoutes() {
               } 
             />
             <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/sign-in/*" element={<ClerkSignInPage />} />
+            <Route path="/sign-in" element={<ClerkSignInPage />} />
+            <Route path="/sign-up" element={<ClerkSignUpPage />} />
             <Route path="/login" element={<Navigate to="/sign-in" replace />} />
-            <Route path="/signup" element={<Navigate to="/sign-in" replace />} />
             <Route path="/legacy-login" element={<Navigate to="/login" replace />} />
-            <Route path="/legacy-signup" element={<Navigate to="/signup" replace />} />
+            <Route path="/legacy-signup" element={<Navigate to="/sign-up" replace />} />
             <Route path="/callback" element={<CallbackPage />} />
             <Route path="/onboarding" element={<OnboardingPage />} />
             
@@ -119,7 +125,18 @@ function AppRoutes() {
               <Route index element={<DashboardPage />} />
             </Route>
             
+            {/* Start Here page */}
+            <Route path="/start-here" element={<DashboardLayout />}>
+              <Route index element={<StartHerePage />} />
+            </Route>
+            
             {/* Protected account routes */}
+            <Route path="/user/*" element={<DashboardLayout />}>
+              <Route index element={<AccountPage />} />
+              <Route path="*" element={<AccountPage />} />
+            </Route>
+            
+            {/* Legacy account route for backward compatibility */}
             <Route path="/account/*" element={<DashboardLayout />}>
               <Route index element={<AccountPage />} />
               <Route path="*" element={<AccountPage />} />

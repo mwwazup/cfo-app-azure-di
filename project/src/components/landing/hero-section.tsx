@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -191,32 +191,32 @@ export default function HeroSection() {
     {
       question: 'How is this different from QuickBooks or my bookkeeping software?',
       answer:
-        "Your bookkeeping software tells you what happened—Wave Rider tells you what to do about it. Think of it like this: your bookkeeper gives you the score of the game after it's over. Wave Rider is your coach helping you make better plays while you're still on the field.",
+        "I had QuickBooks too. It told me what happened last month. Wave Rider tells me what's going to happen next month. Think of it like this: your bookkeeper gives you the score after the game. I built Wave Rider to be your coach while you're still on the field.",
     },
     {
       question: "I'm not a numbers person. Is this going to be over my head?",
       answer:
-        'That\'s exactly who we built this for. Wave Rider talks to you in plain English, not accounting jargon. Instead of "EBITDA" and "cash flow statements," you get straightforward guidance like "Here\'s why you ran out of money in March" and "Here\'s what to set aside for winter."',
+        "I wasn't a numbers person either. That's why I built this. Wave Rider talks to you in plain English, not accounting jargon. Instead of 'EBITDA' you get 'Here's why you ran out of money in March' and 'Here's what to set aside for winter.'",
     },
     {
       question: 'How much time does this take?',
       answer:
-        'About 10 minutes a week to check in with your numbers. Wave Rider does the heavy lifting—analyzing your data, spotting patterns, and giving you specific next steps. You just need to show up for a quick conversation, like grabbing coffee with a business advisor who already knows your situation.',
+        'I built this because I didn\'t have time for complex systems. About 10 minutes a week. Wave Rider does the heavy lifting—analyzing your data, spotting patterns, and giving you specific next steps. You just show up for a quick conversation, like grabbing coffee with someone who actually gets your business.',
     },
     {
       question: 'Will this work for my type of business?',
       answer:
-        "If you run a seasonal service business (window cleaning, pressure washing, landscaping, etc.) where cash flow swings wildly throughout the year, Wave Rider was built specifically for you. We understand that you're not just \"slow in winter\"—you're managing a fundamentally different business model than year-round companies.",
+        "I built this for my seasonal service business. If you run a service business where cash flow swings wildly (window cleaning, pressure washing, landscaping, etc.) and you're tired of being 'slow in winter,' this was built for you. I understand your business model because I lived it.",
     },
     {
       question: "What if I don't have my financial data organized yet?",
       answer:
-        "No problem. Wave Rider can work with whatever you've got—even if it's just a business bank account. The AI will help you start making sense of your numbers from day one, and guide you toward better tracking as you go. You don't need perfect books to get started.",
+        "I started with a messy bank account and a shoebox full of receipts. Wave Rider can work with whatever you've got. The AI helps you make sense of your numbers from day one, and guides you toward better tracking as you go. You don't need perfect books to start.",
     },
     {
       question: 'Is my financial data secure?',
       answer:
-        'Absolutely. We use bank-level encryption and never sell your data. Your financial information stays private and is only used to give you personalized coaching. Think of it like attorney-client privilege, but for your business numbers.',
+        'Absolutely. I use bank-level encryption and never sell your data. Your financial information stays private and is only used to give you personalized coaching. I built this for my own business first—security was non-negotiable.',
     },
   ];
 
@@ -233,29 +233,30 @@ export default function HeroSection() {
           <div className="container px-4 md:px-6 max-w-7xl mx-auto">
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-16 items-center">
               <div className="flex flex-col gap-4">
-                <p className="text-xl text-accent uppercase tracking-[0.2em]">WELCOME TO WAVE RIDER</p>
+                <p className="text-lg text-accent uppercase tracking-[0.2em]">THE SEASONAL BUSINESS TRAP</p>
                 <h1 className="text-4xl md:text-6xl font-semibold tracking-tighter text-foreground">
-                  Your Business Isn't Seasonal—Your Strategy Is
+                  My Revenue Surged In The Busy Season… Then Crashed In The Slow Months
                 </h1>
                 <p className="text-xl text-muted max-w-[600px]">
-                  Get off the 9-month seasonal wave roller coaster. Wave Rider eliminates the "winter surprise" so you can predict, plan and profit               </p>
+                Revenue came in waves — big months, then lean months — and nobody could tell me what to actually do about it. So I built a tool that reads the revenue curve and coaches on the exact moves to make — so lean months become predictable, not reactive.
+                </p>
                 <div className="flex flex-col sm:flex-row gap-4 mt-6">
                   <a
                     href="/signup"
                     className="inline-flex items-center justify-center rounded-md bg-accent text-background px-6 py-3 text-lg font-semibold hover:bg-accent/90 transition-colors duration-200"
                   >
-                    Claim One of 5 Beta Spots
+                    Ride Your Revenue Wave
                     <span className="ml-2">&rarr;</span>
                   </a>
                   <a
                     href="#demo"
                     className="inline-flex items-center justify-center rounded-md border border-border px-6 py-3 text-lg text-foreground hover:bg-card transition-colors duration-200"
                   >
-                    Play With the Revenue Curve
+                    See What I Built
                   </a>
                 </div>
-                <p className="mt-2 text-md text-muted tracking-[0.2em]">
-                  CARPE MAÑANA · "Seize your Future!" because your future is created by what you do today, not tomorrow
+                <p className="mt-4 text-lg text-accent font-medium">
+                  "Most tools measure the waves. Wave Rider helps you ride them."
                 </p>
               </div>
               <div className="relative">
@@ -265,109 +266,226 @@ export default function HeroSection() {
           </div>
         </section>
 
-        {/* Story Section */}
+        {/* What I Tried Section */}
         <section className="py-16 bg-card">
-          <div className="container px-4 md:px-6 max-w-7xl mx-auto grid gap-10 lg:grid-cols-[2fr,1fr] items-start">
-            <div className="space-y-5 max-w-2xl">
-              <h2 className="text-3xl font-bold text-accent">
-                Here’s a simple truth—clarity and focus create momentum in your business
-              </h2>
-              <p className="text-base md:text-lg text-foreground">
-                <span className="block">
-                  Let’s be honest, most of us started our businesses with big dreams and even bigger goals. At the core, we just wanted to give our families a better life than we had. So, we hung that proverbial sign up—we’re in business. But what we didn’t expect was for our “baby” to grow into a monster demanding to be fed, day in and day out. For many business owners, the reality of running a business can feel like being relentlessly chased by an angry bull while running around putting out fires every day - you're just trying to keep up!
-                </span>
-                <span className="block mt-3">
-                  But somewhere along the way, that dream got...complicated.
-                </span>
-                <span className="block mt-3">
-                  Those big dreams we had for our families got buried under the weight of the business. We let the business consume our time, our energy, and our focus—thinking that’s what it takes to survive. But all the while, the real sacrifices were made by our families—who keep holding onto that whisper of hope: “Some day…”
-                </span>
-                <span className="block mt-3">
-                  Does this sound familiar?
-                </span>
-              </p>
-              </div>
-            <div className="space-y-4">
-              <div className="rounded-xl border border-accent/40 bg-background/80 p-5 shadow-sm">
-                <p className="text-xs font-semibold text-accent tracking-[0.2em] mb-2">
-                  THE THREE MOMENTS ON EVERY OWNER'S WAVE
+          <div className="container px-4 md:px-6 max-w-7xl mx-auto">
+            <div className="max-w-4xl mx-auto">
+              <div className="text-center mb-12">
+                <h2 className="text-3xl font-bold text-foreground mb-4">
+                Four Ways I Tried To Fix My Business (And Why None Worked)
+                </h2>
+                <p className="text-lg text-muted">
+                  I did everything the "experts" say to do. Here's what happened:
                 </p>
-                <ol className="space-y-3 text-sm text-muted">
-                  <li>
-                    <span className="font-semibold text-foreground">Drifting ·</span> Floating just off the
-                    break, hoping this year will be different but using the same habits and guesses as last year.
-                  </li>
-                  <li>
-                    <span className="font-semibold text-foreground">Deciding ·</span> Realizing "business as
-                    usual" leads to quiet regret—the ache of knowing you aimed lower than you could have.
-                  </li>
-                  <li>
-                    <span className="font-semibold text-foreground">Riding ·</span> Choosing a deliberate
-                    strategy, seeing your numbers clearly, and finally feeling like you're surfing the curve
-                    instead of being dragged by it.
-                  </li>
-                </ol>
+              </div>
+              
+              <div className="grid gap-8 md:grid-cols-2 mb-12">
+                <div className="space-y-6">
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
+                      <span className="text-accent font-semibold text-sm">1</span>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground mb-2">
+                        I had spreadsheets…
+                      </h3>
+                      <p className="text-muted">
+                        But they didn't tell me what the numbers meant or what to do about them.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
+                      <span className="text-accent font-semibold text-sm">2</span>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground mb-2">
+                        I had a KPI dashboard…
+                      </h3>
+                      <p className="text-muted">
+                        But it didn't tell me what actions to take with all that data.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="space-y-6">
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
+                      <span className="text-accent font-semibold text-sm">3</span>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground mb-2">
+                        I paid for coaching…
+                      </h3>
+                      <p className="text-muted">
+                        But it was expensive and they didn't understand how my business was different.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
+                      <span className="text-accent font-semibold text-sm">4</span>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground mb-2">
+                        I didn't have a CFO…
+                      </h3>
+                      <p className="text-muted">
+                        Because I was "too small to afford one."
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-muted/30 rounded-2xl p-8 text-center border border-accent/20">
+                <p className="text-xl text-foreground font-semibold mb-4">
+                  And the worst part?
+                </p>
+                <p className="text-lg text-muted mb-6">
+                  I didn't need more numbers. I needed to know what to do with them — especially before the slow season showed up.
+                </p>
+                
+                <div className="space-y-4 max-w-2xl mx-auto">
+                  <p className="text-lg text-foreground font-medium">
+                    What I needed was simple:
+                  </p>
+                  <p className="text-lg text-accent font-semibold">
+                    Look at my numbers... tell me what they mean... and tell me what to do next.
+                  </p>
+                  <p className="text-xl text-foreground font-bold pt-4">
+                    That's why I built Wave Rider.
+                  </p>
+                  <p className="text-lg text-muted">
+                    Because most business owners don't need more data… they need direction.
+                  </p>
+                </div>
+                
+                <div className="mt-8 p-6 bg-background/30 rounded-xl border border-border">
+                  <p className="text-sm text-accent mb-4">
+                    Wave Rider turns your revenue curve into plain-English guidance — like:
+                  </p>
+                  <div className="space-y-3 text-left max-w-lg mx-auto">
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full bg-accent mt-2 flex-shrink-0"></div>
+                      <p className="text-sm text-foreground">
+                        "You're heading for a slow-month squeeze. Here's the move to make this week."
+                      </p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full bg-accent mt-2 flex-shrink-0"></div>
+                      <p className="text-sm text-foreground">
+                        "Your average ticket is the easiest win right now. Here are 3 ways to raise it."
+                      </p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full bg-accent mt-2 flex-shrink-0"></div>
+                      <p className="text-sm text-foreground">
+                        "You're busy, but cash is tight. Here's where the money is leaking."
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Coaching vs Dashboard Section */}
-        <section className="py-16 bg-card">
-          <div className="container px-4 md:px-6 max-w-7xl mx-auto grid gap-10 lg:grid-cols-2 items-start">
-            <div className="space-y-4">
-              <h2 className="text-3xl font-bold text-foreground">
-                More Than a Dashboard. A Coach That Only Knows Your Business.
+        {/* The Breakthrough Demo - Moved Up */}
+        <section id="demo" className="py-16 bg-card">
+          <div className="container px-4 md:px-6 max-w-7xl mx-auto">
+            <div className="text-center max-w-2xl mx-auto mb-10">
+              <h2 className="text-3xl font-bold text-foreground mb-4">
+                The Curve That Changed Everything
               </h2>
               <p className="text-base md:text-lg text-muted">
-                Every business needs a coach. But human coaches are human—they sleep, they forget details, and they
-                often run the same playbook for every business in the room. Wave Rider is different. It knows one
-                business only: yours.
-              </p>
-              <p className="text-base md:text-lg text-muted">
-                When you can't sleep at 2am and need clarity, Wave Rider is there. When a coach says "business is
-                business," you're thinking, "But my business is different." Wave Rider agrees—and it proves it in
-                the numbers it shows you.
+                This isn't another dashboard. It's the conversation I wish I could have had with myself 10 years ago. 
+                Try the curve that shows you the gap between what you make and what you keep.
               </p>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card className="bg-background border-border">
-                <CardHeader>
-                  <CardTitle className="text-sm text-muted-foreground">Human Coach</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm text-muted">
-                  <p>Brings wisdom, experience, and accountability.</p>
-                  <p>Can't be available every moment you feel the pressure.</p>
-                  <p>Can't remember every detail from every session for every client.</p>
-                  <p>Often runs group programs that stay general, not deeply specific.</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-background border-accent/40">
-                <CardHeader>
-                  <CardTitle className="text-sm text-accent">Wave Rider Coach</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm text-muted">
-                  <p>Only knows your business—your numbers, your patterns, your curve.</p>
-                  <p>Never forgets where you left off or what you said last month.</p>
-                  <p>Is there when you're worried, curious, or stuck—any time of day.</p>
-                  <p>Pairs with your human coach so conversations are grounded in real data.</p>
-                </CardContent>
-              </Card>
+            <div className="grid gap-10 lg:grid-cols-[1.4fr,1fr] items-start">
+              <LandingRevenueDemo />
+              <div className="space-y-4">
+                <h3 className="text-2xl font-bold text-foreground">
+                  Every Year Was...Big Months...Lean Months...Panic...Then Hope Next Year Would Be Different
+                </h3>
+                <p className="text-base md:text-lg text-muted">
+                My revenue came in waves. Busy season felt like relief. Slow season felt like a gut punch.
+                And nobody could tell me what to actually do about it.
+                </p>
+                <p className="text-base md:text-lg text-muted">
+                The fact-of-the-matter is the slow season is like Christmas, it comes around every year. We know it's coming but we never plan for it. Once it here, we panic saying 'that came quick!' 
+                With Wave Rider, you see the pattern. You plan for it and prepare for it so if it does come around, you're ready. 
+                </p>
+                <div className="rounded-lg border border-accent/20 bg-accent/5 p-4">
+                  <p className="text-sm text-muted">
+                  <strong>Try this:</strong> Enter your best month and your worst month.
+                  If you saw this pattern early, what would you change first?
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
 
-        {/* Feature Story Rows */}
+        {/* What I Built Section */}
+        <section className="py-16 bg-card">
+          <div className="container px-4 md:px-6 max-w-7xl mx-auto">
+            <div className="text-center max-w-2xl mx-auto mb-10">
+              <h2 className="text-3xl font-bold text-foreground mb-4">
+                So I Built What I Wish I Had
+              </h2>
+              <p className="text-base md:text-lg text-muted">
+                Every feature in Wave Rider exists because I needed it for my own business. 
+                These aren't enterprise solutions scaled down—they're owner-built solutions that actually work.
+              </p>
+            </div>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+              {[
+                {
+                  title: 'Master Revenue Curve',
+                  desc: 'I built this because I needed to see my entire year on one screen. No more guessing if winter would bankrupt me.',
+                },
+                {
+                  title: 'Service Mix & Employee LER',
+                  desc: 'I built this because I kept paying techs who were busy but not profitable. Now I know who and what actually makes money.',
+                },
+                {
+                  title: 'Budget vs Actual',
+                  desc: 'I built this because I was tired of surprises. Now I know weeks in advance if I need to hustle or if I can breathe.',
+                },
+                {
+                  title: 'AI Coach (Available 24/7)',
+                  desc: 'I built this because my biggest questions came at 2 AM. Now I have someone who actually understands my business to talk to.',
+                },
+              ].map(({ title, desc }) => (
+                <Card key={title} className="bg-background border-border">
+                  <CardHeader>
+                    <CardTitle className="text-lg text-foreground">{title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted">{desc}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Detailed Features Section */}
         <section className="py-16 bg-card">
           <div className="container px-4 md:px-6 max-w-7xl mx-auto space-y-24">
             {/* Row 1 – Your Revenue Tells The Story */}
             <div className="grid gap-8 lg:grid-cols-2 items-stretch">
-              <div className="space-y-4 rounded-2xl border border-border bg-card p-6 lg:p-8 h-full">
+              <div className="space-y-4 rounded-2xl border border-border bg-foreground/90 p-6 lg:p-8 h-full">
                 <h2 className="text-3xl md:text-4xl font-bold text-accent">
                   Your Revenue Tells The Story Of Your Business
                 </h2>
                 <p className="text-base md:text-lg text-muted">
-                  Most business owners know they want to grow – “I want to grow to $800,000 next year” – but don&apos;t
+                  Most business owners know they want to grow – "I want to grow next year" – but don&apos;t
                   really know how or what that looks like.
                 </p>
                 <p className="text-base md:text-lg text-muted">
@@ -379,7 +497,7 @@ export default function HeroSection() {
                 </p>
               </div>
               <div className="relative h-full">
-                <div className="rounded-2xl border border-border bg-card shadow-lg overflow-hidden p-4 md:p-6 h-full">
+                <div className="rounded-2xl border border-border bg-foreground/90 shadow-lg overflow-hidden p-4 md:p-6 h-full">
                   <img
                     src="/Features 1.png"
                     alt="Wave Rider dashboard showing the Master Revenue Curve and revenue gap"
@@ -391,7 +509,7 @@ export default function HeroSection() {
 
             {/* Row 2 – Not Just Another Fancy Dashboard */}
             <div className="grid gap-8 lg:grid-cols-2 items-stretch">
-              <div className="space-y-4 rounded-2xl border border-border bg-card p-6 lg:p-8 h-full">
+              <div className="space-y-4 rounded-2xl border border-border bg-foreground/90 p-6 lg:p-8 h-full">
                 <h2 className="text-3xl md:text-4xl font-bold text-accent">
                   Not Just Another Fancy Dashboard!
                 </h2>
@@ -408,7 +526,7 @@ export default function HeroSection() {
                 </p>
               </div>
               <div className="relative h-full">
-                <div className="rounded-2xl border border-border bg-card shadow-lg overflow-hidden p-4 md:p-6 h-full">
+                <div className="rounded-2xl border border-border bg-foreground/90 shadow-lg overflow-hidden p-4 md:p-6 h-full">
                   <img
                     src="/features 2.png"
                     alt="Wave Rider KPI dashboard with coaching overlays"
@@ -420,12 +538,12 @@ export default function HeroSection() {
 
             {/* Row 3 – Your Financial Documents */}
             <div className="grid gap-8 lg:grid-cols-2 items-stretch">
-              <div className="space-y-4 rounded-2xl border border-border bg-card p-6 lg:p-8 h-full">
+              <div className="space-y-4 rounded-2xl border border-border bg-foreground/90 p-6 lg:p-8 h-full">
                 <h2 className="text-3xl md:text-4xl font-bold text-accent">Your Financial Documents</h2>
                 <p className="text-base md:text-lg text-muted">
                   Most business owners wonder why their bank account doesn&apos;t match the effort and revenue they
-                  made – often questioning, “I made all this revenue and my bank account doesn&apos;t show it, where did
-                  all the money go?”
+                  made – often questioning, "I made all this revenue and my bank account doesn&apos;t show it, where did
+                  all the money go?"
                 </p>
                 <p className="text-base md:text-lg text-muted">
                   Wave Rider shows you where your money is going and compares it to past performance. You will easily
@@ -437,7 +555,7 @@ export default function HeroSection() {
                 </p>
               </div>
               <div className="relative h-full">
-                <div className="rounded-2xl border border-border bg-card shadow-lg overflow-hidden p-4 md:p-6 h-full">
+                <div className="rounded-2xl border border-border bg-foreground/90 shadow-lg overflow-hidden p-4 md:p-6 h-full">
                   <img
                     src="/features 3.png"
                     alt="Wave Rider financial statements and radial charts"
@@ -449,11 +567,11 @@ export default function HeroSection() {
 
             {/* Row 4 – Employee Performance */}
             <div className="grid gap-8 lg:grid-cols-2 items-stretch">
-              <div className="space-y-4 rounded-2xl border border-border bg-card p-6 lg:p-8 h-full">
+              <div className="space-y-4 rounded-2xl border border-border bg-foreground/90 p-6 lg:p-8 h-full">
                 <h2 className="text-3xl md:text-4xl font-bold text-accent">Employee Performance</h2>
                 <p className="text-base md:text-lg text-muted">
                   Most business owners do not have a clear picture of the performance of their employees. Pay raises,
-                  reviews, and bonus structures are sloppy at best and usually based on feeling or industry “standards”
+                  reviews, and bonus structures are sloppy at best and usually based on feeling or industry "standards"
                   and not facts.
                 </p>
                 <p className="text-base md:text-lg text-muted">
@@ -469,7 +587,7 @@ export default function HeroSection() {
                 </p>
               </div>
               <div className="relative h-full">
-                <div className="rounded-2xl border border-border bg-card shadow-lg overflow-hidden p-4 md:p-6 h-full">
+                <div className="rounded-2xl border border-border bg-foreground/90 shadow-lg overflow-hidden p-4 md:p-6 h-full">
                   <img
                     src="/features 4.png"
                     alt="Wave Rider daily performance records and insights"
@@ -481,11 +599,11 @@ export default function HeroSection() {
 
             {/* Row 5 – LER Bonus Impact */}
             <div className="grid gap-8 lg:grid-cols-2 items-stretch">
-              <div className="space-y-4 rounded-2xl border border-border bg-card p-6 lg:p-8 h-full">
+              <div className="space-y-4 rounded-2xl border border-border bg-foreground/90 p-6 lg:p-8 h-full">
                 <h2 className="text-3xl md:text-4xl font-bold text-accent">LER Bonus Impact</h2>
                 <p className="text-base md:text-lg text-muted">
                   A bonus program is almost a must in today&apos;s job market. But most business owners start one by
-                  using industry “standards” and not knowing how it will impact their profitability, let alone if it&apos;s
+                  using industry "standards" and not knowing how it will impact their profitability, let alone if it&apos;s
                   a good program for the techs.
                 </p>
                 <p className="text-base md:text-lg text-muted">
@@ -497,7 +615,7 @@ export default function HeroSection() {
                 </p>
               </div>
               <div className="relative h-full">
-                <div className="rounded-2xl border border-border bg-card shadow-lg overflow-hidden p-4 md:p-6 h-full">
+                <div className="rounded-2xl border border-border bg-foreground/90 shadow-lg overflow-hidden p-4 md:p-6 h-full">
                   <img
                     src="/features 5.png"
                     alt="Wave Rider LER bonus impact charts and metrics"
@@ -507,9 +625,34 @@ export default function HeroSection() {
               </div>
             </div>
 
-            {/* Row 6 – And MORE */}
+            {/* Row 6 – The Brain Behind Wave Rider */}
             <div className="grid gap-8 lg:grid-cols-2 items-stretch">
-              <div className="space-y-4 rounded-2xl border border-border bg-card p-6 lg:p-8 h-full">
+              <div className="space-y-4 rounded-2xl border border-border bg-foreground/90 p-6 lg:p-8 h-full">
+                <h2 className="text-3xl md:text-4xl font-bold text-accent">The Brain Behind Wave Rider</h2>
+                <p className="text-base md:text-lg text-muted">
+                  A human coach can be brilliant — but they can't hold your entire business in their head, especially between calls.
+                </p>
+                <p className="text-base md:text-lg text-muted">
+                  Wave Rider is different because your business is different. Wave Rider builds a living 'brain', a connected map of your numbers, seasons, goals, conversations, and past decisions — so it can connect the invisible dots and tell you what to do next.
+                </p>
+                <p className="text-base md:text-lg text-muted">
+                  Think of Wave Rider as a coach with perfect memory, built around your business and only your business.
+                </p>
+              </div>
+              <div className="relative h-full">
+                <div className="rounded-2xl border border-border bg-foreground/90 shadow-lg overflow-hidden p-4 md:p-6 h-full">
+                  <img
+                    src="/Brain Feature.png"
+                    alt="Wave Rider AI coach with business intelligence and memory"
+                    className="w-full h-auto object-cover"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Row 7 – And MORE */}
+            <div className="grid gap-8 lg:grid-cols-2 items-stretch">
+              <div className="space-y-4 rounded-2xl border border-border bg-foreground/90 p-6 lg:p-8 h-full">
                 <h2 className="text-3xl md:text-4xl font-bold text-accent">And MORE…</h2>
                 <ul className="list-disc pl-5 space-y-2 text-base md:text-lg text-muted">
                   <li>
@@ -532,7 +675,7 @@ export default function HeroSection() {
                 </ul>
               </div>
               <div className="relative h-full">
-                <div className="rounded-2xl border border-border bg-card shadow-lg overflow-hidden p-4 md:p-6 h-full">
+                <div className="rounded-2xl border border-border bg-foreground/90 shadow-lg overflow-hidden p-4 md:p-6 h-full">
                   <img
                     src="/features 6.png"
                     alt="Wave Rider service profitability, laptop, and mobile views"
@@ -544,165 +687,6 @@ export default function HeroSection() {
           </div>
         </section>
 
-        {/* WAVE Framework Section */}
-        <section className="py-16 bg-card">
-          <div className="container px-4 md:px-6 max-w-7xl mx-auto">
-            <div className="text-center max-w-2xl mx-auto mb-10">
-              <h2 className="text-3xl font-bold text-foreground mb-4">The WAVE Framework</h2>
-              <p className="text-base md:text-lg text-muted">
-                When you open Wave Rider, you're not staring at random KPIs. You're walking through a simple loop
-                built to answer one question: "What do I do next to win?"
-              </p>
-            </div>
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-              {[
-                {
-                  title: 'W · What\'s happening?',
-                  desc: 'See your actual revenue curve, slow months, spikes, and trends at a glance—no more guessing from memory.',
-                },
-                {
-                  title: 'A · Analyze the GAP',
-                  desc: 'Measure the distance between where you are and where you said you\'d be so you can face the truth without shame.',
-                },
-                {
-                  title: 'V · Visualize the Move',
-                  desc: 'Imagine new curves and see how decisions today ripple through the rest of your year before you commit.',
-                },
-                {
-                  title: 'E · Execute',
-                  desc: 'Turn insights into simple, focused plays for the next 30–90 days so you move from drift to deliberate action.',
-                },
-              ].map(({ title, desc }) => (
-                <div
-                  key={title}
-                  className="bg-[#fffaf4] rounded-lg p-6 shadow-sm border border-accent hover:shadow-md transition-shadow duration-200"
-                >
-                  <h3 className="text-xl font-bold mb-3 text-accent">{title}</h3>
-                  <p className="text-sm text-muted">{desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Product Demo Section */}
-        <section id="demo" className="py-16 bg-card">
-          <div className="container px-4 md:px-6 max-w-7xl mx-auto grid gap-10 lg:grid-cols-[1.4fr,1fr] items-start">
-            <LandingRevenueDemo />
-            <div className="space-y-4">
-              <h2 className="text-3xl font-bold text-foreground">
-                Use the Curve Before You Ever Log In
-              </h2>
-              <p className="text-base md:text-lg text-muted">
-                This little demo is a glimpse of the Master Revenue Curve that powers Wave Rider. Type a few
-                sample months, nudge your target, and watch the wave shift. You\'ll feel how small choices today
-                change the story of your year.
-              </p>
-              <ul className="space-y-2 text-sm text-muted">
-                <li>Play with a full 12-month curve without connecting any bank accounts or systems.</li>
-                <li>See the gap between your current line and where you say you want to be.</li>
-                <li>Imagine what it would feel like if this curve was built on your real numbers every day.</li>
-              </ul>
-              <p className="text-xs text-muted">
-                In the live app, this curve is connected to your Supabase-backed revenue data, FIR targets, LER, and
-                KPIs. Here, it\'s just a safe sandbox so you can feel the difference between drifting and deciding.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Feature Boxes Section */}
-        <section className="py-16 bg-card">
-          <div className="container px-4 md:px-6 max-w-7xl mx-auto">
-            <div className="text-center max-w-2xl mx-auto mb-10">
-              <h2 className="text-3xl font-bold text-foreground mb-4">Inside Your Big Fig Biz Dashboard</h2>
-              <p className="text-base md:text-lg text-muted">
-                Wave Rider isn't a toy. It's a full system that turns your numbers into decisions you can actually
-                act on.
-              </p>
-            </div>
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-              {[
-                {
-                  title: 'Master Revenue Curve',
-                  desc: 'See your entire year on one screen. Spot seasonality, weak spots, and peak months with a single glance.',
-                },
-                {
-                  title: 'Service Mix & Employee LER',
-                  desc: 'Understand which services and which people create real profit—not just busy days.',
-                },
-                {
-                  title: 'Budget vs Actual',
-                  desc: 'Track weekly and monthly performance against the plan so surprises stop blindsiding you.',
-                },
-                {
-                  title: 'PERL Coach (AI CFO)',
-                  desc: 'Ask honest questions about your numbers and get context-aware answers grounded in your actual data.',
-                },
-              ].map(({ title, desc }) => (
-                <Card key={title} className="bg-background border-border">
-                  <CardHeader>
-                    <CardTitle className="text-lg text-foreground">{title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted">{desc}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Objections Section */}
-        <section className="py-16 bg-card">
-          <div className="container px-4 md:px-6 max-w-7xl mx-auto">
-            <div className="text-center max-w-2xl mx-auto mb-10">
-              <h2 className="text-3xl font-bold text-foreground mb-4">If You're Wondering If This Is Really For You…</h2>
-              <p className="text-base md:text-lg text-muted">
-                Let's be honest about the questions already rolling around in your head. You're not alone—and we
-                built Wave Rider with those exact hesitations in mind.
-              </p>
-            </div>
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {[
-                {
-                  q: 'Is this really for my business?',
-                  a: 'Wave Rider is built for owner-led service and trades businesses—where seasonality, labor, and cash flow collide. The curves, KPIs, and coaching are tuned to the realities of technicians-turned-owners, not Fortune 500 finance teams.',
-                },
-                {
-                  q: 'I\'m not a numbers person. Will this overwhelm me?',
-                  a: 'You don\'t need to be an accountant to use Wave Rider. We do the math under the surface and surface stories, colors, and simple next steps so you can make decisions without a spreadsheet headache.',
-                },
-                {
-                  q: 'How is this different from a human coach?',
-                  a: 'A human coach brings wisdom, perspective, and accountability. Wave Rider remembers every number, every curve, and every pattern—and it\'s available when your coach isn\'t. Together, they become a powerful combination instead of a replacement.',
-                },
-                {
-                  q: 'What if my business is unique?',
-                  a: 'Every owner says, "My business is different." Wave Rider agrees—and proves it by building your curves and KPIs from your actual data instead of generic industry averages or canned workshop slides.',
-                },
-                {
-                  q: 'What if I don\'t know my numbers?',
-                  a: 'You\'re exactly who we built this for. Wave Rider gives you a simple place to start, then helps you clean up and layer in more detail over time. You don\'t have to be perfect on day one to start riding the wave.',
-                },
-                {
-                  q: 'Do I need to fire my current coach or mastermind?',
-                  a: 'No. Wave Rider makes those conversations sharper. Instead of vague goals and generic advice, you bring clear curves, gaps, and trends into every session so you both know exactly what\'s real.',
-                },
-              ].map(({ q, a }) => (
-                <Card key={q} className="bg-background border-border">
-                  <CardHeader>
-                    <CardTitle className="text-base text-foreground">{q}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted">{a}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {/* Beta Strip */}
         <section className="py-8 bg-card">
           <div className="container px-4 md:px-6 max-w-7xl mx-auto">
@@ -710,16 +694,14 @@ export default function HeroSection() {
               <div>
                 <p className="text-xs font-semibold text-accent tracking-[0.2em] mb-1">PRIVATE BETA · 5 FOUNDING SPOTS</p>
                 <p className="text-sm md:text-base text-foreground">
-                  We're stress-testing Wave Rider on real businesses while running on limited free tiers for third-party
-                  services. The first 5 owners in lock in special beta pricing and direct influence on what we build
-                  next.
+                  I'm still building and improving this based on real business owners' feedback. The first 5 owners get special beta pricing and direct influence on what I build next.
                 </p>
               </div>
               <a
                 href="/signup"
-                className="inline-flex items-center justify-center rounded-md bg-accent text-background px-5 py-2 text-sm font-semibold hover:bg-accent/90 transition-colors duration-200"
+                className="inline-flex items-center justify-center rounded-md bg-accent text-background px-5 py-2 text-sm font-semibold hover:bg-accent/90 transition-colors duration-200 w-full md:w-auto text-center"
               >
-                Claim One of 5 Beta Spots
+                Join the Beta
               </a>
             </div>
           </div>
@@ -729,9 +711,9 @@ export default function HeroSection() {
         <section className="py-16 bg-card">
           <div className="container px-4 md:px-6 max-w-7xl mx-auto">
             <div className="text-center max-w-2xl mx-auto mb-10">
-              <h2 className="text-3xl font-bold text-foreground mb-4">Frequently Asked Questions</h2>
+              <h2 className="text-3xl font-bold text-foreground mb-4">Questions I Had When I Started</h2>
               <p className="text-base md:text-lg text-muted">
-                Everything you need to know about Wave Rider before you paddle in.
+                Everything you need to know before you try the system that saved my business.
               </p>
             </div>
             <div className="max-w-3xl mx-auto space-y-4">
@@ -768,7 +750,7 @@ export default function HeroSection() {
                 href="/signup"
                 className="inline-flex items-center justify-center rounded-md bg-accent text-background px-6 py-3 text-base font-semibold hover:bg-accent/90 transition-colors duration-200 shadow-md hover:shadow-lg"
               >
-                Talk to Wave Rider
+                Try Wave Rider Risk-Free
               </a>
             </div>
           </div>
@@ -778,24 +760,24 @@ export default function HeroSection() {
         <section className="py-20 bg-card">
           <div className="container px-4 md:px-6 max-w-7xl mx-auto">
             <div className="max-w-3xl mx-auto text-center space-y-4">
-              <h2 className="text-4xl font-bold text-foreground">The Tide Is Changing. Your Move.</h2>
+              <h2 className="text-4xl font-bold text-foreground">I Built This For The Me From 10 Years Ago</h2>
               <p className="text-lg md:text-xl text-muted">
-                You can watch from the shore while others ride the wave in front of you—or you can stand up on your
-                board, fall into the wave, and choose a future you won\'t regret. Carpe Mañana.
+                The guy staring at spreadsheets he didn't understand, wondering if he'd make payroll, 
+                and laying awake at night worrying about the slow season. If that's you, let's talk.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center mt-4">
                 <a
                   href="/signup"
                   className="inline-flex items-center justify-center rounded-md bg-accent text-background px-6 py-3 text-lg font-semibold hover:bg-accent/90 transition-colors duration-200"
                 >
-                  Claim One of 5 Beta Spots
+                  Stop Guessing About Your Money
                   <span className="ml-2">&rarr;</span>
                 </a>
                 <a
                   href="#demo"
                   className="inline-flex items-center justify-center rounded-md border border-border px-6 py-3 text-lg text-foreground hover:bg-card transition-colors duration-200"
                 >
-                  Try the Revenue Curve Demo
+                  Try The Curve Demo
                 </a>
               </div>
             </div>

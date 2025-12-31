@@ -1,3 +1,64 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Prevent viewport scaling issues */
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+}
+
+/* Aggressive Clerk modal height constraints */
+div[class*="cl-Modal"] {
+  max-height: 80vh !important;
+  overflow-y: auto !important;
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+div[class*="cl-ModalContent"] {
+  max-height: 80vh !important;
+  overflow-y: auto !important;
+}
+
+div[class*="cl-ModalBody"] {
+  max-height: calc(80vh - 80px) !important;
+  overflow-y: auto !important;
+}
+
+/* Target all possible Clerk modal elements */
+[class*="cl-Modal"],
+[class*="cl-UserProfile"],
+[class*="cl-UserButton"] {
+  max-height: 80vh !important;
+  overflow-y: auto !important;
+}
+
+/* Force any element with clerk in class to be constrained */
+[class*="clerk"],
+[data-clerk-element] {
+  max-height: 80vh !important;
+  overflow-y: auto !important;
+}
+
+/* Clerk CSS Variables for Dark Theme */
+:root {
+  --clerk-color-background: #1E1E1E;
+  --clerk-color-neutral: white;
+  --clerk-color-primary: #D0B568;
+  --clerk-color-primary-foreground: black;
+  --clerk-color-foreground: white;
+  --clerk-color-input-foreground: white;
+  --clerk-color-input: #26262B;
+}

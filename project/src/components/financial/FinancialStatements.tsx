@@ -382,7 +382,7 @@ export const FinancialStatements: React.FC = () => {
         </Card>
 
         {/* Balance Sheet Upload Box */}
-        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4] rounded-xl min-h-[320px]">
+        <Card className="relative border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4] rounded-xl min-h-[320px] group">
           <CardContent className="pt-6 !bg-[#fffaf4] rounded-xl h-full flex items-center justify-center">
             <div className="text-center space-y-4">
               <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto shadow-md" style={{ backgroundColor: '#d5b274' }}>
@@ -417,10 +417,17 @@ export const FinancialStatements: React.FC = () => {
               </label>
             </div>
           </CardContent>
+          {/* Coming Soon Overlay */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 cursor-pointer">
+            <div className="text-center text-white">
+              <div className="text-2xl font-bold mb-2">Coming Soon</div>
+              <div className="text-sm opacity-90">Balance sheet analysis is under development</div>
+            </div>
+          </div>
         </Card>
 
         {/* Cash Flow Upload Box */}
-        <Card className="border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4] rounded-xl min-h-[320px]">
+        <Card className="relative border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 !bg-[#fffaf4] rounded-xl min-h-[320px] group">
           <CardContent className="pt-6 !bg-[#fffaf4] rounded-xl h-full flex items-center justify-center">
             <div className="text-center space-y-4">
               <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto shadow-md" style={{ backgroundColor: '#d5b274' }}>
@@ -455,6 +462,13 @@ export const FinancialStatements: React.FC = () => {
               </label>
             </div>
           </CardContent>
+          {/* Coming Soon Overlay */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 cursor-pointer">
+            <div className="text-center text-white">
+              <div className="text-2xl font-bold mb-2">Coming Soon</div>
+              <div className="text-sm opacity-90">Cash flow analysis is under development</div>
+            </div>
+          </div>
         </Card>
       </div>
 

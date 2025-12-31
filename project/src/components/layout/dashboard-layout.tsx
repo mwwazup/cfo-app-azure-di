@@ -15,6 +15,7 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
+  Waves,
 } from 'lucide-react';
 import { useState } from 'react';
 import { ZepChatBubble } from '../ZepChatBubble';
@@ -51,8 +52,10 @@ export function DashboardLayout() {
   const displayName = user?.firstName ?? user?.fullName ?? email ?? 'there';
 
   const navigation = [
+    { name: 'Start Here', href: '/start-here', icon: Waves },
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Master Revenue', href: '/revenue/master', icon: TrendingUp },
+    { name: 'Lighthouse', href: '/coach/your-big-fig', icon: Compass },
     { name: 'Service Hub', href: '/service-hub', icon: Brain, children: [
       { name: 'Budget vs Actual', href: '/service-hub/budget-vs-actual' },
       { name: 'Service Mix', href: '/service-hub/service-mix' },
@@ -64,10 +67,9 @@ export function DashboardLayout() {
     ]},
     // { name: 'CFO Playground', href: '/revenue/playground', icon: PlayCircle }, // Hidden - not in use
     { name: 'Financial Statements', href: '/financial-statements', icon: FileText },
-    { name: 'Company Settings', href: '/company-settings', icon: Building2 },
     { name: 'Profit Impact', href: '/coach/profit-impact', icon: BookOpen },
-    { name: 'Lighthouse', href: '/coach/your-big-fig', icon: Compass },
     { name: 'Momentum Tracker', href: '/momentum', icon: FastForward },
+    { name: 'Company Settings', href: '/company-settings', icon: Building2 },
   ];
 
   return (
@@ -295,7 +297,7 @@ export function DashboardLayout() {
             <div className="space-y-2">
               <p className="text-sm text-muted">Welcome!</p>
               <Link
-                to="/account"
+                to="/user"
                 className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-border transition-colors"
               >
                 <div className="min-w-0">

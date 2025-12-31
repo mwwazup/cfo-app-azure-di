@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -16,7 +16,8 @@ import {
   TrendingUp,
   Users,
   DollarSign,
-  Lightbulb
+  Lightbulb,
+  CreditCard
 } from 'lucide-react';
 
 interface OnboardingData {
@@ -76,9 +77,15 @@ const initialFormData: OnboardingData = {
 
 export function OnboardingFlow() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState<number>(1);
   const [formData, setFormData] = useState<OnboardingData>(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Get plan info from URL params (passed from pricing page)
+  const selectedPlan = searchParams.get('plan');
+  const selectedPrice = searchParams.get('price');
+  const selectedPlanName = searchParams.get('name');
 
   const totalSteps = 10;
 
@@ -130,6 +137,19 @@ export function OnboardingFlow() {
       // Here you would typically save the onboarding data
       // For now, we'll just simulate the process
       await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Check if we have plan info and redirect to Clerk Account Portal for subscription
+      if (selectedPlan && selectedPrice && selectedPlanName) {
+        // Store plan info for Clerk Account Portal
+        sessionStorage.setItem('selectedPlan', selectedPlan);
+        sessionStorage.setItem('selectedPrice', selectedPrice);
+        sessionStorage.setItem('selectedPlanName', selectedPlanName);
+        
+        // In a real implementation, you would redirect to Clerk's billing portal
+        // For now, we'll use the RedirectToUserProfile component in the UI
+        console.log('Redirecting to Clerk Account Portal for subscription setup...');
+        navigate('/user');
+      }
       
       // Navigate to dashboard after completion
       navigate('/dashboard');
@@ -542,6 +562,20 @@ export function OnboardingFlow() {
               </p>
             </div>
             
+            {/* Show selected plan info if available */}
+            {selectedPlanName && selectedPrice && (
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <CreditCard className="h-5 w-5 text-blue-400" />
+                  <h3 className="font-semibold text-blue-400">Selected Plan: {selectedPlanName}</h3>
+                </div>
+                <p className="text-blue-300 text-sm mb-4">
+                  You've selected the {selectedPlanName} plan at {selectedPrice}/month. 
+                  Next, you'll be redirected to complete your subscription setup.
+                </p>
+              </div>
+            )}
+            
             <div className="bg-accent/10 rounded-lg p-6 border border-accent/20">
               <h3 className="font-bold text-foreground mb-4">Here's the truth:</h3>
               <p className="text-muted leading-relaxed mb-4">
@@ -555,13 +589,33 @@ export function OnboardingFlow() {
             </div>
             
             <div className="text-center">
-              <Button 
-                onClick={completeOnboarding}
-                disabled={isSubmitting}
-                className="text-lg px-8 py-4"
-              >
-                {isSubmitting ? 'Setting Up Your Dashboard...' : "Let's Ride My Wave! 🏄‍♂️"}
-              </Button>
+              {selectedPlan && selectedPrice ? (
+                // Redirect to Clerk Account Portal for subscription
+                <Button 
+                  disabled={isSubmitting}
+                  className="text-lg px-8 py-4 bg-[#d5b274] hover:bg-[#c5a264] text-gray-900"
+                  onClick={() => {
+                    // Store plan info and redirect to user profile
+                    if (selectedPlan && selectedPrice && selectedPlanName) {
+                      sessionStorage.setItem('selectedPlan', selectedPlan);
+                      sessionStorage.setItem('selectedPrice', selectedPrice);
+                      sessionStorage.setItem('selectedPlanName', selectedPlanName);
+                    }
+                    window.location.href = '/user';
+                  }}
+                >
+                  {isSubmitting ? 'Setting Up Subscription...' : `Complete ${selectedPlanName} Subscription`}
+                </Button>
+              ) : (
+                // Regular completion without plan selection
+                <Button 
+                  onClick={completeOnboarding}
+                  disabled={isSubmitting}
+                  className="text-lg px-8 py-4"
+                >
+                  {isSubmitting ? 'Setting Up Your Dashboard...' : "Let's Ride My Wave! 🏄‍♂️"}
+                </Button>
+              )}
             </div>
           </div>
         );

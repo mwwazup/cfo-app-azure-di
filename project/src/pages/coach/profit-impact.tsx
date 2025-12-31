@@ -4,6 +4,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { useRevenue } from '../../contexts/revenue-context';
+import { DollarSign, HelpCircle } from 'lucide-react';
 
 const toNumber = (value: string): number => {
   const cleaned = value.replace(/[$,]/g, '').trim();
@@ -84,21 +85,21 @@ const ProfitImpactPage: React.FC = () => {
   }, [marginPercent, profitMarginFromPlan]);
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold text-foreground">Profit Impact Calculator</h1>
-        <p className="text-sm text-muted-foreground max-w-3xl">
-          You want to know where the money went? A new purchase has to be paid somehow and it comes from
-          the profit of the company. See how a new purchase changes your profit and how many extra jobs you
-          might need to keep your current profit level. The question is not only "Can you afford it?" The
-          real question is, "How are you going to pay for it?"
-        </p>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Profit Impact Calculator</h1>
+          <p className="text-muted">You want to know where the money went? A new purchase has to be paid somehow and it comes from the profit of the company. This calculator helps you see how a new purchase changes your profit and how many extra jobs you might need to keep your current profit level. The question is not only "Can you afford it?" The real question is, "How are you going to pay for it?"</p>
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="bg-muted/30">
           <CardHeader>
-            <CardTitle className="text-lg">Set up your decision</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-accent" />
+              Set up your decision
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
@@ -113,7 +114,7 @@ const ProfitImpactPage: React.FC = () => {
 
             <div className="grid gap-3 md:grid-cols-[2fr,1fr] items-end">
               <div className="space-y-1.5">
-                <Label htmlFor="cost">Cost of this decision</Label>
+                <Label htmlFor="cost">Cost of this purchase</Label>
                 <Input
                   id="cost"
                   inputMode="decimal"
@@ -174,7 +175,7 @@ const ProfitImpactPage: React.FC = () => {
             {result && (
               <div className="mt-4 rounded-lg border border-border bg-background/40 p-4 space-y-3">
                 <p className="text-base md:text-lg text-foreground font-medium">
-                  To keep your current profit level, this decision would ask your business to bring in about{' '}
+                  To keep your current profit level, this purchase would require your business to bring in about{' '}
                   <span className="font-semibold text-xl md:text-2xl">
                     {' '}
                     {formatCurrency(result.requiredRevenue)} per month
@@ -198,9 +199,12 @@ const ProfitImpactPage: React.FC = () => {
 
         <Card className="bg-muted/30">
           <CardHeader>
-            <CardTitle className="text-lg">Where did the money go?</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <HelpCircle className="h-5 w-5 text-accent" />
+              Where did the money go?
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <CardContent className="space-y-3 text-sm text-muted">
             <p>
               Every month, your business brings in money from jobs and pays money out for supplies, wages,
               overhead, and owner pay. Whatever is left over is your profit.

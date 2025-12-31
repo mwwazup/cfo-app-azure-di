@@ -1,7 +1,7 @@
-import { SignIn } from '@clerk/clerk-react';
+import { SignUp } from '@clerk/clerk-react';
 import Navbar from '../../components/navigation/navbar';
 
-export default function ClerkSignInPage() {
+export default function ClerkSignUpPage() {
   return (
     <div className="min-h-screen bg-card flex flex-col">
       <Navbar />
@@ -16,10 +16,10 @@ export default function ClerkSignInPage() {
             />
           </div>
           
-          {/* Clerk SignIn - gold button only */}
+          {/* Clerk SignUp - gold button only */}
           <div className="w-full flex justify-center">
-            <SignIn
-              signUpUrl="/sign-up"
+            <SignUp
+              signInUrl="/sign-in"
               appearance={{
                 elements: {
                   rootBox: {
